@@ -3,7 +3,7 @@
 
 // This app is used during iOS builds to strip methods and attributes from a subset of assemblies that prevent the .NET AOT compiler from working correctly.
 //
-// Usage: dotnet AssemblyStripper.cs -- <path> [<path> ...]
+// Usage: dotnet AssemblyStripper.cs -- <path-to-dll-1> [<path-to-dll-2>] ...
 
 #:package Mono.Cecil@0.11.6
 

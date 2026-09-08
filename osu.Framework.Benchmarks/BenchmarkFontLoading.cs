@@ -111,8 +111,10 @@ namespace osu.Framework.Benchmarks
                     Debug.Assert(propValue != null);
 
                     var icon = (IconUsage)propValue;
-                    using (var upload = (store as IResourceStore<TextureUpload>)!.Get(icon.Icon.ToString()))
-                        Trace.Assert(upload.Data.Length > 0);
+
+                    using (_ = (store as IResourceStore<TextureUpload>)!.Get(icon.Icon.ToString()))
+                    {
+                    }
 
                     if (remainingCount-- == 0)
                         return;

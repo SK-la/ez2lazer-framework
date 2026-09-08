@@ -120,6 +120,7 @@ namespace osu.Framework.Utils
         {
             if (points.Length == 0)
                 throw new ArgumentException($"{nameof(points)} must contain at least one point");
+
             if (points.Length != weights.Length)
                 throw new ArgumentException($"{nameof(points)} must contain exactly as many items as {nameof(weights)}");
 

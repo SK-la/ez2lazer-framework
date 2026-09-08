@@ -89,7 +89,7 @@ SK-la/Ez2Lazer       →  游戏本体（默认引用上述 NuGet；可切本地
 
 ## 构建
 
-- [.NET 8.0 SDK](https://dotnet.microsoft.com/download)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - Linux 需系统级 ffmpeg（视频解码）
 - 推荐用 Visual Studio / Rider / VS Code，加载平台对应的 `.slnf`，组件开发优先跑 `VisualTests`
 
@@ -185,7 +185,7 @@ Docs: [Ez2Lazer Wiki](https://github.com/SK-la/Ez2Lazer/wiki)
 
 ## Building
 
-- [.NET 8.0 SDK](https://dotnet.microsoft.com/download)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - On Linux, a system-wide ffmpeg install is required for video decoding
 - Prefer Visual Studio / Rider / VS Code; load the platform `.slnf`; develop components under `VisualTests`
 
