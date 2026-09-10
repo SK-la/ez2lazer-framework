@@ -297,7 +297,12 @@ namespace osu.Framework.Threading
                     if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows && OperatingSystem.IsWindows() && !DebugUtils.IsNUnitRunning)
                     {
                         if (!initNAudioDefault(deviceId))
-                            Logger.Log("NAudio default output unavailable; falling back to classic BASS device output.", name: "audio", level: LogLevel.Important);
+                        {
+                            Logger.Log(
+                                $"NAudio default output unavailable for BASS device {deviceId}; falling back to classic BASS device output.",
+                                name: "audio",
+                                level: LogLevel.Important);
+                        }
                     }
 
                     break;

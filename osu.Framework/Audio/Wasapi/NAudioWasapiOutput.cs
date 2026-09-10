@@ -44,13 +44,17 @@ namespace osu.Framework.Audio.Wasapi
             if (bassDeviceId <= 0)
                 return null;
 
-            if (!Bass.GetDeviceInfo(bassDeviceId, out var bassInfo) || string.IsNullOrEmpty(bassInfo.Driver))
+            if (!Bass.GetDeviceInfo(bassDeviceId, out var bassInfo))
             {
-                Logger.Log($"NAudio default output: BASS device {bassDeviceId} has no driver id.", name: "audio", level: LogLevel.Debug);
+                Logger.Log($"NAudio default output: BASS.GetDeviceInfo({bassDeviceId}) failed.", name: "audio", level: LogLevel.Important);
                 return null;
             }
 
-            device = WindowsAudioFormatQuery.TryOpenPlaybackDevice(bassInfo.Driver);
+            // BASS's synthetic "Default" device often reports an empty Driver id. That is not a
+            // failure — open the Windows default render endpoint instead of aborting to classic BASS.
+            string? driverId = string.IsNullOrEmpty(bassInfo.Driver) ? null : bassInfo.Driver;
+
+            device = WindowsAudioFormatQuery.TryOpenPlaybackDevice(driverId);
 
             if (device == null)
             {
@@ -58,7 +62,9 @@ namespace osu.Framework.Audio.Wasapi
                 return null;
             }
 
-            NAudioWaveFormat? mixFormat = WindowsAudioFormatQuery.TryGetMixFormatForDriver(bassInfo.Driver)
+            NAudioWaveFormat? mixFormat = (driverId != null
+                                              ? WindowsAudioFormatQuery.TryGetMixFormatForDriver(driverId)
+                                              : null)
                                           ?? WindowsAudioFormatQuery.TryGetDefaultPlaybackMixFormat();
 
             if (mixFormat == null || mixFormat.SampleRate <= 0 || mixFormat.Channels <= 0)
@@ -105,8 +111,9 @@ namespace osu.Framework.Audio.Wasapi
                 LowLatencyActive = player.LowLatencyActive;
 
                 Logger.Log(
-                    $"NAudio default output started: device=\"{device.FriendlyName}\", {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, lowLatency={LowLatencyActive}",
-                    name: "audio", level: LogLevel.Verbose);
+                    $"NAudio default output started: device=\"{device.FriendlyName}\", {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, lowLatency={LowLatencyActive}"
+                    + (driverId == null ? " (via Windows default endpoint; BASS Driver empty)" : string.Empty),
+                    name: "audio", level: LogLevel.Important);
 
                 return mixerHandle;
             }
