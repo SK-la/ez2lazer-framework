@@ -1508,21 +1508,14 @@ namespace osu.Framework.Audio
                 }
             }
 
-            // NAudio Default owns the render endpoint via WASAPI shared. BASS CurrentDevice may be a
-            // physical device that is not flagged IsDefault — the old isFallback rule then forced a
-            // destructive re-init (start → tear down → classic BASS fallback) on every device sync.
+            // NAudio Default owns the render endpoint via WASAPI shared. BASS CurrentDevice is often
+            // NoSound (decode host) and must not be compared to the user's selected device name.
             if (mode == AudioOutputMode.Default
                 && !UseExperimentalWasapi.Value
                 && GlobalMixerHandle.Value is int globalMixer && globalMixer != 0
                 && !windowsOutputRuntime.NAudioFallbackToClassicBass)
             {
-                if (!(device.IsEnabled && device.IsInitialized))
-                    return false;
-
-                if (string.IsNullOrEmpty(selectedName))
-                    return true;
-
-                return device.Name == selectedName;
+                return true;
             }
 
             bool isFallback = string.IsNullOrEmpty(selectedName) ? !device.IsDefault : device.Name != selectedName;

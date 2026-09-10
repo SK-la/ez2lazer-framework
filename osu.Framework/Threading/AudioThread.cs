@@ -339,21 +339,25 @@ namespace osu.Framework.Threading
                 Thread.Sleep(150);
             }
 
-            // Try to initialise the device, or request a re-initialise.
-            var initFlags = initialised_devices.Contains(deviceId) ? (DeviceInitFlags)16 : 0;
+            bool useNAudioDefault = outputMode == AudioOutputMode.Default
+                                    && RuntimeInfo.OS == RuntimeInfo.Platform.Windows
+                                    && OperatingSystem.IsWindows()
+                                    && !DebugUtils.IsNUnitRunning;
 
-            if (!Bass.Init(deviceId, Flags: initFlags))
+            // NAudio opens the real WASAPI endpoint itself. Host the BASS decode mixer on NoSound so
+            // Bass.Init does not fight NAudio for the same device (rapid VoiceMeeter switches → BASS_ERROR_UNKNOWN).
+            int bassHostDeviceId = useNAudioDefault ? Bass.NoSoundDevice : deviceId;
+
+            if (!tryInitBassDevice(bassHostDeviceId))
             {
-                // Treat "Already" as non-fatal: BASS may already be initialised for this device in-process.
-                if (Bass.LastError == Errors.Already)
-                {
-                    Logger.Log($"BASS.Init({deviceId}) returned Already; continuing with existing initialisation.", name: "audio", level: LogLevel.Debug);
-                }
-                else
-                {
-                    Logger.Log($"BASS.Init({deviceId}) failed: {Bass.LastError}", name: "audio", level: LogLevel.Error);
+                if (!useNAudioDefault)
                     return false;
-                }
+
+                // Last resort host context before attempting NAudio.
+                if (!tryInitBassDevice(deviceId))
+                    return false;
+
+                bassHostDeviceId = deviceId;
             }
 
             switch (outputMode)
@@ -361,7 +365,7 @@ namespace osu.Framework.Threading
                 case AudioOutputMode.Default:
                     // Windows default: NAudio shared WASAPI pulls from a BASS decode mixer (replaces BASS device playback).
                     // Non-Windows keeps classic BASS device output. Experimental mode uses BassWasapi instead.
-                    if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows && OperatingSystem.IsWindows() && !DebugUtils.IsNUnitRunning)
+                    if (useNAudioDefault)
                     {
                         if (!initNAudioDefault(deviceId))
                         {
@@ -369,6 +373,12 @@ namespace osu.Framework.Threading
                                 $"NAudio default output unavailable for BASS device {deviceId}; falling back to classic BASS device output.",
                                 name: "audio",
                                 level: LogLevel.Important);
+
+                            // Classic playback needs the real device initialised.
+                            if (!tryInitBassDevice(deviceId))
+                                return false;
+
+                            bassHostDeviceId = deviceId;
                         }
                     }
 
@@ -439,9 +449,12 @@ namespace osu.Framework.Threading
                     break;
             }
 
-            initialised_devices.Add(deviceId);
+            initialised_devices.Add(bassHostDeviceId);
+            if (bassHostDeviceId != deviceId)
+                initialised_devices.Add(deviceId);
 
             // Bind latency probe context to the active output endpoint/backend.
+            // Selected device info is available without that device being Bass.Init'd (NAudio path uses NoSound host).
             string? latencyDriver = Bass.GetDeviceInfo(deviceId, out var latencyDeviceInfo) ? latencyDeviceInfo.Driver : null;
             EzLatencyManager.GLOBAL.NotifyOutputDeviceChanged(latencyDriver, outputMode);
 
@@ -449,6 +462,59 @@ namespace osu.Framework.Threading
 
             return true;
         }
+
+        /// <summary>
+        /// Initialise a BASS playback device with short retries for transient Unknown/Busy after Free.
+        /// </summary>
+        private bool tryInitBassDevice(int deviceId)
+        {
+            if (isBassDeviceInitialized(deviceId))
+            {
+                Bass.CurrentDevice = deviceId;
+                return true;
+            }
+
+            int[] delaysMs = [0, 80, 200];
+
+            for (int attempt = 0; attempt < delaysMs.Length; attempt++)
+            {
+                if (delaysMs[attempt] > 0)
+                    Thread.Sleep(delaysMs[attempt]);
+
+                var initFlags = initialised_devices.Contains(deviceId) ? (DeviceInitFlags)16 : 0;
+
+                if (Bass.Init(deviceId, Flags: initFlags))
+                {
+                    initialised_devices.Add(deviceId);
+                    return true;
+                }
+
+                if (Bass.LastError == Errors.Already)
+                {
+                    initialised_devices.Add(deviceId);
+                    Bass.CurrentDevice = deviceId;
+                    return true;
+                }
+
+                var error = Bass.LastError;
+
+                // Unknown (-1) / Busy are common right after Free on virtual cables.
+                bool retryable = error == Errors.Unknown || error == Errors.Busy || error == Errors.Driver;
+
+                Logger.Log(
+                    $"BASS.Init({deviceId}) failed: {error} (attempt {attempt + 1}/{delaysMs.Length})",
+                    name: "audio",
+                    level: retryable && attempt < delaysMs.Length - 1 ? LogLevel.Debug : LogLevel.Error);
+
+                if (!retryable)
+                    return false;
+            }
+
+            return false;
+        }
+
+        private static bool isBassDeviceInitialized(int deviceId) =>
+            Bass.GetDeviceInfo(deviceId, out var info) && info.IsInitialized;
 
         private void publishWindowsOutputRuntime(AudioOutputMode outputMode)
         {
@@ -509,8 +575,6 @@ namespace osu.Framework.Threading
 
         private static void releaseAllOutputsForSwitch(int targetDeviceId, AudioOutputMode outputMode)
         {
-            int currentDevice = Bass.CurrentDevice;
-
             for (int deviceId = 0; deviceId < Bass.DeviceCount; deviceId++)
             {
                 try
@@ -529,16 +593,18 @@ namespace osu.Framework.Threading
                 }
             }
 
+            // Do not restore CurrentDevice to a just-freed index — that leaves BASS pointing at an invalid device
+            // and the next Init can return Unknown (-1).
             try
             {
-                if (currentDevice >= 0)
-                    Bass.CurrentDevice = currentDevice;
+                if (Bass.GetDeviceInfo(Bass.NoSoundDevice, out var noSound) && noSound.IsInitialized)
+                    Bass.CurrentDevice = Bass.NoSoundDevice;
             }
             catch
             {
             }
 
-            Thread.Sleep(50);
+            Thread.Sleep(80);
         }
 
         internal void FreeDevice(int deviceId)
