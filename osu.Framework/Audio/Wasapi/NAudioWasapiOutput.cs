@@ -110,7 +110,7 @@ namespace osu.Framework.Audio.Wasapi
                 LowLatencyActive = player.LowLatencyActive;
 
                 Logger.Log(
-                    $"NAudio default output started: device=\"{device.FriendlyName}\", {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, lowLatency={LowLatencyActive}"
+                    $"NAudio default output started: bassDevice={bassDeviceId} (\"{bassInfo.Name}\"), wasapi=\"{device.FriendlyName}\", {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, lowLatency={LowLatencyActive}"
                     + (driverId == null ? " (via Windows default endpoint; BASS Driver empty)" : string.Empty),
                     name: "audio", level: LogLevel.Important);
 

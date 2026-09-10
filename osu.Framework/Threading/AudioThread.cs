@@ -237,6 +237,8 @@ namespace osu.Framework.Threading
         private bool wasapiExclusiveActive;
         private AcousticLevelMath.SampleFormat wasapiPullSampleFormat = AcousticLevelMath.SampleFormat.IeeeFloat32;
         private NAudioWasapiOutput? naudioDefaultOutput;
+        private int? naudioBoundBassDeviceId;
+        private int initDeviceDepth;
 
         private bool shouldTrackDefaultWasapiChanges()
             => !wasapiExclusiveActive && string.IsNullOrEmpty(Manager?.AudioDevice.Value);
@@ -258,6 +260,43 @@ namespace osu.Framework.Threading
             Debug.Assert(ThreadSafety.IsAudioThread);
             Trace.Assert(deviceId != -1); // The real device ID should always be used, as the -1 device has special cases which are hard to work with.
 
+            if (initDeviceDepth > 0)
+            {
+                Logger.Log(
+                    $"InitDevice re-entrancy ignored (device={deviceId}, mode={outputMode}, depth={initDeviceDepth})",
+                    name: "audio",
+                    level: LogLevel.Important);
+                return naudioDefaultOutput?.MixerHandle is > 0 || globalMixerHandle.Value is > 0 || Bass.GetDeviceInfo(deviceId, out var reInfo) && reInfo.IsInitialized;
+            }
+
+            // Keep a healthy NAudio Default session instead of tearing it down on spurious re-inits
+            // (device list sync / IsCurrentDeviceValid flicker).
+            if (outputMode == AudioOutputMode.Default
+                && OperatingSystem.IsWindows()
+                && naudioDefaultOutput?.MixerHandle is > 0
+                && naudioBoundBassDeviceId == deviceId
+                && Bass.GetDeviceInfo(deviceId, out var existing) && existing.IsInitialized)
+            {
+                string? latencyDriver = existing.Driver;
+                EzLatencyManager.GLOBAL.NotifyOutputDeviceChanged(latencyDriver, outputMode);
+                publishWindowsOutputRuntime(outputMode);
+                return true;
+            }
+
+            initDeviceDepth++;
+
+            try
+            {
+                return initDeviceCore(deviceId, outputMode, preferredSampleRate, asioBitDepth);
+            }
+            finally
+            {
+                initDeviceDepth--;
+            }
+        }
+
+        private bool initDeviceCore(int deviceId, AudioOutputMode outputMode, double preferredSampleRate, int asioBitDepth)
+        {
             // Important: stop any existing output first.
             // In particular, WASAPI exclusive can hold the device such that a subsequent Bass.Init() returns Busy.
             // If we can't initialise BASS, we also won't get a chance to clean up the previous output mode.
@@ -821,6 +860,13 @@ namespace osu.Framework.Threading
                 naudioDefaultOutput = new NAudioWasapiOutput();
                 int? mixer = naudioDefaultOutput.Start(bassDeviceId);
 
+                // Virtual endpoints (e.g. Oculus) can reject an immediate reopen after Stop().
+                if (mixer is not > 0)
+                {
+                    Thread.Sleep(50);
+                    mixer = naudioDefaultOutput.Start(bassDeviceId);
+                }
+
                 if (mixer is not > 0)
                 {
                     freeNAudioDefault();
@@ -828,6 +874,7 @@ namespace osu.Framework.Threading
                 }
 
                 globalMixerHandle.Value = mixer;
+                naudioBoundBassDeviceId = bassDeviceId;
                 return true;
             }
             catch (Exception ex)
@@ -840,6 +887,8 @@ namespace osu.Framework.Threading
 
         private void freeNAudioDefault()
         {
+            naudioBoundBassDeviceId = null;
+
             if (naudioDefaultOutput == null)
                 return;
 
