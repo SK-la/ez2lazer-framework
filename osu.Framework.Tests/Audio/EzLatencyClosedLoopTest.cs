@@ -143,7 +143,7 @@ namespace osu.Framework.Tests.Audio
         {
             byte[] buffer = new byte[4 * 64];
 
-            float rms = AcousticClosedLoopProbe.ComputeRms(buffer, buffer.Length, AcousticClosedLoopProbe.SampleFormat.IeeeFloat32);
+            float rms = AcousticLevelMath.ComputeRms(buffer, buffer.Length, AcousticLevelMath.SampleFormat.IeeeFloat32);
 
             Assert.That(rms, Is.EqualTo(0).Within(1e-6));
         }
@@ -157,7 +157,7 @@ namespace osu.Framework.Tests.Audio
             for (int i = 0; i < 32; i++)
                 BitConverter.GetBytes(amplitude).CopyTo(buffer, i * 4);
 
-            float rms = AcousticClosedLoopProbe.ComputeRms(buffer, buffer.Length, AcousticClosedLoopProbe.SampleFormat.IeeeFloat32);
+            float rms = AcousticLevelMath.ComputeRms(buffer, buffer.Length, AcousticLevelMath.SampleFormat.IeeeFloat32);
 
             Assert.That(rms, Is.EqualTo(amplitude).Within(1e-5));
         }
@@ -170,7 +170,7 @@ namespace osu.Framework.Tests.Audio
             for (int i = 0; i < 16; i++)
                 BitConverter.GetBytes((short)32767).CopyTo(buffer, i * 2);
 
-            float rms = AcousticClosedLoopProbe.ComputeRms(buffer, buffer.Length, AcousticClosedLoopProbe.SampleFormat.Pcm16);
+            float rms = AcousticLevelMath.ComputeRms(buffer, buffer.Length, AcousticLevelMath.SampleFormat.Pcm16);
 
             Assert.That(rms, Is.EqualTo(32767f / 32768f).Within(1e-4));
         }

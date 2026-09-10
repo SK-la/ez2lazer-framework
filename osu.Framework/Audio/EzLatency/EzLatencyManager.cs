@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Runtime.Versioning;
 using System.Threading;
 using osu.Framework.Bindables;
 
@@ -34,7 +35,11 @@ namespace osu.Framework.Audio.EzLatency
         private readonly Action<EzLatencyRecord> serviceHandler;
         private readonly Lock probeSync = new Lock();
 
+        // Windows-only type; all reads/writes go through isWindowsAcousticSupported()-guarded helpers.
+#pragma warning disable CA1416
         private AcousticClosedLoopProbe? acousticProbe;
+#pragma warning restore CA1416
+
         private string? currentOutputDriverId;
         private float acousticThreshold = 0.02f;
 
@@ -74,6 +79,9 @@ namespace osu.Framework.Audio.EzLatency
         {
             get
             {
+                if (!isWindowsAcousticSupported())
+                    return false;
+
                 lock (probeSync)
                     return acousticProbe?.IsRunning == true;
             }
@@ -85,6 +93,9 @@ namespace osu.Framework.Audio.EzLatency
         public void SetAcousticThreshold(float threshold)
         {
             acousticThreshold = Math.Clamp(threshold, 0.0001f, 1f);
+
+            if (!isWindowsAcousticSupported())
+                return;
 
             lock (probeSync)
             {
@@ -115,6 +126,9 @@ namespace osu.Framework.Audio.EzLatency
 
             double inputTime = analyzer.GetCurrentTimestamp();
             analyzer.RecordInputData(inputTime, keyValue);
+
+            if (!isWindowsAcousticSupported())
+                return;
 
             lock (probeSync)
                 acousticProbe?.Arm(inputTime);
@@ -174,9 +188,7 @@ namespace osu.Framework.Audio.EzLatency
         {
             collector.Clear();
             analyzer.ClearCurrentData();
-
-            lock (probeSync)
-                acousticProbe?.Disarm();
+            disarmAcousticProbe();
         }
 
         /// <summary>
@@ -185,9 +197,7 @@ namespace osu.Framework.Audio.EzLatency
         public void ClearPendingMeasurement()
         {
             analyzer.ClearCurrentData();
-
-            lock (probeSync)
-                acousticProbe?.Disarm();
+            disarmAcousticProbe();
         }
 
         /// <summary>
@@ -226,9 +236,12 @@ namespace osu.Framework.Audio.EzLatency
             Enabled.Value = false;
         }
 
+        [SupportedOSPlatformGuard("windows")]
+        private static bool isWindowsAcousticSupported() => OperatingSystem.IsWindows();
+
         private void tryStartAcousticProbe()
         {
-            if (!OperatingSystem.IsWindows())
+            if (!isWindowsAcousticSupported())
             {
                 analyzer.AwaitAcoustic = false;
                 return;
@@ -245,19 +258,27 @@ namespace osu.Framework.Audio.EzLatency
 
                 bool running = acousticProbe.TryStart(currentOutputDriverId);
                 analyzer.AwaitAcoustic = running;
-
-                if (!running)
-                    analyzer.AwaitAcoustic = false;
             }
         }
 
         private void stopAcousticProbe()
         {
+            analyzer.AwaitAcoustic = false;
+
+            if (!isWindowsAcousticSupported())
+                return;
+
             lock (probeSync)
-            {
-                analyzer.AwaitAcoustic = false;
                 acousticProbe?.Stop();
-            }
+        }
+
+        private void disarmAcousticProbe()
+        {
+            if (!isWindowsAcousticSupported())
+                return;
+
+            lock (probeSync)
+                acousticProbe?.Disarm();
         }
 
         /// <summary>
@@ -268,10 +289,13 @@ namespace osu.Framework.Audio.EzLatency
             Enabled.UnbindAll();
             stopAcousticProbe();
 
-            lock (probeSync)
+            if (isWindowsAcousticSupported())
             {
-                acousticProbe?.Dispose();
-                acousticProbe = null;
+                lock (probeSync)
+                {
+                    acousticProbe?.Dispose();
+                    acousticProbe = null;
+                }
             }
 
             EzLatencyService.Instance.OnMeasurement -= serviceHandler;
