@@ -116,9 +116,18 @@ namespace osu.Framework.Audio.EzLatency
         public EzLatencyStatistics GetStatistics() => collector.GetStatistics();
 
         /// <summary>
-        /// 清空统计收集器
+        /// 清空统计收集器与当前未完成槽位。
         /// </summary>
-        public void ClearStatistics() => collector.Clear();
+        public void ClearStatistics()
+        {
+            collector.Clear();
+            analyzer.ClearCurrentData();
+        }
+
+        /// <summary>
+        /// Clear the in-flight input/playback slot without touching aggregate stats.
+        /// </summary>
+        public void ClearPendingMeasurement() => analyzer.ClearCurrentData();
 
         /// <summary>
         /// Create a simple file logger for latency records. Convenience factory to make EzLoggerAdapter discoverable.

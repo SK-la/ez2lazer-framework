@@ -35,6 +35,15 @@ namespace osu.Framework.Audio.EzLatency
 
             if (currentInputData.InputTime > 0)
             {
+                // Keyboard Mania often double-fires: PassThrough KeyDown then Column.OnPressed.
+                // Keep the armed slot and prefer the later keyValue (column index) within 2ms.
+                if (inputTime - currentInputData.InputTime < 2.0)
+                {
+                    if (keyValue != null)
+                        currentInputData.KeyValue = keyValue;
+                    return;
+                }
+
                 currentInputData = default;
                 currentHardwareData = default;
             }
@@ -55,6 +64,10 @@ namespace osu.Framework.Audio.EzLatency
         public void RecordPlaybackData(double playbackTime)
         {
             if (!Enabled) return;
+
+            // Ignore stray sample/track Play() calls until an input has armed the slot.
+            if (currentInputData.InputTime <= 0)
+                return;
 
             currentInputData.PlaybackTime = playbackTime;
             tryEmitRecord();
@@ -116,11 +129,6 @@ namespace osu.Framework.Audio.EzLatency
             {
                 OnNewRecord?.Invoke(record);
                 EzLatencyService.Instance.PushRecord(record);
-                Logger.Log(
-                    hwData.IsValid
-                        ? $"EzLatency 完整记录已生成: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms"
-                        : $"EzLatency 最佳尝试记录（无硬件时间戳）: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms",
-                    LoggingTarget.Runtime, LogLevel.Debug);
             }
             catch (Exception ex)
             {
