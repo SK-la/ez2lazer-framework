@@ -106,11 +106,14 @@ namespace osu.Framework.Audio.Wasapi
 
             try
             {
+                // Prefer IAudioClient3 low-latency shared mode, but do not require it.
+                // Some endpoints (e.g. HDMI / AMD HD Audio) decline the low-latency request;
+                // WithLowLatency(true) would throw and leave the device uninitialised.
                 var builder = new WasapiPlayerBuilder()
                               .WithDevice(device)
                               .WithSharedMode()
                               .WithEventSync()
-                              .WithLowLatency(true)
+                              .WithLowLatency()
                               .WithLatency(AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS);
 
                 player = builder.Build();
@@ -122,8 +125,12 @@ namespace osu.Framework.Audio.Wasapi
                 ActualLatencyMs = player.LatencyMilliseconds;
                 LowLatencyActive = player.LowLatencyActive;
 
+                string lowLatencyNote = LowLatencyActive
+                    ? "lowLatency=true"
+                    : $"lowLatency=false ({player.LowLatencyUnavailableReason ?? "fell back to standard shared mode"})";
+
                 Logger.Log(
-                    $"NAudio default output started: bassDevice={bassDeviceId} (\"{bassInfo.Name}\"), wasapi=\"{device.FriendlyName}\", endpoint={BoundEndpointId}, {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, lowLatency={LowLatencyActive}"
+                    $"NAudio default output started: bassDevice={bassDeviceId} (\"{bassInfo.Name}\"), wasapi=\"{device.FriendlyName}\", endpoint={BoundEndpointId}, {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, {lowLatencyNote}"
                     + (driverId == null ? " (via Windows default endpoint; BASS Driver empty)" : string.Empty),
                     name: "audio", level: LogLevel.Important);
 

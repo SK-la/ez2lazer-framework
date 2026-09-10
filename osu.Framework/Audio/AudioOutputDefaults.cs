@@ -14,7 +14,8 @@ namespace osu.Framework.Audio
 
         /// <summary>
         /// Requested shared-mode latency for the default NAudio WASAPI output path (milliseconds).
-        /// Combined with <c>WithLowLatency(true)</c> so IAudioClient3 can negotiate a smaller period when available.
+        /// Combined with preferred (non-required) <c>WithLowLatency()</c> so IAudioClient3 can negotiate
+        /// a smaller period when available, otherwise standard shared mode is used.
         /// </summary>
         public const int DEFAULT_NAUDIO_LATENCY_MS = 10;
     }
