@@ -2,7 +2,6 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using System.Runtime.Versioning;
 using System.Threading;
 using osu.Framework.Bindables;
 using osu.Framework.Logging;
@@ -36,10 +35,8 @@ namespace osu.Framework.Audio.EzLatency
         private readonly Action<EzLatencyRecord> serviceHandler;
         private readonly Lock probeSync = new Lock();
 
-        // Windows-only type; all reads/writes go through isWindowsAcousticSupported()-guarded helpers.
-#pragma warning disable CA1416
-        private AcousticClosedLoopProbe? acousticProbe;
-#pragma warning restore CA1416
+        /// <summary>Volatile for lock-free observe from audio callbacks.</summary>
+        private volatile OutputPathAcousticProbe? outputPathProbe;
 
         private string? currentOutputDriverId;
         private AudioOutputMode? currentOutputMode;
@@ -75,33 +72,27 @@ namespace osu.Framework.Audio.EzLatency
         public event Action<EzLatencyRecord>? OnNewRecord;
 
         /// <summary>
-        /// Whether the acoustic loopback probe is currently capturing.
+        /// Whether the output-path acoustic probe is active (all drivers when tracker enabled).
         /// </summary>
         public bool AcousticProbeRunning
         {
             get
             {
-                if (!isWindowsAcousticSupported())
-                    return false;
-
                 lock (probeSync)
-                    return acousticProbe?.IsRunning == true;
+                    return outputPathProbe != null && analyzer.AwaitAcoustic;
             }
         }
 
         /// <summary>
-        /// RMS threshold for loopback level detection (0–1 linear).
+        /// RMS threshold for output-path level detection (0–1 linear).
         /// </summary>
         public void SetAcousticThreshold(float threshold)
         {
             acousticThreshold = Math.Clamp(threshold, 0.0001f, 1f);
 
-            if (!isWindowsAcousticSupported())
-                return;
-
             lock (probeSync)
             {
-                acousticProbe?.Threshold = acousticThreshold;
+                outputPathProbe?.Threshold = acousticThreshold;
             }
         }
 
@@ -116,8 +107,8 @@ namespace osu.Framework.Audio.EzLatency
         public void PollPendingTimeout() => analyzer.PollTimeout();
 
         /// <summary>
-        /// Called when the game's output device/backend changes so loopback can follow the same endpoint.
-        /// Acoustic loopback is only started for <see cref="AudioOutputMode.Default"/> (NAudio shared).
+        /// Called when the game's output device/backend changes (logging / future context).
+        /// Does not gate Acou — output-path probe works for every <see cref="AudioOutputMode"/>.
         /// </summary>
         public void NotifyOutputDeviceChanged(string? bassDriverId, AudioOutputMode outputMode = AudioOutputMode.Default)
         {
@@ -131,6 +122,40 @@ namespace osu.Framework.Audio.EzLatency
         }
 
         /// <summary>
+        /// Observe IEEE-float PCM as it is pulled into the output driver (ASIO / NAudio float path).
+        /// Hot path: no alloc; only scans while a measurement is armed.
+        /// </summary>
+        public void ObserveOutputPathFloat(IntPtr buffer, int bytes)
+        {
+            if (!analyzer.Enabled || !analyzer.AwaitAcoustic)
+                return;
+
+            outputPathProbe?.ObserveFloat(buffer, bytes);
+        }
+
+        /// <summary>
+        /// Observe native PCM as it is pulled into BassWasapi (format matches the device buffer).
+        /// </summary>
+        public void ObserveOutputPath(IntPtr buffer, int bytes, AcousticLevelMath.SampleFormat format)
+        {
+            if (!analyzer.Enabled || !analyzer.AwaitAcoustic)
+                return;
+
+            outputPathProbe?.Observe(buffer, bytes, format);
+        }
+
+        /// <summary>
+        /// Observe managed float PCM from <c>BassMixerWaveProvider.Read</c>.
+        /// </summary>
+        public void ObserveOutputPath(byte[] buffer, int bytes, AcousticLevelMath.SampleFormat format)
+        {
+            if (!analyzer.Enabled || !analyzer.AwaitAcoustic)
+                return;
+
+            outputPathProbe?.Observe(buffer, bytes, format);
+        }
+
+        /// <summary>
         /// 在gameplay期间记录输入事件
         /// </summary>
         /// <param name="keyValue">按键值或输入标识</param>
@@ -141,11 +166,7 @@ namespace osu.Framework.Audio.EzLatency
             double inputTime = analyzer.GetCurrentTimestamp();
             analyzer.RecordInputData(inputTime, keyValue);
 
-            if (!isWindowsAcousticSupported())
-                return;
-
-            lock (probeSync)
-                acousticProbe?.Arm(inputTime);
+            outputPathProbe?.Arm(inputTime);
         }
 
         /// <summary>
@@ -250,68 +271,35 @@ namespace osu.Framework.Audio.EzLatency
             Enabled.Value = false;
         }
 
-        [SupportedOSPlatformGuard("windows")]
-        private static bool isWindowsAcousticSupported() => OperatingSystem.IsWindows();
-
         private void tryStartAcousticProbe()
         {
-            // Only NAudio shared (Default) is safe with WasapiLoopbackCapture.
-            // BassWasapi / Exclusive / ASIO + loopback can stall the audio callback.
-            if (!isWindowsAcousticSupported() || currentOutputMode != AudioOutputMode.Default)
-            {
-                analyzer.AwaitAcoustic = false;
-
-                if (isWindowsAcousticSupported())
-                {
-                    lock (probeSync)
-                        acousticProbe?.Stop();
-                }
-
-                Logger.Log(
-                    $"[EzLatency] acoustic probe off (mode={currentOutputMode?.ToString() ?? "unset"}; software In→Play only)",
-                    name: "ez_runtime",
-                    level: LogLevel.Debug);
-                return;
-            }
-
             lock (probeSync)
             {
-                acousticProbe ??= new AcousticClosedLoopProbe(
-                    analyzer.GetCurrentTimestamp,
-                    analyzer.PollTimeout,
-                    RecordHardwareData);
+                if (outputPathProbe == null)
+                {
+                    outputPathProbe = new OutputPathAcousticProbe(
+                        analyzer.GetCurrentTimestamp,
+                        analyzer.PollTimeout,
+                        RecordHardwareData);
+                }
 
-                acousticProbe.Threshold = acousticThreshold;
-
-                bool running = acousticProbe.TryStart(currentOutputDriverId);
-                analyzer.AwaitAcoustic = running;
-
-                Logger.Log(
-                    $"[EzLatency] acoustic probe {(running ? "on" : "failed")} (mode=Default, driver={currentOutputDriverId ?? "default-endpoint"})",
-                    name: "ez_runtime",
-                    level: LogLevel.Debug);
+                outputPathProbe.Threshold = acousticThreshold;
+                analyzer.AwaitAcoustic = true;
             }
+
+            Logger.Log(
+                $"[EzLatency] output-path acoustic probe on (mode={currentOutputMode?.ToString() ?? "unset"}, driver={currentOutputDriverId ?? "default-endpoint"})",
+                name: "ez_runtime",
+                level: LogLevel.Debug);
         }
 
         private void stopAcousticProbe()
         {
             analyzer.AwaitAcoustic = false;
-
-            if (!isWindowsAcousticSupported())
-                return;
-
-            lock (probeSync)
-                acousticProbe?.Stop();
+            outputPathProbe?.Disarm();
         }
 
-        private void disarmAcousticProbe()
-        {
-            if (!isWindowsAcousticSupported())
-                return;
-
-            lock (probeSync)
-                acousticProbe?.Disarm();
-        }
+        private void disarmAcousticProbe() => outputPathProbe?.Disarm();
 
         /// <summary>
         /// 释放资源
@@ -321,14 +309,8 @@ namespace osu.Framework.Audio.EzLatency
             Enabled.UnbindAll();
             stopAcousticProbe();
 
-            if (isWindowsAcousticSupported())
-            {
-                lock (probeSync)
-                {
-                    acousticProbe?.Dispose();
-                    acousticProbe = null;
-                }
-            }
+            lock (probeSync)
+                outputPathProbe = null;
 
             EzLatencyService.Instance.OnMeasurement -= serviceHandler;
         }

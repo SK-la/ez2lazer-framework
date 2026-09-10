@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using ManagedBass;
 using NAudio.Wave;
 using NAudioWaveFormat = NAudio.Wave.WaveFormat;
+using osu.Framework.Audio.EzLatency;
 
 namespace osu.Framework.Audio.Wasapi
 {
@@ -56,6 +57,9 @@ namespace osu.Framework.Audio.Wasapi
                     buffer.Clear();
                     return buffer.Length;
                 }
+
+                if (read > 0)
+                    EzLatencyManager.GLOBAL.ObserveOutputPath(rented, read, AcousticLevelMath.SampleFormat.IeeeFloat32);
 
                 rented.AsSpan(0, Math.Min(read, buffer.Length)).CopyTo(buffer);
                 if (read < buffer.Length)

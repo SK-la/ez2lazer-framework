@@ -24,7 +24,7 @@ using osuTK.Input;
 namespace osu.Framework.Tests.Visual.Ez
 {
     /// <summary>
-    /// Interactive / automated acoustic closed-loop check (current-output WASAPI loopback on Windows).
+    /// Interactive / automated acoustic closed-loop check (output-path RMS on the active driver).
     /// Keys: Z = single, X = rapid burst, C = simultaneous multi-hit. Buttons mirror the same actions.
     /// </summary>
     public partial class TestSceneAcousticClosedLoop : FrameworkTestScene
@@ -66,7 +66,7 @@ namespace osu.Framework.Tests.Visual.Ez
                     {
                         new SpriteText
                         {
-                            Text = "Acoustic closed-loop (Ez)",
+                            Text = "Output-path acoustic closed-loop (Ez)",
                             Font = FrameworkFont.Condensed.With(size: 24),
                         },
                         statusText = new SpriteText

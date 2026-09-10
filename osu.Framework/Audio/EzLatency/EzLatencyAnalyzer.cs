@@ -33,7 +33,12 @@ namespace osu.Framework.Audio.EzLatency
         /// <summary>Slot timeout before soft-emitting software-only or clearing. Internal for tests.</summary>
         internal double TimeoutMs { get; set; } = default_timeout_ms;
 
+        /// <summary>Product Acou: sample crossed RMS as it entered the output driver pull.</summary>
+        public const string NOTE_DIGITAL_OUTPUT_PATH = "digital-output-path";
+
+        /// <summary>Legacy WASAPI loopback note; still counted as acoustic in statistics.</summary>
         public const string NOTE_ACOUSTIC_LOOPBACK = "acoustic-loopback-current-output";
+
         public const string NOTE_BEST_EFFORT_NO_HW = "best-effort-no-hw";
         public const string NOTE_COMPLETE = "complete-latency-measurement";
 
@@ -190,7 +195,7 @@ namespace osu.Framework.Audio.EzLatency
 
             string note;
             if (hwData.IsValid && hwData.LatencyDifference > 0)
-                note = NOTE_ACOUSTIC_LOOPBACK;
+                note = NOTE_DIGITAL_OUTPUT_PATH;
             else if (hwData.IsValid)
                 note = NOTE_COMPLETE;
             else

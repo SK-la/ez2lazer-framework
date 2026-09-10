@@ -41,7 +41,7 @@ namespace osu.Framework.Tests.Audio
             Assert.That(emitted, Has.Count.EqualTo(1));
             Assert.That(emitted[0].MeasuredMs, Is.EqualTo(2).Within(0.01));
             Assert.That(emitted[0].LatencyDifference, Is.EqualTo(40).Within(0.01));
-            Assert.That(emitted[0].Note, Is.EqualTo(EzLatencyAnalyzer.NOTE_ACOUSTIC_LOOPBACK));
+            Assert.That(emitted[0].Note, Is.EqualTo(EzLatencyAnalyzer.NOTE_DIGITAL_OUTPUT_PATH));
         }
 
         [Test]
@@ -74,7 +74,7 @@ namespace osu.Framework.Tests.Audio
             Assert.That(emitted, Has.Count.EqualTo(1));
             Assert.That(emitted[0].MeasuredMs, Is.EqualTo(1.5).Within(0.01));
             Assert.That(emitted[0].LatencyDifference, Is.EqualTo(35).Within(0.01));
-            Assert.That(emitted[0].Note, Is.EqualTo(EzLatencyAnalyzer.NOTE_ACOUSTIC_LOOPBACK));
+            Assert.That(emitted[0].Note, Is.EqualTo(EzLatencyAnalyzer.NOTE_DIGITAL_OUTPUT_PATH));
         }
 
         [Test]
@@ -109,7 +109,7 @@ namespace osu.Framework.Tests.Audio
                 PlaybackTime = 103,
                 JudgeTime = 104,
                 MeasuredMs = 3,
-                Note = EzLatencyAnalyzer.NOTE_ACOUSTIC_LOOPBACK,
+                Note = EzLatencyAnalyzer.NOTE_DIGITAL_OUTPUT_PATH,
                 LatencyDifference = 42,
                 OutputHardwareTime = 42,
                 DriverTime = 142,
@@ -173,6 +173,60 @@ namespace osu.Framework.Tests.Audio
             float rms = AcousticLevelMath.ComputeRms(buffer, buffer.Length, AcousticLevelMath.SampleFormat.Pcm16);
 
             Assert.That(rms, Is.EqualTo(32767f / 32768f).Within(1e-4));
+        }
+
+        [Test]
+        public void OutputPathProbe_ObserveFloat_RecordsWhenAboveThreshold()
+        {
+            var hardware = new List<(double driver, double outHw, double inHw, double lat)>();
+            var probe = new OutputPathAcousticProbe(
+                () => 100,
+                () => { },
+                (d, o, i, l) => hardware.Add((d, o, i, l)))
+            {
+                Threshold = 0.02f
+            };
+
+            probe.Arm(50);
+
+            const float amplitude = 0.25f;
+            byte[] buffer = new byte[4 * 64];
+
+            for (int i = 0; i < 64; i++)
+                BitConverter.GetBytes(amplitude).CopyTo(buffer, i * 4);
+
+            probe.Observe(buffer, buffer.Length, AcousticLevelMath.SampleFormat.IeeeFloat32);
+
+            Assert.That(hardware, Has.Count.EqualTo(1));
+            Assert.That(hardware[0].lat, Is.EqualTo(50).Within(0.01));
+            Assert.That(probe.IsArmed, Is.False);
+        }
+
+        [Test]
+        public void OutputPathProbe_IgnoreWindow_SkipsEarlyEnergy()
+        {
+            double now = 0;
+            var hardware = new List<double>();
+            var probe = new OutputPathAcousticProbe(
+                () => now,
+                () => { },
+                (_, o, _, _) => hardware.Add(o))
+            {
+                Threshold = 0.02f
+            };
+
+            probe.Arm(0);
+            now = 4; // within ignore_after_arm_ms = 8
+
+            byte[] buffer = new byte[4 * 32];
+
+            for (int i = 0; i < 32; i++)
+                BitConverter.GetBytes(0.5f).CopyTo(buffer, i * 4);
+
+            probe.Observe(buffer, buffer.Length, AcousticLevelMath.SampleFormat.IeeeFloat32);
+
+            Assert.That(hardware, Is.Empty);
+            Assert.That(probe.IsArmed, Is.True);
         }
     }
 }

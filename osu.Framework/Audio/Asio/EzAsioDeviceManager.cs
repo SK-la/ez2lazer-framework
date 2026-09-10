@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using ManagedBass;
 using ManagedBass.Asio;
+using osu.Framework.Audio.EzLatency;
 using osu.Framework.Audio.Host;
 using osu.Framework.Development;
 using osu.Framework.Logging;
@@ -1246,6 +1247,8 @@ namespace osu.Framework.Audio.Asio
                     fillBufferWithSilence(buffer, length);
                     return length;
                 }
+
+                EzLatencyManager.GLOBAL.ObserveOutputPathFloat(buffer, bytesRead);
 
                 if (bytesRead < length)
                     clearRemainingBuffer(buffer, bytesRead, length);

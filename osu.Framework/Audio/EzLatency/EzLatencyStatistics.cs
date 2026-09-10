@@ -29,7 +29,7 @@ namespace osu.Framework.Audio.EzLatency
 
         public double AvgHardwareLatency { get; set; }
 
-        /// <summary>Acoustic loopback round-trip samples (Input → level threshold).</summary>
+        /// <summary>Acoustic / output-path round-trip samples (Input → level threshold).</summary>
         public int AcousticRecordCount { get; set; }
 
         public double AvgAcousticRoundtrip { get; set; }
@@ -90,14 +90,13 @@ namespace osu.Framework.Audio.EzLatency
 
                 // Non-acoustic hardware stamps (legacy path); acoustic uses LatencyDifference instead.
                 var hardwareLatency = records
-                                      .Where(r => r.Note != EzLatencyAnalyzer.NOTE_ACOUSTIC_LOOPBACK)
+                                      .Where(r => !isAcousticNote(r.Note))
                                       .Select(r => r.OutputHardwareTime)
                                       .Where(h => h > 0)
                                       .ToList();
 
                 var acoustic = records
-                               .Where(r => r.Note == EzLatencyAnalyzer.NOTE_ACOUSTIC_LOOPBACK ||
-                                           (r.Note != null && r.Note.StartsWith("acoustic-", StringComparison.Ordinal)))
+                               .Where(r => isAcousticNote(r.Note))
                                .Select(r => r.LatencyDifference > 0 ? r.LatencyDifference : r.OutputHardwareTime)
                                .Where(d => d > 0 && d <= 1000)
                                .ToList();
@@ -137,5 +136,11 @@ namespace osu.Framework.Audio.EzLatency
                 }
             }
         }
+
+        private static bool isAcousticNote(string note) =>
+            note == EzLatencyAnalyzer.NOTE_DIGITAL_OUTPUT_PATH
+            || note == EzLatencyAnalyzer.NOTE_ACOUSTIC_LOOPBACK
+            || (note != null && (note.StartsWith("acoustic-", StringComparison.Ordinal)
+                                 || note.StartsWith("digital-", StringComparison.Ordinal)));
     }
 }

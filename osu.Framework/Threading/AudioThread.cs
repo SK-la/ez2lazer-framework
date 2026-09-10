@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Threading;
 using ManagedBass;
 using ManagedBass.Asio;
@@ -189,7 +190,12 @@ namespace osu.Framework.Threading
             if (mixer == null)
                 return 0;
 
-            return Bass.ChannelGetData(mixer.Value, buffer, length);
+            int read = Bass.ChannelGetData(mixer.Value, buffer, length);
+
+            if (read > 0)
+                EzLatencyManager.GLOBAL.ObserveOutputPath(buffer, read, thread!.wasapiPullSampleFormat);
+
+            return read;
         };
 
         private static readonly WasapiNotifyProcedure wasapi_notify_procedure_static = (notify, device, user) =>
@@ -229,6 +235,7 @@ namespace osu.Framework.Threading
         private GCHandle wasapiUserHandle;
         private readonly IntPtr wasapiUserPtr;
         private bool wasapiExclusiveActive;
+        private AcousticLevelMath.SampleFormat wasapiPullSampleFormat = AcousticLevelMath.SampleFormat.IeeeFloat32;
         private NAudioWasapiOutput? naudioDefaultOutput;
 
         private bool shouldTrackDefaultWasapiChanges()
@@ -362,8 +369,7 @@ namespace osu.Framework.Threading
 
             initialised_devices.Add(deviceId);
 
-            // Keep acoustic closed-loop loopback bound to the same render endpoint as game output.
-            // Pass outputMode so non-NAudio backends never start WasapiLoopbackCapture.
+            // Bind latency probe context to the active output endpoint/backend.
             string? latencyDriver = Bass.GetDeviceInfo(deviceId, out var latencyDeviceInfo) ? latencyDeviceInfo.Driver : null;
             EzLatencyManager.GLOBAL.NotifyOutputDeviceChanged(latencyDriver, outputMode);
 
@@ -379,18 +385,10 @@ namespace osu.Framework.Threading
 
             switch (outputMode)
             {
-                case AudioOutputMode.Default when naudioDefaultOutput?.MixerHandle is > 0:
-                    Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
-                        Mode: AudioOutputMode.Default,
-                        Active: true,
-                        NAudioFallbackToClassicBass: false,
-                        SampleRateHz: naudioDefaultOutput.SampleRateHz,
-                        ActualLatencyMs: naudioDefaultOutput.ActualLatencyMs,
-                        RequestedLatencyMs: naudioDefaultOutput.RequestedLatencyMs,
-                        LowLatencyActive: naudioDefaultOutput.LowLatencyActive));
-                    break;
-
                 case AudioOutputMode.Default:
+                    if (OperatingSystem.IsWindows() && tryPublishNAudioDefaultRuntime())
+                        break;
+
                     Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
                         Mode: AudioOutputMode.Default,
                         Active: true,
@@ -418,6 +416,23 @@ namespace osu.Framework.Threading
                         SampleRateHz: (int)Math.Round(EzAsioDeviceManager.GetCurrentSampleRate())));
                     break;
             }
+        }
+
+        [SupportedOSPlatform("windows")]
+        private bool tryPublishNAudioDefaultRuntime()
+        {
+            if (Manager == null || naudioDefaultOutput?.MixerHandle is not > 0)
+                return false;
+
+            Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
+                Mode: AudioOutputMode.Default,
+                Active: true,
+                NAudioFallbackToClassicBass: false,
+                SampleRateHz: naudioDefaultOutput.SampleRateHz,
+                ActualLatencyMs: naudioDefaultOutput.ActualLatencyMs,
+                RequestedLatencyMs: naudioDefaultOutput.RequestedLatencyMs,
+                LowLatencyActive: naudioDefaultOutput.LowLatencyActive));
+            return true;
         }
 
         private static void releaseAllOutputsForSwitch(int targetDeviceId, AudioOutputMode outputMode)
@@ -704,6 +719,7 @@ namespace osu.Framework.Threading
                     return false;
 
                 BassWasapi.GetInfo(out var wasapiInfo);
+                wasapiPullSampleFormat = mapWasapiPullSampleFormat(wasapiInfo.Format);
                 Logger.Log($"WASAPI info: Freq={wasapiInfo.Frequency}, Chans={wasapiInfo.Channels}, Format={wasapiInfo.Format}", name: "audio", level: LogLevel.Verbose);
                 globalMixerHandle.Value = BassMix.CreateMixerStream(wasapiInfo.Frequency, wasapiInfo.Channels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
 
@@ -744,6 +760,14 @@ namespace osu.Framework.Threading
                 return false;
             }
         }
+
+        private static AcousticLevelMath.SampleFormat mapWasapiPullSampleFormat(WasapiFormat format) =>
+            format switch
+            {
+                WasapiFormat.Float => AcousticLevelMath.SampleFormat.IeeeFloat32,
+                WasapiFormat.Bit16 => AcousticLevelMath.SampleFormat.Pcm16,
+                _ => AcousticLevelMath.SampleFormat.Unsupported
+            };
 
         private void freeWasapi()
         {
