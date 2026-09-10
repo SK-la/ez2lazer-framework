@@ -138,6 +138,42 @@ namespace osu.Framework.Audio.Windows
             }
         }
 
+        /// <summary>
+        /// Endpoint id for the current Windows default render device, or null if unavailable.
+        /// </summary>
+        public static string? TryGetDefaultPlaybackEndpointId()
+        {
+            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                return null;
+
+            try
+            {
+                using var enumerator = new MMDeviceEnumerator();
+                using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                return device.ID;
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Windows default playback endpoint id lookup failed: {ex.Message}", LoggingTarget.Runtime, LogLevel.Debug);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Resolves the WASAPI endpoint id that NAudio would open for a BASS playback device.
+        /// Empty BASS Driver maps to the Windows default render endpoint.
+        /// </summary>
+        public static string? TryResolvePlaybackEndpointId(string? bassDriverId)
+        {
+            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                return null;
+
+            if (!string.IsNullOrEmpty(bassDriverId))
+                return bassDriverId;
+
+            return TryGetDefaultPlaybackEndpointId();
+        }
+
         private static MMDevice? tryGetPlaybackDevice(string? bassDriverId)
         {
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)

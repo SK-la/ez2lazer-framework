@@ -26,10 +26,15 @@ namespace osu.Framework.Audio.Wasapi
 
         public int? MixerHandle { get; private set; }
 
+        /// <summary>WASAPI endpoint id currently owned by this output, if running.</summary>
+        public string? BoundEndpointId { get; private set; }
+
         public int SampleRateHz { get; private set; }
         public int RequestedLatencyMs { get; private set; }
         public int ActualLatencyMs { get; private set; }
         public bool LowLatencyActive { get; private set; }
+
+        public bool IsRunning => player != null && MixerHandle is > 0;
 
         /// <summary>
         /// Creates a decode mixer and starts NAudio playback that pulls from it.
@@ -41,7 +46,10 @@ namespace osu.Framework.Audio.Wasapi
             Stop();
 
             if (bassDeviceId <= 0)
+            {
+                Logger.Log($"NAudio default output: refusing BASS device {bassDeviceId}.", name: "audio", level: LogLevel.Important);
                 return null;
+            }
 
             if (!Bass.GetDeviceInfo(bassDeviceId, out var bassInfo))
             {
@@ -52,12 +60,16 @@ namespace osu.Framework.Audio.Wasapi
             // BASS's synthetic "Default" device often reports an empty Driver id. That is not a
             // failure — open the Windows default render endpoint instead of aborting to classic BASS.
             string? driverId = string.IsNullOrEmpty(bassInfo.Driver) ? null : bassInfo.Driver;
+            string? endpointId = WindowsAudioFormatQuery.TryResolvePlaybackEndpointId(driverId);
 
             device = WindowsAudioFormatQuery.TryOpenPlaybackDevice(driverId);
 
             if (device == null)
             {
-                Logger.Log("NAudio default output: could not open matching MMDevice.", name: "audio", level: LogLevel.Important);
+                Logger.Log(
+                    $"NAudio default output: could not open MMDevice for bassDevice={bassDeviceId} (\"{bassInfo.Name}\", driver={driverId ?? "empty"}).",
+                    name: "audio",
+                    level: LogLevel.Important);
                 return null;
             }
 
@@ -88,6 +100,7 @@ namespace osu.Framework.Audio.Wasapi
 
             MixerHandle = handle;
             ownsMixer = true;
+            BoundEndpointId = endpointId ?? device.ID;
 
             var provider = new BassMixerWaveProvider(sourceFormat, () => MixerHandle);
 
@@ -110,11 +123,12 @@ namespace osu.Framework.Audio.Wasapi
                 LowLatencyActive = player.LowLatencyActive;
 
                 Logger.Log(
-                    $"NAudio default output started: bassDevice={bassDeviceId} (\"{bassInfo.Name}\"), wasapi=\"{device.FriendlyName}\", {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, lowLatency={LowLatencyActive}"
+                    $"NAudio default output started: bassDevice={bassDeviceId} (\"{bassInfo.Name}\"), wasapi=\"{device.FriendlyName}\", endpoint={BoundEndpointId}, {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, lowLatency={LowLatencyActive}"
                     + (driverId == null ? " (via Windows default endpoint; BASS Driver empty)" : string.Empty),
                     name: "audio", level: LogLevel.Important);
 
-                return MixerHandle;
+                // Return the local handle — never re-read MixerHandle (Stop from another path could null it).
+                return handle;
             }
             catch (Exception ex)
             {
@@ -147,6 +161,7 @@ namespace osu.Framework.Audio.Wasapi
             RequestedLatencyMs = 0;
             ActualLatencyMs = 0;
             LowLatencyActive = false;
+            BoundEndpointId = null;
 
             if (ownsMixer && MixerHandle is int handle and > 0)
             {

@@ -20,6 +20,7 @@ using osu.Framework.Audio.Asio;
 using osu.Framework.Audio.EzLatency;
 using osu.Framework.Audio.Host;
 using osu.Framework.Audio.Wasapi;
+using osu.Framework.Audio.Windows;
 using osu.Framework.Bindables;
 using osu.Framework.Development;
 using osu.Framework.Logging;
@@ -238,7 +239,9 @@ namespace osu.Framework.Threading
         private AcousticLevelMath.SampleFormat wasapiPullSampleFormat = AcousticLevelMath.SampleFormat.IeeeFloat32;
         private NAudioWasapiOutput? naudioDefaultOutput;
         private int? naudioBoundBassDeviceId;
+        private string? naudioBoundEndpointId;
         private int initDeviceDepth;
+        private bool wasapiOrAsioWasActive;
 
         private bool shouldTrackDefaultWasapiChanges()
             => !wasapiExclusiveActive && string.IsNullOrEmpty(Manager?.AudioDevice.Value);
@@ -272,14 +275,14 @@ namespace osu.Framework.Threading
             }
 
             // Keep a healthy NAudio Default session instead of tearing it down on spurious re-inits
-            // (device list sync / IsCurrentDeviceValid flicker).
+            // (device list sync / BASS Default index vs physical device index for the same endpoint).
             if (outputMode == AudioOutputMode.Default
                 && OperatingSystem.IsWindows()
-                && naudioDefaultOutput?.MixerHandle is > 0
-                && naudioBoundBassDeviceId == deviceId
-                && Bass.GetDeviceInfo(deviceId, out var existing) && existing.IsInitialized)
+                && naudioDefaultOutput?.IsRunning == true
+                && endpointsMatchForKeepAlive(deviceId))
             {
-                string? latencyDriver = existing.Driver;
+                naudioBoundBassDeviceId = deviceId;
+                string? latencyDriver = Bass.GetDeviceInfo(deviceId, out var existing) ? existing.Driver : naudioBoundEndpointId;
                 EzLatencyManager.GLOBAL.NotifyOutputDeviceChanged(latencyDriver, outputMode);
                 publishWindowsOutputRuntime(outputMode);
                 return true;
@@ -297,6 +300,22 @@ namespace osu.Framework.Threading
             }
         }
 
+        [SupportedOSPlatform("windows")]
+        private bool endpointsMatchForKeepAlive(int bassDeviceId)
+        {
+            if (string.IsNullOrEmpty(naudioBoundEndpointId))
+                return naudioBoundBassDeviceId == bassDeviceId;
+
+            if (!Bass.GetDeviceInfo(bassDeviceId, out var info))
+                return false;
+
+            string? incoming = WindowsAudioFormatQuery.TryResolvePlaybackEndpointId(
+                string.IsNullOrEmpty(info.Driver) ? null : info.Driver);
+
+            return !string.IsNullOrEmpty(incoming)
+                   && string.Equals(incoming, naudioBoundEndpointId, StringComparison.OrdinalIgnoreCase);
+        }
+
         private bool initDeviceCore(int deviceId, AudioOutputMode outputMode, double preferredSampleRate, int asioBitDepth)
         {
             // Important: stop any existing output first.
@@ -307,10 +326,17 @@ namespace osu.Framework.Threading
             freeWasapi();
             releaseAllOutputsForSwitch(deviceId, outputMode);
 
-            // ASIO: allow the previous driver time to fully release before re-init.
+            // ASIO / BassWasapi / prior NAudio may still hold a virtual endpoint briefly (Oculus VAIO etc.).
+            bool needsEndpointSettle = wasapiOrAsioWasActive || outputMode == AudioOutputMode.Default;
+            wasapiOrAsioWasActive = false;
+
             if (outputMode == AudioOutputMode.Asio && !DebugUtils.IsNUnitRunning)
             {
                 Thread.Sleep(100);
+            }
+            else if (needsEndpointSettle && outputMode == AudioOutputMode.Default && OperatingSystem.IsWindows() && !DebugUtils.IsNUnitRunning)
+            {
+                Thread.Sleep(150);
             }
 
             // Try to initialise the device, or request a re-initialise.
@@ -467,7 +493,7 @@ namespace osu.Framework.Threading
         [SupportedOSPlatform("windows")]
         private bool tryPublishNAudioDefaultRuntime()
         {
-            if (Manager == null || naudioDefaultOutput?.MixerHandle is not > 0)
+            if (Manager == null || naudioDefaultOutput?.IsRunning != true)
                 return false;
 
             Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
@@ -818,6 +844,7 @@ namespace osu.Framework.Threading
         private void freeWasapi()
         {
             int? mixerToFree = globalMixerHandle.Value;
+            bool hadWasapi = wasapiExclusiveActive || mixerToFree != null;
 
             try
             {
@@ -844,6 +871,9 @@ namespace osu.Framework.Threading
             }
             finally
             {
+                if (hadWasapi)
+                    wasapiOrAsioWasActive = true;
+
                 wasapiExclusiveActive = false;
                 globalMixerHandle.Value = null;
                 Thread.Sleep(50);
@@ -860,13 +890,25 @@ namespace osu.Framework.Threading
             try
             {
                 naudioDefaultOutput = new NAudioWasapiOutput();
-                int? mixer = naudioDefaultOutput.Start(bassDeviceId);
 
-                // Virtual endpoints (e.g. Oculus) can reject an immediate reopen after Stop().
-                if (mixer is not > 0)
+                // Virtual endpoints often reject an immediate reopen after BassWasapi/NAudio Stop.
+                int? mixer = null;
+                int[] delaysMs = [0, 100, 250];
+
+                for (int attempt = 0; attempt < delaysMs.Length; attempt++)
                 {
-                    Thread.Sleep(50);
+                    if (delaysMs[attempt] > 0)
+                        Thread.Sleep(delaysMs[attempt]);
+
                     mixer = naudioDefaultOutput.Start(bassDeviceId);
+
+                    if (mixer is > 0)
+                        break;
+
+                    Logger.Log(
+                        $"NAudio default output start attempt {attempt + 1}/{delaysMs.Length} failed for BASS device {bassDeviceId}.",
+                        name: "audio",
+                        level: LogLevel.Important);
                 }
 
                 if (mixer is not > 0)
@@ -877,6 +919,7 @@ namespace osu.Framework.Threading
 
                 globalMixerHandle.Value = mixer;
                 naudioBoundBassDeviceId = bassDeviceId;
+                naudioBoundEndpointId = naudioDefaultOutput.BoundEndpointId;
                 return true;
             }
             catch (Exception ex)
@@ -889,7 +932,11 @@ namespace osu.Framework.Threading
 
         private void freeNAudioDefault()
         {
+            if (naudioDefaultOutput != null)
+                wasapiOrAsioWasActive = true;
+
             naudioBoundBassDeviceId = null;
+            naudioBoundEndpointId = null;
 
             if (naudioDefaultOutput == null)
                 return;
@@ -908,7 +955,7 @@ namespace osu.Framework.Threading
             }
             catch (Exception ex)
             {
-                Logger.Log($"NAudio default output cleanup failed: {ex.Message}", name: "audio", level: LogLevel.Error);
+                Logger.Log($"NAudio default output cleanup failed: {ex.Message}", name: "audio", level: LogLevel.Important);
             }
             finally
             {
@@ -1231,6 +1278,7 @@ namespace osu.Framework.Threading
                 return;
 
             Logger.Log("Freeing ASIO device", name: "audio", level: LogLevel.Important);
+            wasapiOrAsioWasActive = true;
 
             try
             {
