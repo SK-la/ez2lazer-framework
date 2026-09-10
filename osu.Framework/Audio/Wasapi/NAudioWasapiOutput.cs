@@ -34,7 +34,7 @@ namespace osu.Framework.Audio.Wasapi
         public int ActualLatencyMs { get; private set; }
         public bool LowLatencyActive { get; private set; }
 
-        public bool IsRunning => player != null && MixerHandle is > 0;
+        public bool IsRunning => player != null && MixerHandle is int runningHandle && runningHandle != 0;
 
         /// <summary>
         /// Creates a decode mixer and starts NAudio playback that pulls from it.
@@ -163,7 +163,7 @@ namespace osu.Framework.Audio.Wasapi
             LowLatencyActive = false;
             BoundEndpointId = null;
 
-            if (ownsMixer && MixerHandle is int handle and > 0)
+            if (ownsMixer && MixerHandle is int handle && handle != 0)
             {
                 try
                 {

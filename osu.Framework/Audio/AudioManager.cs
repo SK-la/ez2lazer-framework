@@ -1513,7 +1513,7 @@ namespace osu.Framework.Audio
             // destructive re-init (start → tear down → classic BASS fallback) on every device sync.
             if (mode == AudioOutputMode.Default
                 && !UseExperimentalWasapi.Value
-                && GlobalMixerHandle.Value is > 0
+                && GlobalMixerHandle.Value is int globalMixer && globalMixer != 0
                 && !windowsOutputRuntime.NAudioFallbackToClassicBass)
             {
                 if (!(device.IsEnabled && device.IsInitialized))

@@ -39,18 +39,18 @@ namespace osu.Framework.Audio.Wasapi
 
             int? mixer = mixerHandleProvider();
 
-            if (mixer is not > 0)
+            if (mixer is not int mixerHandle || mixerHandle == 0)
             {
                 buffer.Clear();
                 return buffer.Length;
             }
 
             byte[] rented = System.Buffers.ArrayPool<byte>.Shared.Rent(buffer.Length);
-            var handle = GCHandle.Alloc(rented, GCHandleType.Pinned);
+            var pinned = GCHandle.Alloc(rented, GCHandleType.Pinned);
 
             try
             {
-                int read = Bass.ChannelGetData(mixer.Value, handle.AddrOfPinnedObject(), buffer.Length | (int)DataFlags.Float);
+                int read = Bass.ChannelGetData(mixerHandle, pinned.AddrOfPinnedObject(), buffer.Length | (int)DataFlags.Float);
 
                 if (read < 0)
                 {
@@ -70,7 +70,7 @@ namespace osu.Framework.Audio.Wasapi
             }
             finally
             {
-                handle.Free();
+                pinned.Free();
                 System.Buffers.ArrayPool<byte>.Shared.Return(rented);
             }
         }

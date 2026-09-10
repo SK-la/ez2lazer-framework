@@ -269,8 +269,8 @@ namespace osu.Framework.Threading
                     $"InitDevice re-entrancy ignored (device={deviceId}, mode={outputMode}, depth={initDeviceDepth})",
                     name: "audio",
                     level: LogLevel.Important);
-                return (OperatingSystem.IsWindows() && naudioDefaultOutput?.MixerHandle is > 0)
-                       || globalMixerHandle.Value is > 0
+                return (OperatingSystem.IsWindows() && isValidBassHandle(naudioDefaultOutput?.MixerHandle))
+                       || isValidBassHandle(globalMixerHandle.Value)
                        || Bass.GetDeviceInfo(deviceId, out var reInfo) && reInfo.IsInitialized;
             }
 
@@ -470,13 +470,13 @@ namespace osu.Framework.Threading
                 case AudioOutputMode.WasapiShared:
                     Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
                         Mode: AudioOutputMode.WasapiShared,
-                        Active: globalMixerHandle.Value is > 0));
+                        Active: isValidBassHandle(globalMixerHandle.Value)));
                     break;
 
                 case AudioOutputMode.WasapiExclusive:
                     Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
                         Mode: AudioOutputMode.WasapiExclusive,
-                        Active: wasapiExclusiveActive && globalMixerHandle.Value is > 0,
+                        Active: wasapiExclusiveActive && isValidBassHandle(globalMixerHandle.Value),
                         WasapiBufferMs: (int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_BUFFER_SECONDS * 1000),
                         WasapiPeriodMs: (int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_PERIOD_SECONDS * 1000)));
                     break;
@@ -892,6 +892,7 @@ namespace osu.Framework.Threading
                 naudioDefaultOutput = new NAudioWasapiOutput();
 
                 // Virtual endpoints often reject an immediate reopen after BassWasapi/NAudio Stop.
+                // BASS HSTREAM is a DWORD; ManagedBass exposes it as signed int — negative values are valid.
                 int? mixer = null;
                 int[] delaysMs = [0, 100, 250];
 
@@ -902,16 +903,16 @@ namespace osu.Framework.Threading
 
                     mixer = naudioDefaultOutput.Start(bassDeviceId);
 
-                    if (mixer is > 0)
+                    if (isValidBassHandle(mixer))
                         break;
 
                     Logger.Log(
-                        $"NAudio default output start attempt {attempt + 1}/{delaysMs.Length} failed for BASS device {bassDeviceId}.",
+                        $"NAudio default output start attempt {attempt + 1}/{delaysMs.Length} failed for BASS device {bassDeviceId} (returned={mixer?.ToString() ?? "null"}).",
                         name: "audio",
                         level: LogLevel.Important);
                 }
 
-                if (mixer is not > 0)
+                if (!isValidBassHandle(mixer))
                 {
                     freeNAudioDefault();
                     return false;
@@ -929,6 +930,12 @@ namespace osu.Framework.Threading
                 return false;
             }
         }
+
+        /// <summary>
+        /// BASS channel/mixer handles are DWORD-sized; ManagedBass stores them in signed <see cref="int"/>.
+        /// Zero is invalid; any non-zero value (including negative) is a live handle.
+        /// </summary>
+        private static bool isValidBassHandle(int? handle) => handle is int h && h != 0;
 
         private void freeNAudioDefault()
         {
