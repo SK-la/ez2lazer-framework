@@ -5,6 +5,7 @@ using System;
 using System.Runtime.Versioning;
 using System.Threading;
 using osu.Framework.Bindables;
+using osu.Framework.Logging;
 
 namespace osu.Framework.Audio.EzLatency
 {
@@ -41,6 +42,7 @@ namespace osu.Framework.Audio.EzLatency
 #pragma warning restore CA1416
 
         private string? currentOutputDriverId;
+        private AudioOutputMode? currentOutputMode;
         private float acousticThreshold = 0.02f;
 
         public EzLatencyManager()
@@ -114,11 +116,13 @@ namespace osu.Framework.Audio.EzLatency
         public void PollPendingTimeout() => analyzer.PollTimeout();
 
         /// <summary>
-        /// Called when the game's output device changes so loopback can follow the same endpoint.
+        /// Called when the game's output device/backend changes so loopback can follow the same endpoint.
+        /// Acoustic loopback is only started for <see cref="AudioOutputMode.Default"/> (NAudio shared).
         /// </summary>
-        public void NotifyOutputDeviceChanged(string? bassDriverId)
+        public void NotifyOutputDeviceChanged(string? bassDriverId, AudioOutputMode outputMode = AudioOutputMode.Default)
         {
             currentOutputDriverId = bassDriverId;
+            currentOutputMode = outputMode;
 
             if (!Enabled.Value)
                 return;
@@ -251,9 +255,22 @@ namespace osu.Framework.Audio.EzLatency
 
         private void tryStartAcousticProbe()
         {
-            if (!isWindowsAcousticSupported())
+            // Only NAudio shared (Default) is safe with WasapiLoopbackCapture.
+            // BassWasapi / Exclusive / ASIO + loopback can stall the audio callback.
+            if (!isWindowsAcousticSupported() || currentOutputMode != AudioOutputMode.Default)
             {
                 analyzer.AwaitAcoustic = false;
+
+                if (isWindowsAcousticSupported())
+                {
+                    lock (probeSync)
+                        acousticProbe?.Stop();
+                }
+
+                Logger.Log(
+                    $"[EzLatency] acoustic probe off (mode={currentOutputMode?.ToString() ?? "unset"}; software In→Play only)",
+                    name: "ez_runtime",
+                    level: LogLevel.Debug);
                 return;
             }
 
@@ -268,6 +285,11 @@ namespace osu.Framework.Audio.EzLatency
 
                 bool running = acousticProbe.TryStart(currentOutputDriverId);
                 analyzer.AwaitAcoustic = running;
+
+                Logger.Log(
+                    $"[EzLatency] acoustic probe {(running ? "on" : "failed")} (mode=Default, driver={currentOutputDriverId ?? "default-endpoint"})",
+                    name: "ez_runtime",
+                    level: LogLevel.Debug);
             }
         }
 

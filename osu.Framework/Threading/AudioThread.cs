@@ -363,8 +363,9 @@ namespace osu.Framework.Threading
             initialised_devices.Add(deviceId);
 
             // Keep acoustic closed-loop loopback bound to the same render endpoint as game output.
-            if (Bass.GetDeviceInfo(deviceId, out var latencyDeviceInfo))
-                EzLatencyManager.GLOBAL.NotifyOutputDeviceChanged(latencyDeviceInfo.Driver);
+            // Pass outputMode so non-NAudio backends never start WasapiLoopbackCapture.
+            string? latencyDriver = Bass.GetDeviceInfo(deviceId, out var latencyDeviceInfo) ? latencyDeviceInfo.Driver : null;
+            EzLatencyManager.GLOBAL.NotifyOutputDeviceChanged(latencyDriver, outputMode);
 
             return true;
         }

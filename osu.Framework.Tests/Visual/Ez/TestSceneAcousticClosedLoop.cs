@@ -224,9 +224,9 @@ namespace osu.Framework.Tests.Visual.Ez
             {
                 int device = Bass.CurrentDevice;
                 if (device >= 0 && Bass.GetDeviceInfo(device, out var info))
-                    latency.NotifyOutputDeviceChanged(info.Driver);
+                    latency.NotifyOutputDeviceChanged(info.Driver, AudioOutputMode.Default);
                 else
-                    latency.NotifyOutputDeviceChanged(null);
+                    latency.NotifyOutputDeviceChanged(null, AudioOutputMode.Default);
             }
             catch (Exception ex)
             {
