@@ -11,5 +11,11 @@ namespace osu.Framework.Audio
 
         public const float WASAPI_EXCLUSIVE_BUFFER_SECONDS = 0.05f;
         public const float WASAPI_EXCLUSIVE_PERIOD_SECONDS = 0.01f;
+
+        /// <summary>
+        /// Requested shared-mode latency for the default NAudio WASAPI output path (milliseconds).
+        /// Combined with <c>WithLowLatency(true)</c> so IAudioClient3 can negotiate a smaller period when available.
+        /// </summary>
+        public const int DEFAULT_NAUDIO_LATENCY_MS = 10;
     }
 }

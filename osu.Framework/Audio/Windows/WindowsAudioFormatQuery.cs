@@ -165,6 +165,12 @@ namespace osu.Framework.Audio.Windows
             }
         }
 
+        /// <summary>
+        /// Opens the playback <see cref="MMDevice"/> matching a BASS driver id (or the default endpoint).
+        /// Caller owns the returned instance and must dispose it.
+        /// </summary>
+        public static MMDevice? TryOpenPlaybackDevice(string? bassDriverId) => tryGetPlaybackDevice(bassDriverId);
+
         private static string? tryGetDriverIdForBassDeviceName(string bassDeviceName)
         {
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)

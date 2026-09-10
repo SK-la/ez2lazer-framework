@@ -18,6 +18,7 @@ using osu.Framework.Audio;
 using osu.Framework.Audio.Asio;
 using osu.Framework.Audio.EzLatency;
 using osu.Framework.Audio.Host;
+using osu.Framework.Audio.Wasapi;
 using osu.Framework.Bindables;
 using osu.Framework.Development;
 using osu.Framework.Logging;
@@ -228,6 +229,7 @@ namespace osu.Framework.Threading
         private GCHandle wasapiUserHandle;
         private readonly IntPtr wasapiUserPtr;
         private bool wasapiExclusiveActive;
+        private NAudioWasapiOutput? naudioDefaultOutput;
 
         private bool shouldTrackDefaultWasapiChanges()
             => !wasapiExclusiveActive && string.IsNullOrEmpty(Manager?.AudioDevice.Value);
@@ -252,6 +254,7 @@ namespace osu.Framework.Threading
             // Important: stop any existing output first.
             // In particular, WASAPI exclusive can hold the device such that a subsequent Bass.Init() returns Busy.
             // If we can't initialise BASS, we also won't get a chance to clean up the previous output mode.
+            freeNAudioDefault();
             freeAsio();
             freeWasapi();
             releaseAllOutputsForSwitch(deviceId, outputMode);
@@ -282,6 +285,14 @@ namespace osu.Framework.Threading
             switch (outputMode)
             {
                 case AudioOutputMode.Default:
+                    // Windows default: NAudio shared WASAPI pulls from a BASS decode mixer (replaces BASS device playback).
+                    // Non-Windows keeps classic BASS device output. Experimental mode uses BassWasapi instead.
+                    if (RuntimeInfo.OS == RuntimeInfo.Platform.Windows && OperatingSystem.IsWindows() && !DebugUtils.IsNUnitRunning)
+                    {
+                        if (!initNAudioDefault(deviceId))
+                            Logger.Log("NAudio default output unavailable; falling back to classic BASS device output.", name: "audio", level: LogLevel.Important);
+                    }
+
                     break;
 
                 case AudioOutputMode.WasapiShared:
@@ -393,7 +404,8 @@ namespace osu.Framework.Threading
 
             int selectedDevice = Bass.CurrentDevice;
 
-            // Tear down ASIO before BASS so driver handles are released in order.
+            // Tear down ASIO / NAudio before BASS so driver handles are released in order.
+            freeNAudioDefault();
             freeAsio();
 
             if (canSelectDevice(deviceId))
@@ -709,6 +721,67 @@ namespace osu.Framework.Threading
                 wasapiExclusiveActive = false;
                 globalMixerHandle.Value = null;
                 Thread.Sleep(50);
+            }
+        }
+
+        private bool initNAudioDefault(int bassDeviceId)
+        {
+            if (!OperatingSystem.IsWindows())
+                return false;
+
+            freeNAudioDefault();
+
+            try
+            {
+                naudioDefaultOutput = new NAudioWasapiOutput();
+                int? mixer = naudioDefaultOutput.Start(bassDeviceId);
+
+                if (mixer is not > 0)
+                {
+                    freeNAudioDefault();
+                    return false;
+                }
+
+                globalMixerHandle.Value = mixer;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"NAudio default output init failed: {ex}", name: "audio", level: LogLevel.Error);
+                freeNAudioDefault();
+                return false;
+            }
+        }
+
+        private void freeNAudioDefault()
+        {
+            if (naudioDefaultOutput == null)
+                return;
+
+            if (!OperatingSystem.IsWindows())
+            {
+                naudioDefaultOutput = null;
+                return;
+            }
+
+            int? mixerOwnedByNAudio = naudioDefaultOutput.MixerHandle;
+
+            try
+            {
+                naudioDefaultOutput.Stop();
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"NAudio default output cleanup failed: {ex.Message}", name: "audio", level: LogLevel.Error);
+            }
+            finally
+            {
+                naudioDefaultOutput.Dispose();
+                naudioDefaultOutput = null;
+
+                // Only clear the global handle if it still points at the NAudio-owned mixer.
+                if (mixerOwnedByNAudio != null && globalMixerHandle.Value == mixerOwnedByNAudio)
+                    globalMixerHandle.Value = null;
             }
         }
 

@@ -18,10 +18,8 @@ using osu.Framework.Audio.Host;
 using osu.Framework.Audio.EzLatency;
 using osu.Framework.Audio.Mixing;
 using osu.Framework.Audio.Mixing.Bass;
-using osu.Framework.Audio.Mixing.Wasapi;
 using osu.Framework.Audio.Sample;
 using osu.Framework.Audio.Track;
-using osu.Framework.Audio.Wasapi;
 using osu.Framework.Bindables;
 using osu.Framework.Configuration;
 using osu.Framework.Development;
@@ -64,10 +62,6 @@ namespace osu.Framework.Audio
         private readonly AudioThread thread;
 
         internal double AmplitudeProcessingHz => thread.AmplitudeProcessingHz;
-
-        // Optional audio backend (non-null when using the new Windows WASAPI backend prototype).
-        [CanBeNull]
-        private readonly IAudioBackend audioBackend;
 
         /// <summary>
         /// The global mixer which all tracks are routed into by default.
@@ -544,20 +538,6 @@ namespace osu.Framework.Audio
         {
             thread = audioThread;
 
-            // Initialise optional WASAPI backend on Windows (prototype).
-            if (OperatingSystem.IsWindows())
-            {
-                try
-                {
-                    // Pass a provider to allow the backend to read the current global mixer handle when available.
-                    audioBackend = new WasapiAudioBackend(() => GlobalMixerHandle.Value);
-                }
-                catch
-                {
-                    audioBackend = null;
-                }
-            }
-
             thread.RegisterManager(this);
 
             if (config != null)
@@ -719,15 +699,11 @@ namespace osu.Framework.Audio
 
         private AudioMixer createAudioMixer(AudioMixer fallbackMixer, string identifier)
         {
-            // Only use the experimental WASAPI mixer when the prototype backend exists
-            // and the user has explicitly enabled experimental WASAPI.
-            if (audioBackend != null && UseExperimentalWasapi.Value)
-            {
-                var wasapiMixer = new WasapiAudioMixer(audioBackend, fallbackMixer, identifier);
-                AddItem(wasapiMixer);
-                return wasapiMixer;
-            }
-
+            // Always use BassAudioMixer. Output backends differ by mode:
+            // - Default (Windows): NAudio shared WASAPI pulls from GlobalMixerHandle (Decode).
+            // - Experimental: BassWasapi shared + GlobalMixerHandle (Decode).
+            // - Exclusive / ASIO: existing native paths + GlobalMixerHandle (Decode).
+            // Unfinished WasapiAudioMixer / TrackWasapi prototypes must not be selected here.
             var bassMixer = new BassAudioMixer(this, fallbackMixer, identifier);
             AddItem(bassMixer);
             return bassMixer;
@@ -914,30 +890,7 @@ namespace osu.Framework.Audio
                 if (!InitBass(deviceId, outputMode))
                     return false;
 
-                //we have successfully initialised a new device.
-                // Initialise optional audio backend (WASAPI prototype) with the selected device.
-                if (audioBackend != null)
-                {
-                    try
-                    {
-                        audioBackend.Initialize(deviceId);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Log($"Audio backend failed to initialize: {ex}", name: "audio", level: LogLevel.Important);
-                    }
-                }
-
-                // Notify backend of device change so it can reconfigure if required.
-                try
-                {
-                    audioBackend?.UpdateDevice(deviceId);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Log($"Audio backend UpdateDevice failed: {ex}", name: "audio", level: LogLevel.Important);
-                }
-
+                // we have successfully initialised a new device.
                 UpdateDevice(deviceId);
 
                 return true;
@@ -1047,23 +1000,27 @@ namespace osu.Framework.Audio
             // See https://www.un4seen.com/forum/?topic=19601 for more information.
             Bass.Configure((ManagedBass.Configuration)70, false);
 
+            // Mutable so experimental shared WASAPI can fall back to classic BASS without
+            // touching Exclusive / ASIO failure semantics.
+            var mode = outputMode;
+
             bool attemptInit()
             {
                 bool innerSuccess;
 
                 try
                 {
-                    innerSuccess = thread.InitDevice(device, outputMode, SampleRate.Value, AsioBitDepth.Value);
+                    innerSuccess = thread.InitDevice(device, mode, SampleRate.Value, AsioBitDepth.Value);
                 }
                 catch (Exception e)
                 {
-                    Logger.Log($"Audio device initialisation threw an exception (mode: {outputMode}, device: {device}): {e}", name: "audio", level: LogLevel.Error);
+                    Logger.Log($"Audio device initialisation threw an exception (mode: {mode}, device: {device}): {e}", name: "audio", level: LogLevel.Error);
                     return false;
                 }
 
                 // For ASIO mode, initialization failure should be treated as a critical failure
                 // since ASIO devices require specific initialization that may not be recoverable
-                if (outputMode == AudioOutputMode.Asio && !innerSuccess)
+                if (mode == AudioOutputMode.Asio && !innerSuccess)
                 {
                     Logger.Log("ASIO device initialization failed - this is treated as a critical failure", name: "audio", level: LogLevel.Error);
                     return false;
@@ -1074,7 +1031,7 @@ namespace osu.Framework.Audio
                 if (alreadyInitialised)
                 {
                     // For ASIO, a failed device init must fail even if BASS was already initialised.
-                    if (outputMode == AudioOutputMode.Asio && !innerSuccess)
+                    if (mode == AudioOutputMode.Asio && !innerSuccess)
                     {
                         Logger.Log("ASIO device initialization failed even though BASS was already initialized", name: "audio", level: LogLevel.Error);
                         return false;
@@ -1108,6 +1065,27 @@ namespace osu.Framework.Audio
                 return true;
             }
 
+            bool success = attemptInit();
+
+            // Match upstream: if shared experimental WASAPI fails, disable it and retry Default.
+            // Exclusive / ASIO never enter this branch (different AudioOutputMode).
+            if (success || mode != AudioOutputMode.WasapiShared || !UseExperimentalWasapi.Value)
+                return success;
+
+            Logger.Log($"BASS device {device} failed to initialise with experimental WASAPI, disabling", name: "audio", level: LogLevel.Error);
+
+            syncingSelection = true;
+
+            try
+            {
+                UseExperimentalWasapi.Value = false;
+            }
+            finally
+            {
+                syncingSelection = false;
+            }
+
+            mode = AudioOutputMode.Default;
             return attemptInit();
         }
 
