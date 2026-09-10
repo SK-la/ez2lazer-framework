@@ -22,10 +22,9 @@ namespace osu.Framework.Audio.Wasapi
     {
         private MMDevice? device;
         private WasapiPlayer? player;
-        private int? mixerHandle;
         private bool ownsMixer;
 
-        public int? MixerHandle => mixerHandle;
+        public int? MixerHandle { get; private set; }
 
         public int SampleRateHz { get; private set; }
         public int RequestedLatencyMs { get; private set; }
@@ -87,19 +86,19 @@ namespace osu.Framework.Audio.Wasapi
                 return null;
             }
 
-            mixerHandle = handle;
+            MixerHandle = handle;
             ownsMixer = true;
 
-            var provider = new BassMixerWaveProvider(sourceFormat, () => mixerHandle);
+            var provider = new BassMixerWaveProvider(sourceFormat, () => MixerHandle);
 
             try
             {
                 var builder = new WasapiPlayerBuilder()
-                    .WithDevice(device)
-                    .WithSharedMode()
-                    .WithEventSync()
-                    .WithLowLatency(true)
-                    .WithLatency(AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS);
+                              .WithDevice(device)
+                              .WithSharedMode()
+                              .WithEventSync()
+                              .WithLowLatency(true)
+                              .WithLatency(AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS);
 
                 player = builder.Build();
                 player.Init(provider);
@@ -115,7 +114,7 @@ namespace osu.Framework.Audio.Wasapi
                     + (driverId == null ? " (via Windows default endpoint; BASS Driver empty)" : string.Empty),
                     name: "audio", level: LogLevel.Important);
 
-                return mixerHandle;
+                return MixerHandle;
             }
             catch (Exception ex)
             {
@@ -149,7 +148,7 @@ namespace osu.Framework.Audio.Wasapi
             ActualLatencyMs = 0;
             LowLatencyActive = false;
 
-            if (ownsMixer && mixerHandle is int handle and > 0)
+            if (ownsMixer && MixerHandle is int handle and > 0)
             {
                 try
                 {
@@ -160,7 +159,7 @@ namespace osu.Framework.Audio.Wasapi
                 }
             }
 
-            mixerHandle = null;
+            MixerHandle = null;
             ownsMixer = false;
 
             try
