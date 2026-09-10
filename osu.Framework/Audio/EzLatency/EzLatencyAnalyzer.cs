@@ -35,14 +35,11 @@ namespace osu.Framework.Audio.EzLatency
 
             if (currentInputData.InputTime > 0)
             {
-                // Keyboard Mania often double-fires: PassThrough KeyDown then Column.OnPressed.
-                // Keep the armed slot and prefer the later keyValue (column index) within 2ms.
-                if (inputTime - currentInputData.InputTime < 2.0)
-                {
-                    if (keyValue != null)
-                        currentInputData.KeyValue = keyValue;
+                // Same physical Mania key often double-fires: PassThrough KeyDown (Key enum)
+                // then Column.OnPressed (column int). Only coalesce that pair / exact duplicates —
+                // different columns or keys within 2ms must open a new slot (chords / 10K).
+                if (inputTime - currentInputData.InputTime < 2.0 && tryCoalesceSamePhysicalPress(keyValue))
                     return;
-                }
 
                 currentInputData = default;
                 currentHardwareData = default;
@@ -51,6 +48,26 @@ namespace osu.Framework.Audio.EzLatency
             currentInputData.InputTime = inputTime;
             currentInputData.KeyValue = keyValue;
             recordStartTime = stopwatch.Elapsed.TotalMilliseconds;
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="keyValue"/> is the same physical press as the armed slot
+        /// (Key→column upgrade, or identical id), and updates <see cref="currentInputData.KeyValue"/> if needed.
+        /// </summary>
+        private bool tryCoalesceSamePhysicalPress(object keyValue)
+        {
+            // Framework KeyDown then Mania column index for the same press.
+            if (currentInputData.KeyValue is Enum && keyValue is int)
+            {
+                currentInputData.KeyValue = keyValue;
+                return true;
+            }
+
+            // Exact duplicate (repeated KeyDown / repeated column).
+            if (Equals(currentInputData.KeyValue, keyValue))
+                return true;
+
+            return false;
         }
 
         public void RecordJudgeData(double judgeTime)
