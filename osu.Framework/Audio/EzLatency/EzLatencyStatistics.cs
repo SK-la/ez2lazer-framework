@@ -28,6 +28,13 @@ namespace osu.Framework.Audio.EzLatency
         public double MaxPlaybackToJudge { get; set; }
 
         public double AvgHardwareLatency { get; set; }
+
+        /// <summary>Acoustic loopback round-trip samples (Input → level threshold).</summary>
+        public int AcousticRecordCount { get; set; }
+
+        public double AvgAcousticRoundtrip { get; set; }
+        public double MinAcousticRoundtrip { get; set; }
+        public double MaxAcousticRoundtrip { get; set; }
     }
 
     internal class EzLatencyCollector
@@ -81,7 +88,19 @@ namespace osu.Framework.Audio.EzLatency
                                       .Where(d => Math.Abs(d) <= 1000)
                                       .ToList();
 
-                var hardwareLatency = records.Select(r => r.OutputHardwareTime).Where(h => h > 0).ToList();
+                // Non-acoustic hardware stamps (legacy path); acoustic uses LatencyDifference instead.
+                var hardwareLatency = records
+                                      .Where(r => r.Note != EzLatencyAnalyzer.NOTE_ACOUSTIC_LOOPBACK)
+                                      .Select(r => r.OutputHardwareTime)
+                                      .Where(h => h > 0)
+                                      .ToList();
+
+                var acoustic = records
+                               .Where(r => r.Note == EzLatencyAnalyzer.NOTE_ACOUSTIC_LOOPBACK ||
+                                           (r.Note != null && r.Note.StartsWith("acoustic-", StringComparison.Ordinal)))
+                               .Select(r => r.LatencyDifference > 0 ? r.LatencyDifference : r.OutputHardwareTime)
+                               .Where(d => d > 0 && d <= 1000)
+                               .ToList();
 
                 double avgInputToJudge = inputToJudge.Count > 0 ? inputToJudge.Average() : 0;
                 double avgInputToPlayback = inputToPlayback.Count > 0 ? inputToPlayback.Average() : 0;
@@ -99,7 +118,11 @@ namespace osu.Framework.Audio.EzLatency
                     AvgPlaybackToJudge = avgPlaybackToJudge,
                     MinPlaybackToJudge = playbackToJudge.Count > 0 ? playbackToJudge.Min() : 0,
                     MaxPlaybackToJudge = playbackToJudge.Count > 0 ? playbackToJudge.Max() : 0,
-                    AvgHardwareLatency = hardwareLatency.Count > 0 ? hardwareLatency.Average() : 0
+                    AvgHardwareLatency = hardwareLatency.Count > 0 ? hardwareLatency.Average() : 0,
+                    AcousticRecordCount = acoustic.Count,
+                    AvgAcousticRoundtrip = acoustic.Count > 0 ? acoustic.Average() : 0,
+                    MinAcousticRoundtrip = acoustic.Count > 0 ? acoustic.Min() : 0,
+                    MaxAcousticRoundtrip = acoustic.Count > 0 ? acoustic.Max() : 0
                 };
             }
         }

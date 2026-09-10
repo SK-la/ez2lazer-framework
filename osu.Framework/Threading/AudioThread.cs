@@ -361,6 +361,11 @@ namespace osu.Framework.Threading
             }
 
             initialised_devices.Add(deviceId);
+
+            // Keep acoustic closed-loop loopback bound to the same render endpoint as game output.
+            if (Bass.GetDeviceInfo(deviceId, out var latencyDeviceInfo))
+                EzLatencyManager.GLOBAL.NotifyOutputDeviceChanged(latencyDeviceInfo.Driver);
+
             return true;
         }
 
