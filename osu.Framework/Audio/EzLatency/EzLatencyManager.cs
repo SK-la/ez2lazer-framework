@@ -104,6 +104,16 @@ namespace osu.Framework.Audio.EzLatency
         }
 
         /// <summary>
+        /// Pending-slot timeout while awaiting acoustic (ms). Lower in tests to avoid long waits.
+        /// </summary>
+        public void SetAcousticAwaitTimeoutMs(double timeoutMs) => analyzer.TimeoutMs = Math.Clamp(timeoutMs, 10, 5000);
+
+        /// <summary>
+        /// Drive soft-timeout while awaiting acoustic (safe to call from update/tests).
+        /// </summary>
+        public void PollPendingTimeout() => analyzer.PollTimeout();
+
+        /// <summary>
         /// Called when the game's output device changes so loopback can follow the same endpoint.
         /// </summary>
         public void NotifyOutputDeviceChanged(string? bassDriverId)

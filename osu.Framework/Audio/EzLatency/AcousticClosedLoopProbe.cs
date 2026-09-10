@@ -35,6 +35,7 @@ namespace osu.Framework.Audio.EzLatency
         private double armedInputTime;
         private float threshold = default_threshold;
         private bool disposed;
+        private Timer? pollTimer;
 
         public AcousticClosedLoopProbe(Func<double> getTimestamp, Action onPollTimeout, Action<double, double, double, double> recordHardware)
         {
@@ -90,6 +91,20 @@ namespace osu.Framework.Audio.EzLatency
                     capture.RecordingStopped += onRecordingStopped;
                     capture.StartRecording();
                     boundDriverId = bassDriverId ?? device.ID;
+
+                    // Ensure soft-timeout can fire even if DataAvailable is quiet/silent.
+                    pollTimer?.Dispose();
+                    pollTimer = new Timer(_ =>
+                    {
+                        try
+                        {
+                            onPollTimeout();
+                        }
+                        catch
+                        {
+                            // best-effort
+                        }
+                    }, null, 50, 50);
 
                     Logger.Log($"[EzLatency] acoustic loopback started on {device.FriendlyName}", name: "ez_runtime", level: LogLevel.Debug);
                     return true;
@@ -173,6 +188,9 @@ namespace osu.Framework.Audio.EzLatency
         private void stopCaptureLocked()
         {
             armed = false;
+
+            pollTimer?.Dispose();
+            pollTimer = null;
 
             if (capture != null)
             {
