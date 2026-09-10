@@ -10,7 +10,6 @@ using ManagedBass.Fx;
 using osu.Framework.IO;
 using System.Threading.Tasks;
 using osu.Framework.Audio.Callbacks;
-using osu.Framework.Audio.EzLatency;
 using osu.Framework.Audio.Mixing;
 using osu.Framework.Audio.Mixing.Bass;
 using osu.Framework.Extensions;
@@ -275,9 +274,6 @@ namespace osu.Framework.Audio.Track
             if (startInternal())
             {
                 isRunning = isPlayed = true;
-
-                // 记录播放事件以供 EzLatency 进行统计和分析，与play()记录播放事件不同，此处记录播放事件的时机是在实际开始播放之后，确保统计数据的准确性。
-                EzLatencyManager.GLOBAL.RecordPlaybackEvent();
             }
         });
 

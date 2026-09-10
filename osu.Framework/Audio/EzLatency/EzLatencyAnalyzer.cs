@@ -35,6 +35,12 @@ namespace osu.Framework.Audio.EzLatency
 
             if (currentInputData.InputTime > 0)
             {
+                // Same physical Mania key often double-fires: PassThrough KeyDown (Key enum)
+                // then Column.OnPressed (column int). Only coalesce that pair / exact duplicates —
+                // different columns or keys within 2ms must open a new slot (chords / 10K).
+                if (inputTime - currentInputData.InputTime < 2.0 && tryCoalesceSamePhysicalPress(keyValue))
+                    return;
+
                 currentInputData = default;
                 currentHardwareData = default;
             }
@@ -42,6 +48,35 @@ namespace osu.Framework.Audio.EzLatency
             currentInputData.InputTime = inputTime;
             currentInputData.KeyValue = keyValue;
             recordStartTime = stopwatch.Elapsed.TotalMilliseconds;
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="keyValue"/> is the same physical press as the armed slot
+        /// (Key→column upgrade, or identical id).
+        /// </summary>
+        private bool tryCoalesceSamePhysicalPress(object keyValue)
+        {
+            // Framework KeyDown then Mania column index for the same press.
+            if (currentInputData.KeyValue is Enum && keyValue is int)
+            {
+                currentInputData.KeyValue = keyValue;
+                return true;
+            }
+
+            // Exact duplicate (repeated KeyDown / repeated column).
+            if (ReferenceEquals(currentInputData.KeyValue, keyValue))
+                return true;
+
+            if (currentInputData.KeyValue is int pendingColumn && keyValue is int incomingColumn)
+                return pendingColumn == incomingColumn;
+
+            if (currentInputData.KeyValue is Enum pendingKey && keyValue is Enum incomingKey
+                                                             && pendingKey.GetType() == incomingKey.GetType())
+            {
+                return Convert.ToInt32(pendingKey) == Convert.ToInt32(incomingKey);
+            }
+
+            return false;
         }
 
         public void RecordJudgeData(double judgeTime)
@@ -55,6 +90,10 @@ namespace osu.Framework.Audio.EzLatency
         public void RecordPlaybackData(double playbackTime)
         {
             if (!Enabled) return;
+
+            // Ignore stray sample/track Play() calls until an input has armed the slot.
+            if (currentInputData.InputTime <= 0)
+                return;
 
             currentInputData.PlaybackTime = playbackTime;
             tryEmitRecord();
@@ -116,11 +155,6 @@ namespace osu.Framework.Audio.EzLatency
             {
                 OnNewRecord?.Invoke(record);
                 EzLatencyService.Instance.PushRecord(record);
-                Logger.Log(
-                    hwData.IsValid
-                        ? $"EzLatency 完整记录已生成: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms"
-                        : $"EzLatency 最佳尝试记录（无硬件时间戳）: Input→Playback={record.PlaybackTime - record.InputTime:F2}ms",
-                    LoggingTarget.Runtime, LogLevel.Debug);
             }
             catch (Exception ex)
             {

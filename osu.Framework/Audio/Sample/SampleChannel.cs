@@ -26,7 +26,7 @@ namespace osu.Framework.Audio.Sample
 
             Played = true;
 
-            // 记录播放事件以供 EzLatency 进行统计和分析
+            // Record only when an input slot is armed (see EzLatencyAnalyzer).
             EzLatency.EzLatencyManager.GLOBAL.RecordPlaybackEvent();
 
             OnPlay?.Invoke(this);

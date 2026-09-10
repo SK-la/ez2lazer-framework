@@ -4,7 +4,6 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using osu.Framework.Audio.EzLatency;
 using osu.Framework.Extensions;
 
 namespace osu.Framework.Audio.Track
@@ -60,8 +59,6 @@ namespace osu.Framework.Audio.Track
             playbackStartDeviceTimeSec = backend.GetDeviceTimeSeconds();
             playbackStartOffsetMs = currentTimeMs;
             isRunning = true;
-
-            EzLatencyManager.GLOBAL.RecordPlaybackEvent();
         });
 
         public override void Start() => StartAsync().WaitSafely();

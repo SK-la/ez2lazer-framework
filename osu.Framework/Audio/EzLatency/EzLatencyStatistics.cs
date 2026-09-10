@@ -14,11 +14,19 @@ namespace osu.Framework.Audio.EzLatency
     {
         public bool HasData => RecordCount > 0;
         public int RecordCount { get; set; }
+
         public double AvgInputToJudge { get; set; }
-        public double AvgInputToPlayback { get; set; }
-        public double AvgPlaybackToJudge { get; set; }
         public double MinInputToJudge { get; set; }
         public double MaxInputToJudge { get; set; }
+
+        public double AvgInputToPlayback { get; set; }
+        public double MinInputToPlayback { get; set; }
+        public double MaxInputToPlayback { get; set; }
+
+        public double AvgPlaybackToJudge { get; set; }
+        public double MinPlaybackToJudge { get; set; }
+        public double MaxPlaybackToJudge { get; set; }
+
         public double AvgHardwareLatency { get; set; }
     }
 
@@ -78,17 +86,19 @@ namespace osu.Framework.Audio.EzLatency
                 double avgInputToJudge = inputToJudge.Count > 0 ? inputToJudge.Average() : 0;
                 double avgInputToPlayback = inputToPlayback.Count > 0 ? inputToPlayback.Average() : 0;
                 double avgPlaybackToJudge = playbackToJudge.Count > 0 ? playbackToJudge.Average() : 0;
-                double minInputToJudge = inputToJudge.Count > 0 ? inputToJudge.Min() : 0;
-                double maxInputToJudge = inputToJudge.Count > 0 ? inputToJudge.Max() : 0;
 
                 return new EzLatencyStatistics
                 {
                     RecordCount = records.Count,
                     AvgInputToJudge = avgInputToJudge,
+                    MinInputToJudge = inputToJudge.Count > 0 ? inputToJudge.Min() : 0,
+                    MaxInputToJudge = inputToJudge.Count > 0 ? inputToJudge.Max() : 0,
                     AvgInputToPlayback = avgInputToPlayback,
+                    MinInputToPlayback = inputToPlayback.Count > 0 ? inputToPlayback.Min() : 0,
+                    MaxInputToPlayback = inputToPlayback.Count > 0 ? inputToPlayback.Max() : 0,
                     AvgPlaybackToJudge = avgPlaybackToJudge,
-                    MinInputToJudge = minInputToJudge,
-                    MaxInputToJudge = maxInputToJudge,
+                    MinPlaybackToJudge = playbackToJudge.Count > 0 ? playbackToJudge.Min() : 0,
+                    MaxPlaybackToJudge = playbackToJudge.Count > 0 ? playbackToJudge.Max() : 0,
                     AvgHardwareLatency = hardwareLatency.Count > 0 ? hardwareLatency.Average() : 0
                 };
             }
