@@ -699,11 +699,11 @@ namespace osu.Framework.Audio
 
         private AudioMixer createAudioMixer(AudioMixer fallbackMixer, string identifier)
         {
-            // Always use BassAudioMixer. Experimental WASAPI only switches the *device* path
-            // (BassWasapi shared + GlobalMixerHandle in AudioThread); it must not swap in the
-            // unfinished WasapiAudioMixer / TrackWasapi / SampleWasapi prototypes (those mute output).
-            // Exclusive WASAPI and ASIO are unaffected — they already force UseExperimentalWasapi off
-            // and initialise via their own AudioOutputMode branches.
+            // Always use BassAudioMixer. Output backends differ by mode:
+            // - Default (Windows): NAudio shared WASAPI pulls from GlobalMixerHandle (Decode).
+            // - Experimental: BassWasapi shared + GlobalMixerHandle (Decode).
+            // - Exclusive / ASIO: existing native paths + GlobalMixerHandle (Decode).
+            // Unfinished WasapiAudioMixer / TrackWasapi prototypes must not be selected here.
             var bassMixer = new BassAudioMixer(this, fallbackMixer, identifier);
             AddItem(bassMixer);
             return bassMixer;
@@ -891,8 +891,6 @@ namespace osu.Framework.Audio
                     return false;
 
                 // we have successfully initialised a new device.
-                // Do not initialise the NAudio WasapiAudioBackend here — it opens a separate
-                // shared WASAPI session and is only used by unfinished prototype mixers.
                 UpdateDevice(deviceId);
 
                 return true;

@@ -4,17 +4,13 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.Versioning;
-using NAudio.Wave;
-using NAudio.Wave.SampleProviders;
 using ManagedBass;
 
 namespace osu.Framework.Audio.Wasapi
 {
     /// <summary>
-    /// WASAPI backend implementation using NAudio for actual output while still leveraging
-    /// the framework's global BASS mixer for its timebase when available.
-    /// This is a pragmatic approach: playback remains compatible while device timestamps
-    /// are sampled from a local WASAPI output.
+    /// Legacy prototype backend retained for optional hardware-timestamp experiments.
+    /// Default Windows playback now goes through <see cref="NAudioWasapiOutput"/> (Bass decode mixer + WasapiPlayer).
     /// </summary>
     [SupportedOSPlatform("windows")]
     public class WasapiAudioBackend : IAudioBackend
@@ -24,40 +20,18 @@ namespace osu.Framework.Audio.Wasapi
         private int deviceIndex = -1;
         private bool initialized;
 
-        // NAudio playback objects for a simple sine test tone during verification.
-        private WasapiPlayer? wasapiPlayer;
-        private SignalGenerator? signalGenerator;
-
         public WasapiAudioBackend(Func<int?>? globalMixerHandleProvider = null)
         {
             this.globalMixerHandleProvider = globalMixerHandleProvider ?? (() => null);
         }
 
-        public string DebugInfo => $"WasapiAudioBackend (initialized={initialized}, deviceIndex={deviceIndex}, wasapiPlayer={(wasapiPlayer != null)})";
+        public string DebugInfo => $"WasapiAudioBackend (initialized={initialized}, deviceIndex={deviceIndex}; playback via NAudioWasapiOutput)";
 
         public void Initialize(int deviceIndex)
         {
             this.deviceIndex = deviceIndex;
             stopwatch.Restart();
             initialized = true;
-
-            try
-            {
-                // Create a low-latency WASAPI output using NAudio for verification only.
-                wasapiPlayer = new WasapiPlayerBuilder()
-                    .WithSharedMode()
-                    .WithLatency(50)
-                    .Build();
-                signalGenerator = new SignalGenerator(44100, 2) { Gain = 0.2, Frequency = 440, Type = SignalGeneratorType.Sin };
-                wasapiPlayer.Init(new SampleToWaveProvider(signalGenerator));
-                // Do not auto-start playback; tests will call PlayTestTone when desired.
-            }
-            catch
-            {
-                // NAudio may not be available on all platforms; swallow exceptions and fall back.
-                wasapiPlayer = null;
-                signalGenerator = null;
-            }
         }
 
         public void UpdateDevice(int deviceIndex)
@@ -95,37 +69,11 @@ namespace osu.Framework.Audio.Wasapi
         public bool TryGetHardwareTimestamp(out long deviceTimestampNs)
         {
             deviceTimestampNs = 0;
-            // Not implemented yet for NAudio path.
             return false;
-        }
-
-        public void PlayTestTone()
-        {
-            try
-            {
-                wasapiPlayer?.Play();
-            }
-            catch
-            {
-            }
-        }
-
-        public void StopTestTone()
-        {
-            try
-            {
-                wasapiPlayer?.Stop();
-            }
-            catch
-            {
-            }
         }
 
         public void Dispose()
         {
-            StopTestTone();
-            wasapiPlayer?.Dispose();
-            signalGenerator = null;
             stopwatch.Stop();
             initialized = false;
         }
