@@ -17,12 +17,22 @@ namespace osu.Framework.Audio.EzLatency
     {
         private readonly Stopwatch stopwatch;
         public bool Enabled { get; set; }
+
+        /// <summary>
+        /// When true, software Play() only stamps PlaybackTime; emit waits for acoustic hardware data or timeout.
+        /// </summary>
+        public bool AwaitAcoustic { get; set; }
+
         public event Action<EzLatencyRecord> OnNewRecord;
 
         private EzLatencyInputData currentInputData;
         private EzLatencyHardwareData currentHardwareData;
         private double recordStartTime;
         private const double timeout_ms = 5000;
+
+        public const string NoteAcousticLoopback = "acoustic-loopback-current-output";
+        public const string NoteBestEffortNoHw = "best-effort-no-hw";
+        public const string NoteComplete = "complete-latency-measurement";
 
         public EzLatencyAnalyzer()
         {
@@ -84,7 +94,7 @@ namespace osu.Framework.Audio.EzLatency
             if (!Enabled) return;
 
             currentInputData.JudgeTime = judgeTime;
-            checkTimeout();
+            PollTimeout();
         }
 
         public void RecordPlaybackData(double playbackTime)
@@ -96,6 +106,18 @@ namespace osu.Framework.Audio.EzLatency
                 return;
 
             currentInputData.PlaybackTime = playbackTime;
+
+            if (AwaitAcoustic)
+            {
+                // Acoustic already arrived: emit together. Otherwise wait for loopback or timeout.
+                if (currentHardwareData.IsValid)
+                    tryEmitRecord();
+                else
+                    PollTimeout();
+
+                return;
+            }
+
             tryEmitRecord();
         }
 
@@ -111,14 +133,45 @@ namespace osu.Framework.Audio.EzLatency
                 LatencyDifference = latencyDifference
             };
 
+            if (AwaitAcoustic && currentInputData.PlaybackTime <= 0 && currentInputData.JudgeTime <= 0)
+            {
+                // Wait for software Play/Judge so MeasuredMs stays meaningful.
+                PollTimeout();
+                return;
+            }
+
             tryEmitRecord();
+        }
+
+        /// <summary>
+        /// Drop or soft-emit a pending slot that exceeded <see cref="timeout_ms"/>.
+        /// Safe to call from the loopback capture thread.
+        /// </summary>
+        public void PollTimeout()
+        {
+            if (recordStartTime <= 0)
+                return;
+
+            double elapsed = stopwatch.Elapsed.TotalMilliseconds - recordStartTime;
+
+            if (elapsed <= timeout_ms)
+                return;
+
+            // Prefer emitting software-only rather than discarding a completed Play stamp.
+            if (currentInputData.InputTime > 0 && currentInputData.PlaybackTime > 0 && !currentHardwareData.IsValid)
+            {
+                tryEmitRecord();
+                return;
+            }
+
+            ClearCurrentData();
         }
 
         private void tryEmitRecord()
         {
             if (!currentInputData.IsValid)
             {
-                checkTimeout();
+                PollTimeout();
                 return;
             }
 
@@ -132,6 +185,14 @@ namespace osu.Framework.Audio.EzLatency
                     ? inputData.JudgeTime - inputData.InputTime
                     : 0;
 
+            string note;
+            if (hwData.IsValid && hwData.LatencyDifference > 0)
+                note = NoteAcousticLoopback;
+            else if (hwData.IsValid)
+                note = NoteComplete;
+            else
+                note = NoteBestEffortNoHw;
+
             var record = new EzLatencyRecord
             {
                 Timestamp = DateTimeOffset.Now,
@@ -143,7 +204,7 @@ namespace osu.Framework.Audio.EzLatency
                 InputHardwareTime = hwData.InputHardwareTime,
                 LatencyDifference = hwData.LatencyDifference,
                 MeasuredMs = measuredMs,
-                Note = hwData.IsValid ? "complete-latency-measurement" : "best-effort-no-hw",
+                Note = note,
                 InputData = inputData,
                 HardwareData = hwData
             };
@@ -163,19 +224,6 @@ namespace osu.Framework.Audio.EzLatency
         }
 
         public double GetCurrentTimestamp() => stopwatch.Elapsed.TotalMilliseconds;
-
-        private void checkTimeout()
-        {
-            if (recordStartTime <= 0)
-                return;
-
-            double elapsed = stopwatch.Elapsed.TotalMilliseconds - recordStartTime;
-
-            if (elapsed > timeout_ms)
-            {
-                ClearCurrentData();
-            }
-        }
 
         public void ClearCurrentData()
         {
