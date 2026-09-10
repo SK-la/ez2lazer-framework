@@ -398,6 +398,27 @@ namespace osu.Framework.Audio
         }
 
         /// <summary>
+        /// Last Windows output-path facts written from the audio thread for settings status notes.
+        /// </summary>
+        public readonly record struct WindowsOutputRuntimeInfo(
+            AudioOutputMode Mode,
+            bool Active,
+            bool NAudioFallbackToClassicBass = false,
+            int SampleRateHz = 0,
+            int? ActualLatencyMs = null,
+            int? RequestedLatencyMs = null,
+            bool? LowLatencyActive = null,
+            int? WasapiBufferMs = null,
+            int? WasapiPeriodMs = null);
+
+        private WindowsOutputRuntimeInfo windowsOutputRuntime;
+
+        /// <summary>
+        /// Audio-thread update of the runtime facts used by <see cref="GetOutputDeviceStatusNote"/>.
+        /// </summary>
+        internal void SetWindowsOutputRuntime(WindowsOutputRuntimeInfo info) => windowsOutputRuntime = info;
+
+        /// <summary>
         /// User-facing ASIO status for settings UI: summary (output state) and capabilities (driver probe).
         /// </summary>
         public readonly record struct AsioStatusNote(string SummaryLine, string CapabilitiesLine)
@@ -408,6 +429,95 @@ namespace osu.Framework.Audio
             public string ToDisplayText() => string.IsNullOrEmpty(CapabilitiesLine)
                 ? SummaryLine
                 : $"{SummaryLine}\n{CapabilitiesLine}";
+        }
+
+        /// <summary>
+        /// Unified output-device status note for all backends (Mode line + Output line; ASIO keeps Driver probe).
+        /// </summary>
+        public string GetOutputDeviceStatusNote(string deviceSelection = null)
+        {
+            string selection = deviceSelection ?? AudioDevice.Value ?? string.Empty;
+            var (mode, deviceName) = parseSelection(selection);
+
+            string modeLine = buildOutputModeLine(mode);
+            string outputAndMore = mode == AudioOutputMode.Asio
+                ? GetAsioStatusNote(deviceName).ToDisplayText()
+                : buildNonAsioOutputLine(mode);
+
+            return string.IsNullOrEmpty(outputAndMore) ? modeLine : $"{modeLine}\n{outputAndMore}";
+        }
+
+        private string buildOutputModeLine(AudioOutputMode mode)
+        {
+            return mode switch
+            {
+                AudioOutputMode.WasapiExclusive => "Mode: WASAPI Exclusive · BassWasapi",
+                AudioOutputMode.Asio => "Mode: ASIO · BassAsio",
+                AudioOutputMode.WasapiShared => "Mode: Default · BassWasapi shared",
+                AudioOutputMode.Default when windowsOutputRuntime.NAudioFallbackToClassicBass
+                    => "Mode: Default · classic BASS (NAudio fallback)",
+                AudioOutputMode.Default when RuntimeInfo.OS != RuntimeInfo.Platform.Windows
+                    => "Mode: Default · classic BASS",
+                AudioOutputMode.Default => "Mode: Default · NAudio WASAPI shared",
+                _ => $"Mode: {mode}"
+            };
+        }
+
+        private string buildNonAsioOutputLine(AudioOutputMode mode)
+        {
+            var runtime = windowsOutputRuntime;
+            bool selectionMatchesRuntime = runtime.Mode == mode
+                                           || (mode == AudioOutputMode.Default && runtime.NAudioFallbackToClassicBass && runtime.Mode == AudioOutputMode.Default);
+
+            // Prefer live runtime when it matches the dropdown selection's backend family.
+            if (selectionMatchesRuntime && runtime.Active)
+            {
+                switch (mode)
+                {
+                    case AudioOutputMode.Default when runtime.NAudioFallbackToClassicBass:
+                        return "Output: running · classic BASS device playback";
+
+                    case AudioOutputMode.Default:
+                    {
+                        string rate = runtime.SampleRateHz > 0 ? $"{runtime.SampleRateHz} Hz" : "sample rate unknown";
+                        string latency = runtime.ActualLatencyMs.HasValue && runtime.RequestedLatencyMs.HasValue
+                            ? $"latency {runtime.ActualLatencyMs}ms (requested {runtime.RequestedLatencyMs}ms)"
+                            : runtime.ActualLatencyMs.HasValue
+                                ? $"latency {runtime.ActualLatencyMs}ms"
+                                : $"latency {AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS}ms (requested)";
+                        string lowLatency = runtime.LowLatencyActive.HasValue
+                            ? $"lowLatency={runtime.LowLatencyActive.Value}"
+                            : "lowLatency=?";
+                        return $"Output: running · {rate} · {latency} · {lowLatency}";
+                    }
+
+                    case AudioOutputMode.WasapiShared:
+                        return "Output: running · buffer OS-min (BassWasapi shared)";
+
+                    case AudioOutputMode.WasapiExclusive:
+                    {
+                        int bufferMs = runtime.WasapiBufferMs
+                                       ?? (int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_BUFFER_SECONDS * 1000);
+                        int periodMs = runtime.WasapiPeriodMs
+                                       ?? (int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_PERIOD_SECONDS * 1000);
+                        return $"Output: running · buffer {bufferMs}ms · period {periodMs}ms";
+                    }
+                }
+            }
+
+            // Not running / runtime not yet published for this selection.
+            return mode switch
+            {
+                AudioOutputMode.WasapiExclusive =>
+                    $"Output: not running · buffer {(int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_BUFFER_SECONDS * 1000)}ms · period {(int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_PERIOD_SECONDS * 1000)}ms",
+                AudioOutputMode.WasapiShared =>
+                    "Output: not running · buffer OS-min (BassWasapi shared)",
+                AudioOutputMode.Default when RuntimeInfo.OS != RuntimeInfo.Platform.Windows =>
+                    "Output: not running · classic BASS",
+                AudioOutputMode.Default =>
+                    $"Output: not running · latency target {AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS}ms (NAudio WASAPI shared)",
+                _ => "Output: not running"
+            };
         }
 
         /// <summary>

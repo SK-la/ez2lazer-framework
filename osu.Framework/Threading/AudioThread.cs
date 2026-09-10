@@ -367,7 +367,57 @@ namespace osu.Framework.Threading
             string? latencyDriver = Bass.GetDeviceInfo(deviceId, out var latencyDeviceInfo) ? latencyDeviceInfo.Driver : null;
             EzLatencyManager.GLOBAL.NotifyOutputDeviceChanged(latencyDriver, outputMode);
 
+            publishWindowsOutputRuntime(outputMode);
+
             return true;
+        }
+
+        private void publishWindowsOutputRuntime(AudioOutputMode outputMode)
+        {
+            if (Manager == null)
+                return;
+
+            switch (outputMode)
+            {
+                case AudioOutputMode.Default when naudioDefaultOutput?.MixerHandle is > 0:
+                    Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
+                        Mode: AudioOutputMode.Default,
+                        Active: true,
+                        NAudioFallbackToClassicBass: false,
+                        SampleRateHz: naudioDefaultOutput.SampleRateHz,
+                        ActualLatencyMs: naudioDefaultOutput.ActualLatencyMs,
+                        RequestedLatencyMs: naudioDefaultOutput.RequestedLatencyMs,
+                        LowLatencyActive: naudioDefaultOutput.LowLatencyActive));
+                    break;
+
+                case AudioOutputMode.Default:
+                    Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
+                        Mode: AudioOutputMode.Default,
+                        Active: true,
+                        NAudioFallbackToClassicBass: RuntimeInfo.OS == RuntimeInfo.Platform.Windows));
+                    break;
+
+                case AudioOutputMode.WasapiShared:
+                    Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
+                        Mode: AudioOutputMode.WasapiShared,
+                        Active: globalMixerHandle.Value is > 0));
+                    break;
+
+                case AudioOutputMode.WasapiExclusive:
+                    Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
+                        Mode: AudioOutputMode.WasapiExclusive,
+                        Active: wasapiExclusiveActive && globalMixerHandle.Value is > 0,
+                        WasapiBufferMs: (int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_BUFFER_SECONDS * 1000),
+                        WasapiPeriodMs: (int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_PERIOD_SECONDS * 1000)));
+                    break;
+
+                case AudioOutputMode.Asio:
+                    Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
+                        Mode: AudioOutputMode.Asio,
+                        Active: EzAsioDeviceManager.IsDeviceRunning(),
+                        SampleRateHz: (int)Math.Round(EzAsioDeviceManager.GetCurrentSampleRate())));
+                    break;
+            }
         }
 
         private static void releaseAllOutputsForSwitch(int targetDeviceId, AudioOutputMode outputMode)

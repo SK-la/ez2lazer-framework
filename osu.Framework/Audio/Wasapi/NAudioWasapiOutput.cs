@@ -27,6 +27,11 @@ namespace osu.Framework.Audio.Wasapi
 
         public int? MixerHandle => mixerHandle;
 
+        public int SampleRateHz { get; private set; }
+        public int RequestedLatencyMs { get; private set; }
+        public int ActualLatencyMs { get; private set; }
+        public bool LowLatencyActive { get; private set; }
+
         /// <summary>
         /// Creates a decode mixer and starts NAudio playback that pulls from it.
         /// </summary>
@@ -94,8 +99,13 @@ namespace osu.Framework.Audio.Wasapi
                 player.Init(provider);
                 player.Play();
 
+                SampleRateHz = sourceFormat.SampleRate;
+                RequestedLatencyMs = AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS;
+                ActualLatencyMs = player.LatencyMilliseconds;
+                LowLatencyActive = player.LowLatencyActive;
+
                 Logger.Log(
-                    $"NAudio default output started: device=\"{device.FriendlyName}\", {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS}ms, actualLatency={player.LatencyMilliseconds}ms, lowLatency={player.LowLatencyActive}",
+                    $"NAudio default output started: device=\"{device.FriendlyName}\", {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, lowLatency={LowLatencyActive}",
                     name: "audio", level: LogLevel.Verbose);
 
                 return mixerHandle;
@@ -127,6 +137,10 @@ namespace osu.Framework.Audio.Wasapi
             }
 
             player = null;
+            SampleRateHz = 0;
+            RequestedLatencyMs = 0;
+            ActualLatencyMs = 0;
+            LowLatencyActive = false;
 
             if (ownsMixer && mixerHandle is int handle and > 0)
             {
