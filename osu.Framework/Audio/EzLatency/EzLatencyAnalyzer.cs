@@ -28,11 +28,14 @@ namespace osu.Framework.Audio.EzLatency
         private EzLatencyInputData currentInputData;
         private EzLatencyHardwareData currentHardwareData;
         private double recordStartTime;
-        private const double timeout_ms = 5000;
+        private const double default_timeout_ms = 5000;
 
-        public const string NoteAcousticLoopback = "acoustic-loopback-current-output";
-        public const string NoteBestEffortNoHw = "best-effort-no-hw";
-        public const string NoteComplete = "complete-latency-measurement";
+        /// <summary>Slot timeout before soft-emitting software-only or clearing. Internal for tests.</summary>
+        internal double TimeoutMs { get; set; } = default_timeout_ms;
+
+        public const string NOTE_ACOUSTIC_LOOPBACK = "acoustic-loopback-current-output";
+        public const string NOTE_BEST_EFFORT_NO_HW = "best-effort-no-hw";
+        public const string NOTE_COMPLETE = "complete-latency-measurement";
 
         public EzLatencyAnalyzer()
         {
@@ -144,7 +147,7 @@ namespace osu.Framework.Audio.EzLatency
         }
 
         /// <summary>
-        /// Drop or soft-emit a pending slot that exceeded <see cref="timeout_ms"/>.
+        /// Drop or soft-emit a pending slot that exceeded <see cref="TimeoutMs"/>.
         /// Safe to call from the loopback capture thread.
         /// </summary>
         public void PollTimeout()
@@ -154,7 +157,7 @@ namespace osu.Framework.Audio.EzLatency
 
             double elapsed = stopwatch.Elapsed.TotalMilliseconds - recordStartTime;
 
-            if (elapsed <= timeout_ms)
+            if (elapsed <= TimeoutMs)
                 return;
 
             // Prefer emitting software-only rather than discarding a completed Play stamp.
@@ -187,11 +190,11 @@ namespace osu.Framework.Audio.EzLatency
 
             string note;
             if (hwData.IsValid && hwData.LatencyDifference > 0)
-                note = NoteAcousticLoopback;
+                note = NOTE_ACOUSTIC_LOOPBACK;
             else if (hwData.IsValid)
-                note = NoteComplete;
+                note = NOTE_COMPLETE;
             else
-                note = NoteBestEffortNoHw;
+                note = NOTE_BEST_EFFORT_NO_HW;
 
             var record = new EzLatencyRecord
             {

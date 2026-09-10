@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Threading;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using osu.Framework.Audio.Windows;
@@ -18,7 +19,7 @@ namespace osu.Framework.Audio.EzLatency
         private const double ignore_after_arm_ms = 8;
         private const float default_threshold = 0.02f;
 
-        private readonly object sync = new object();
+        private readonly Lock sync = new Lock();
         private readonly Func<double> getTimestamp;
         private readonly Action onPollTimeout;
         private readonly Action<double, double, double, double> recordHardware;
@@ -135,7 +136,7 @@ namespace osu.Framework.Audio.EzLatency
             if (now - armedInputTime < ignore_after_arm_ms)
                 return;
 
-            float rms = computeRms(e.Buffer, e.BytesRecorded, capture.WaveFormat);
+            float rms = ComputeRms(e.Buffer, e.BytesRecorded, toSampleFormat(capture.WaveFormat));
             if (rms < threshold)
                 return;
 
@@ -159,15 +160,35 @@ namespace osu.Framework.Audio.EzLatency
                 Logger.Log($"[EzLatency] acoustic loopback stopped: {e.Exception.Message}", name: "audio", level: LogLevel.Debug);
         }
 
-        private static float computeRms(byte[] buffer, int bytesRecorded, WaveFormat format)
+        internal enum SampleFormat
+        {
+            IeeeFloat32,
+            Pcm16,
+            Unsupported
+        }
+
+        private static SampleFormat toSampleFormat(WaveFormat format)
         {
             if (format.Encoding == WaveFormatEncoding.IeeeFloat || format.BitsPerSample == 32)
+                return SampleFormat.IeeeFloat32;
+
+            if (format.BitsPerSample == 16)
+                return SampleFormat.Pcm16;
+
+            return SampleFormat.Unsupported;
+        }
+
+        /// <summary>RMS of interleaved PCM samples. Internal for unit tests.</summary>
+        internal static float ComputeRms(byte[] buffer, int bytesRecorded, SampleFormat format)
+        {
+            if (format == SampleFormat.IeeeFloat32)
             {
                 int samples = bytesRecorded / 4;
                 if (samples <= 0)
                     return 0;
 
                 double sum = 0;
+
                 for (int i = 0; i < samples; i++)
                 {
                     float sample = BitConverter.ToSingle(buffer, i * 4);
@@ -177,13 +198,14 @@ namespace osu.Framework.Audio.EzLatency
                 return (float)Math.Sqrt(sum / samples);
             }
 
-            if (format.BitsPerSample == 16)
+            if (format == SampleFormat.Pcm16)
             {
                 int samples = bytesRecorded / 2;
                 if (samples <= 0)
                     return 0;
 
                 double sum = 0;
+
                 for (int i = 0; i < samples; i++)
                 {
                     short sample = BitConverter.ToInt16(buffer, i * 2);

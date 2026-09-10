@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Threading;
 using osu.Framework.Bindables;
 
 namespace osu.Framework.Audio.EzLatency
@@ -31,7 +32,7 @@ namespace osu.Framework.Audio.EzLatency
         private readonly EzLatencyAnalyzer analyzer;
         private readonly EzLatencyCollector collector = new EzLatencyCollector();
         private readonly Action<EzLatencyRecord> serviceHandler;
-        private readonly object probeSync = new object();
+        private readonly Lock probeSync = new Lock();
 
         private AcousticClosedLoopProbe? acousticProbe;
         private string? currentOutputDriverId;
@@ -87,8 +88,7 @@ namespace osu.Framework.Audio.EzLatency
 
             lock (probeSync)
             {
-                if (acousticProbe != null)
-                    acousticProbe.Threshold = acousticThreshold;
+                acousticProbe?.Threshold = acousticThreshold;
             }
         }
 

@@ -90,13 +90,13 @@ namespace osu.Framework.Audio.EzLatency
 
                 // Non-acoustic hardware stamps (legacy path); acoustic uses LatencyDifference instead.
                 var hardwareLatency = records
-                                      .Where(r => r.Note != EzLatencyAnalyzer.NoteAcousticLoopback)
+                                      .Where(r => r.Note != EzLatencyAnalyzer.NOTE_ACOUSTIC_LOOPBACK)
                                       .Select(r => r.OutputHardwareTime)
                                       .Where(h => h > 0)
                                       .ToList();
 
                 var acoustic = records
-                               .Where(r => r.Note == EzLatencyAnalyzer.NoteAcousticLoopback ||
+                               .Where(r => r.Note == EzLatencyAnalyzer.NOTE_ACOUSTIC_LOOPBACK ||
                                            (r.Note != null && r.Note.StartsWith("acoustic-", StringComparison.Ordinal)))
                                .Select(r => r.LatencyDifference > 0 ? r.LatencyDifference : r.OutputHardwareTime)
                                .Where(d => d > 0 && d <= 1000)
