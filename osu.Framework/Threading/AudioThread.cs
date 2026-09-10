@@ -266,7 +266,9 @@ namespace osu.Framework.Threading
                     $"InitDevice re-entrancy ignored (device={deviceId}, mode={outputMode}, depth={initDeviceDepth})",
                     name: "audio",
                     level: LogLevel.Important);
-                return naudioDefaultOutput?.MixerHandle is > 0 || globalMixerHandle.Value is > 0 || Bass.GetDeviceInfo(deviceId, out var reInfo) && reInfo.IsInitialized;
+                return (OperatingSystem.IsWindows() && naudioDefaultOutput?.MixerHandle is > 0)
+                       || globalMixerHandle.Value is > 0
+                       || Bass.GetDeviceInfo(deviceId, out var reInfo) && reInfo.IsInitialized;
             }
 
             // Keep a healthy NAudio Default session instead of tearing it down on spurious re-inits
