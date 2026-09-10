@@ -52,7 +52,7 @@ namespace osu.Framework.Audio.EzLatency
 
         /// <summary>
         /// Returns true when <paramref name="keyValue"/> is the same physical press as the armed slot
-        /// (Key→column upgrade, or identical id), and updates <see cref="currentInputData.KeyValue"/> if needed.
+        /// (Key→column upgrade, or identical id).
         /// </summary>
         private bool tryCoalesceSamePhysicalPress(object keyValue)
         {
@@ -64,8 +64,17 @@ namespace osu.Framework.Audio.EzLatency
             }
 
             // Exact duplicate (repeated KeyDown / repeated column).
-            if (Equals(currentInputData.KeyValue, keyValue))
+            if (ReferenceEquals(currentInputData.KeyValue, keyValue))
                 return true;
+
+            if (currentInputData.KeyValue is int pendingColumn && keyValue is int incomingColumn)
+                return pendingColumn == incomingColumn;
+
+            if (currentInputData.KeyValue is Enum pendingKey && keyValue is Enum incomingKey
+                                                             && pendingKey.GetType() == incomingKey.GetType())
+            {
+                return Convert.ToInt32(pendingKey) == Convert.ToInt32(incomingKey);
+            }
 
             return false;
         }
