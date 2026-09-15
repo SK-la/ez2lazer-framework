@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
+using System.Threading;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
@@ -49,7 +50,7 @@ namespace osu.Framework.Graphics.Textures
 
         private readonly bool manualMipmaps;
         private readonly TextureFilteringMode filteringMode;
-        private readonly object textureRetrievalLock = new object();
+        private readonly Lock textureRetrievalLock = new Lock();
 
         /// <summary>
         /// Identifies this atlas in logs, so that an overflow can be traced back to the store which caused it.
