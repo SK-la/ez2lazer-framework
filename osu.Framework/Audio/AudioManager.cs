@@ -602,7 +602,11 @@ namespace osu.Framework.Audio
         {
             if (EzAsioDeviceManager.TryGetCachedBufferParameters(deviceIndex, out int min, out int preferred, out int max, out int granularity))
             {
-                string rangeText = min > 0 && max > 0 ? $"{min}–{max}" : buffers.Count > 0 ? $"{buffers.First()}–{buffers.Last()}" : "unknown range";
+                string rangeText = min > 0 && max > 0
+                    ? $"{min}–{max}"
+                    : buffers.Count > 0
+                        ? $"{buffers.First()}–{buffers.Last()}"
+                        : "unknown range";
                 string preferredText = preferred > 0 ? $"preferred {preferred}" : string.Empty;
                 string granularityText = describeBufferGranularity(granularity);
                 string countText = buffers.Count > 0 ? $"{buffers.Count} values" : string.Empty;
