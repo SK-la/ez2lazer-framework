@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using osu.Framework.Graphics;
 using osu.Framework.Input.Events;
 using osu.Framework.Input.StateChanges;
@@ -28,7 +27,15 @@ namespace osu.Framework.Input
         /// The input queue for propagating button up events.
         /// This is created from <see cref="InputQueue"/> when the button is pressed.
         /// </summary>
-        protected List<Drawable>? ButtonDownInputQueue { get; private set; }
+        /// <remarks>
+        /// [Ez] 队列实体在管理器上复用而不是每次按下新建。队列长度等于整棵输入子树的非位置输入项（可达成百项），
+        /// 高 KPS 下按次 <c>ToList()</c> 是持续性的 gen0 分配来源。每个按钮各自持有一份缓冲，
+        /// 只在同一按钮的下一次按下时整体重填；<c>null</c> 表示当前该按钮未按下。
+        /// </remarks>
+        protected List<Drawable>? ButtonDownInputQueue => buttonDownInputQueueActive ? buttonDownInputQueue : null;
+
+        private readonly List<Drawable> buttonDownInputQueue = new List<Drawable>();
+        private bool buttonDownInputQueueActive;
 
         /// <summary>
         /// The input queue.
@@ -65,7 +72,12 @@ namespace osu.Framework.Input
         /// <returns>Whether the event was handled.</returns>
         private bool handleButtonDown(InputState state)
         {
-            List<Drawable> inputQueue = InputQueue.ToList();
+            // [Ez] 复用缓冲：与上游 ToList() 语义相同（本次按下期间固定的快照），但不再每次按下分配一条队列长度的列表。
+            // 缓冲在本次按下前被整体重填，且期间不会被其他路径改写（同按钮的按下是边沿事件，不会重入）。
+            List<Drawable> inputQueue = buttonDownInputQueue;
+            inputQueue.Clear();
+            inputQueue.AddRange(InputQueue);
+
             Drawable? handledBy = HandleButtonDown(state, inputQueue);
 
             if (handledBy != null)
@@ -75,7 +87,7 @@ namespace osu.Framework.Input
                 inputQueue.RemoveRange(count, inputQueue.Count - count);
             }
 
-            ButtonDownInputQueue = inputQueue;
+            buttonDownInputQueueActive = true;
 
             return handledBy != null;
         }
@@ -99,11 +111,28 @@ namespace osu.Framework.Input
             // outside the bounds of the active tablet area, with confine mouse to window off.
             // it's an awkward configuration and as such it is not exactly clear what should happen in that case,
             // but what should definitely not happen is a crash.
-            if (ButtonDownInputQueue == null)
+            if (!buttonDownInputQueueActive)
                 return;
 
-            HandleButtonUp(state, ButtonDownInputQueue.Where(d => d.IsRootedAt(InputManager)).ToList());
-            ButtonDownInputQueue = null;
+            // [Ez] 就地压缩去掉已不在输入子树上的 drawable，替代上游 Where(...).ToList() 的列表 + 迭代器分配。
+            // 就地改写是安全的：缓冲只表示「本次按下期间的目标」，下一次按下前会被整体重填。
+            List<Drawable> targets = buttonDownInputQueue;
+
+            int writeIndex = 0;
+
+            for (int i = 0; i < targets.Count; i++)
+            {
+                Drawable drawable = targets[i];
+
+                if (drawable.IsRootedAt(InputManager))
+                    targets[writeIndex++] = drawable;
+            }
+
+            targets.RemoveRange(writeIndex, targets.Count - writeIndex);
+
+            HandleButtonUp(state, targets);
+
+            buttonDownInputQueueActive = false;
         }
 
         /// <summary>
