@@ -26,7 +26,7 @@
       <IncludeAssets>all</IncludeAssets>
     </PackageReference>
     <PackageReference Include="FFmpeg.AutoGen" Version="4.3.0.1" />
-    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="10.0.12" />
     <PackageReference Include="ppy.managed-midi" Version="1.10.2" />
     <PackageReference Include="ManagedBass" Version="4.0.2" />
     <PackageReference Include="ManagedBass.Fx" Version="4.0.2" />
@@ -34,7 +34,7 @@
     <PackageReference Include="ManagedBass.Wasapi" Version="4.0.2" />
     <PackageReference Include="ManagedBass.Asio" Version="4.0.2" />
     <PackageReference Include="ppy.Veldrid" Version="4.9.69-ga405fe8484" />
-    <PackageReference Include="ppy.Veldrid.SPIRV" Version="1.0.15-g85a0a20a7c" />
+    <PackageReference Include="ppy.Veldrid.SPIRV" Version="1.0.15-g5911265ec3" />
     <PackageReference Include="McEndu.FreeTypeSharp" Version="4.1.5" />
     <PackageReference Include="SharpFNT" Version="2.0.0" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
@@ -54,7 +54,7 @@
 
     <!-- Any version ahead of this will cause AOT issues with iOS
          See https://github.com/mono/mono/issues/21188 -->
-    <PackageReference Include="Microsoft.Diagnostics.Runtime" Version="3.1.512801" />
+    <PackageReference Include="Microsoft.Diagnostics.Runtime" Version="4.1.745802" />
 
     <!-- Any version ahead of this will cause runtime issues on iOS
          See https://github.com/xoofx/markdig/issues/564 -->
