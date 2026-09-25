@@ -37,6 +37,8 @@ namespace osu.Framework.Audio.Wasapi
             if (buffer.IsEmpty)
                 return 0;
 
+            WasapiReadStats.Observe(buffer.Length, WaveFormat.BlockAlign, WaveFormat.SampleRate);
+
             int? mixer = mixerHandleProvider();
 
             if (mixer is not int mixerHandle || mixerHandle == 0)
