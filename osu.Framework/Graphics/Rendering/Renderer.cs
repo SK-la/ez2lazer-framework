@@ -552,7 +552,7 @@ namespace osu.Framework.Graphics.Rendering
                 compensatedScissor.Y = Viewport.Height - scissor.Bottom;
 
             FlushCurrentBatch(FlushBatchSource.SetScissor);
-            SetScissorImplementation(compensatedScissor);
+            SetScissorImplementation(compensatedScissor.Intersect(Viewport));
             // do not expose the implementation detail of flipping the scissor box to Scissor readers.
             Scissor = scissor;
         }
@@ -955,7 +955,7 @@ namespace osu.Framework.Graphics.Rendering
             while (FrameBuffer == frameBuffer)
                 UnbindFrameBuffer(frameBuffer);
 
-            ScheduleDisposal(DeleteFrameBufferImplementation, frameBuffer);
+            DeleteFrameBufferImplementation(frameBuffer);
         }
 
         protected abstract void DeleteFrameBufferImplementation(IFrameBuffer frameBuffer);
