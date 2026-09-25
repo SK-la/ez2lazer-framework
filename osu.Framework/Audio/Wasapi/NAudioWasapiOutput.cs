@@ -109,11 +109,14 @@ namespace osu.Framework.Audio.Wasapi
                 // Prefer IAudioClient3 low-latency shared mode, but do not require it.
                 // Some endpoints (e.g. HDMI / AMD HD Audio) decline the low-latency request;
                 // WithLowLatency(true) would throw and leave the device uninitialised.
+                // MMCSS: without it the render thread is Normal priority and loses its 10 ms wake-up to the
+                // 2000 Hz update/draw threads, which shows up as ~20 ms steps in the mixer position.
                 var builder = new WasapiPlayerBuilder()
                               .WithDevice(device)
                               .WithSharedMode()
                               .WithEventSync()
                               .WithLowLatency()
+                              .WithMmcssThreadPriority(AudioOutputDefaults.DEFAULT_NAUDIO_MMCSS_TASK)
                               .WithLatency(AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS);
 
                 player = builder.Build();
@@ -130,7 +133,7 @@ namespace osu.Framework.Audio.Wasapi
                     : $"lowLatency=false ({player.LowLatencyUnavailableReason ?? "fell back to standard shared mode"})";
 
                 Logger.Log(
-                    $"NAudio default output started: bassDevice={bassDeviceId} (\"{bassInfo.Name}\"), wasapi=\"{device.FriendlyName}\", endpoint={BoundEndpointId}, {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, {lowLatencyNote}"
+                    $"NAudio default output started: bassDevice={bassDeviceId} (\"{bassInfo.Name}\"), wasapi=\"{device.FriendlyName}\", endpoint={BoundEndpointId}, {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, {lowLatencyNote}, mmcss={AudioOutputDefaults.DEFAULT_NAUDIO_MMCSS_TASK} (requested)"
                     + (driverId == null ? " (via Windows default endpoint; BASS Driver empty)" : string.Empty),
                     name: "audio", level: LogLevel.Important);
 
