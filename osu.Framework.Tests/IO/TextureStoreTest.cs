@@ -3,6 +3,7 @@
 
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Rendering.Dummy;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.IO.Stores;
@@ -68,6 +69,37 @@ namespace osu.Framework.Tests.IO
                 Assert.That(condensedSheet, Is.Not.Null);
                 Assert.That(condensedSheet.ScaleAdjust, Is.EqualTo(200));
             }
+        }
+
+        /// <summary>
+        /// A store must hand its configured label to the atlas, otherwise overflow logs cannot be attributed.
+        /// </summary>
+        [Test]
+        public void TestAtlasLabelIsPassedToAtlas()
+        {
+            using (var textureStore = new LabelExposingTextureStore(new DummyRenderer(), "EzResourceStore/Glyph"))
+            {
+                Assert.That(textureStore.AtlasLabel, Is.EqualTo("EzResourceStore/Glyph"));
+            }
+        }
+
+        [Test]
+        public void TestAtlasLabelDefaultsToStoreTypeName()
+        {
+            using (var textureStore = new LabelExposingTextureStore(new DummyRenderer(), null))
+            {
+                Assert.That(textureStore.AtlasLabel, Is.EqualTo(nameof(LabelExposingTextureStore)));
+            }
+        }
+
+        private class LabelExposingTextureStore : TextureStore
+        {
+            public LabelExposingTextureStore(IRenderer renderer, string? atlasLabel)
+                : base(renderer, atlasLabel: atlasLabel)
+            {
+            }
+
+            public string AtlasLabel => Atlas.Label;
         }
     }
 }

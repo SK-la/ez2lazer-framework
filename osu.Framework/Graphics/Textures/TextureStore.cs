@@ -55,8 +55,12 @@ namespace osu.Framework.Graphics.Textures
 
         // preferredAtlasSize raises the limit above for stores which would otherwise overflow into several atlases, at
         // the cost of a more expensive mipmap regeneration per upload batch. Still clamped to the renderer's maximum.
+        //
+        // atlasLabel names this store's atlas in the overflow logs. An application owning several stores of one type
+        // should give each a distinct label, otherwise an overflow report is unattributable - every store would
+        // otherwise be reported under the same name.
         public TextureStore(IRenderer renderer, IResourceStore<TextureUpload> store = null, bool useAtlas = true, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, bool manualMipmaps = false, float scaleAdjust = 2,
-                            int? preferredAtlasSize = null)
+                            int? preferredAtlasSize = null, string atlasLabel = null)
         {
             if (store != null)
                 AddTextureSource(store);
@@ -70,7 +74,7 @@ namespace osu.Framework.Graphics.Textures
             if (useAtlas)
             {
                 atlasSize = Math.Min(preferredAtlasSize ?? max_atlas_size, renderer.MaxTextureSize);
-                Atlas = new TextureAtlas(renderer, atlasSize, atlasSize, filteringMode: filteringMode, manualMipmaps: manualMipmaps, label: GetType().Name);
+                Atlas = new TextureAtlas(renderer, atlasSize, atlasSize, filteringMode: filteringMode, manualMipmaps: manualMipmaps, label: atlasLabel ?? GetType().Name);
             }
         }
 

@@ -11,6 +11,7 @@ using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering.Dummy;
 using osu.Framework.Graphics.Textures;
+using osu.Framework.Logging;
 
 namespace osu.Framework.Tests.Graphics
 {
@@ -212,5 +213,47 @@ namespace osu.Framework.Tests.Graphics
 
         private static bool overlaps(RectangleI a, RectangleI b)
             => a.X < b.Right && b.X < a.Right && a.Y < b.Bottom && b.Y < a.Bottom;
+
+        /// <summary>
+        /// An overflow has to name the atlas it came from, otherwise it cannot be traced back to the store that
+        /// caused it when an application owns several of them.
+        /// </summary>
+        [Test]
+        public void TestOverflowLogIncludesLabel()
+        {
+            const int atlas_size = 1024;
+            const string label = "EzResourceStore/Glyph";
+
+            var overflowMessages = new List<string>();
+
+            void onNewEntry(LogEntry entry)
+            {
+                if (entry.Target == LoggingTarget.Performance && entry.Message.Contains("size exceeded"))
+                    overflowMessages.Add(entry.Message);
+            }
+
+            // Other tests turn logging off without restoring it, so it has to be turned on explicitly here.
+            bool wasEnabled = Logger.Enabled;
+
+            Logger.Enabled = true;
+            Logger.NewEntry += onNewEntry;
+
+            try
+            {
+                var atlas = new TextureAtlas(new DummyRenderer(), atlas_size, atlas_size, label: label);
+
+                // Each of these fills a page on its own, so the second and third overflow onto new pages.
+                for (int i = 0; i < 3; i++)
+                    atlas.Add(976, 900);
+            }
+            finally
+            {
+                Logger.NewEntry -= onNewEntry;
+                Logger.Enabled = wasEnabled;
+            }
+
+            Assert.That(overflowMessages, Is.Not.Empty);
+            Assert.That(overflowMessages[0], Does.Contain(label));
+        }
     }
 }

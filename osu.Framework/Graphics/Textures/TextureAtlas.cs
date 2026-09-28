@@ -35,9 +35,9 @@ namespace osu.Framework.Graphics.Textures
         private readonly Lock textureRetrievalLock = new Lock();
 
         /// <summary>
-        /// Identifies this atlas in logs, so that an overflow can be traced back to the store which caused it.
+        /// The label identifying this atlas in logs, for diagnostics and tests.
         /// </summary>
-        private readonly string label;
+        internal string Label { get; }
 
         /// <summary>
         /// All pages backing this atlas, oldest first.
@@ -87,7 +87,7 @@ namespace osu.Framework.Graphics.Textures
             atlasHeight = height;
             this.manualMipmaps = manualMipmaps;
             this.filteringMode = filteringMode;
-            this.label = label;
+            Label = label;
         }
 
         public void DisposeResources()
@@ -146,7 +146,7 @@ namespace osu.Framework.Graphics.Textures
                 // permanently strand whatever space is left on it.
                 // Every extra page is another texture the renderer has to bind between, and each of those binds breaks
                 // the current batch. The first overflow is the one worth surfacing; the rest only add detail.
-                Logger.Log($"TextureAtlas [{label}] size exceeded {++exceedCount} time(s); generating new texture ({atlasWidth}x{atlasHeight})", LoggingTarget.Performance);
+                Logger.Log($"TextureAtlas [{Label}] size exceeded {++exceedCount} time(s); generating new texture ({atlasWidth}x{atlasHeight})", LoggingTarget.Performance);
 
                 var newPage = createPage();
                 pages.Add(newPage);
