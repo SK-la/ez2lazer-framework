@@ -281,13 +281,13 @@ namespace osu.Framework.Audio.Host
             private static extern IntPtr pa_threaded_mainloop_get_api(IntPtr m);
 
             [DllImport(library)]
-            private static extern IntPtr pa_context_new(IntPtr mainloopAPI, [MarshalAs(UnmanagedType.LPStr)] string name);
+            private static extern IntPtr pa_context_new(IntPtr mainloopAPI, [MarshalAs(UnmanagedType.LPWStr)] string name);
 
             [DllImport(library)]
             private static extern void pa_context_unref(IntPtr context);
 
             [DllImport(library)]
-            private static extern int pa_context_connect(IntPtr context, [MarshalAs(UnmanagedType.LPStr)] string? server, uint flags, IntPtr api);
+            private static extern int pa_context_connect(IntPtr context, [MarshalAs(UnmanagedType.LPWStr)] string? server, uint flags, IntPtr api);
 
             [DllImport(library)]
             private static extern void pa_context_disconnect(IntPtr context);
@@ -305,7 +305,7 @@ namespace osu.Framework.Audio.Host
             private static extern void pa_context_get_sink_info_list(IntPtr context, IntPtr cb, IntPtr userdata);
 
             [DllImport(library)]
-            private static extern void pa_context_get_sink_info_by_name(IntPtr context, [MarshalAs(UnmanagedType.LPStr)] string name, IntPtr cb, IntPtr userdata);
+            private static extern void pa_context_get_sink_info_by_name(IntPtr context, [MarshalAs(UnmanagedType.LPWStr)] string name, IntPtr cb, IntPtr userdata);
 
             private delegate void ContextStateCallback(IntPtr context, IntPtr userdata);
         }

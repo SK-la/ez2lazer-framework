@@ -1259,8 +1259,7 @@ namespace osu.Framework.Platform
 
             Threads.ForEach(t =>
             {
-                if (t.Monitor != null)
-                    t.Monitor.CollectionRequested = requested;
+                t.Monitor?.CollectionRequested = requested;
             });
         }
 
