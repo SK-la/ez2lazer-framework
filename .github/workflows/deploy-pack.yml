@@ -75,7 +75,7 @@ jobs:
             artifacts/*.nupkg
             artifacts/*.snupkg
 
-      # NuGet 可信发布：SK-la/osu-framework + deploy-pack.yml（无需长期 NUGET_API_KEY）
+      # NuGet 可信发布：SK-la/ez2lazer-framework + deploy-pack.yml（无需长期 NUGET_API_KEY）
       - name: NuGet login (Trusted Publishing / OIDC)
         uses: NuGet/login@v1
         id: nuget_login

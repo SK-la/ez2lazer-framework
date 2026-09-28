@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/SK-la/osu-framework/actions/workflows/ci.yml"><img src="https://github.com/SK-la/osu-framework/actions/workflows/ci.yml/badge.svg?branch=master&event=push" alt="Build status"></a>
-  <a href="https://github.com/SK-la/osu-framework/releases/latest"><img src="https://img.shields.io/github/release/SK-la/osu-framework.svg" alt="GitHub release"></a>
+  <a href="https://github.com/SK-la/ez2lazer-framework/actions/workflows/ci.yml"><img src="https://github.com/SK-la/ez2lazer-framework/actions/workflows/ci.yml/badge.svg?branch=master&event=push" alt="Build status"></a>
+  <a href="https://github.com/SK-la/ez2lazer-framework/releases/latest"><img src="https://img.shields.io/github/release/SK-la/ez2lazer-framework.svg" alt="GitHub release"></a>
 </p>
 
 > GitHub README 无法运行脚本做真正的「一键切换」；请点上方徽章跳转到对应语言块，并用折叠标题展开/收起。  
@@ -29,7 +29,7 @@ NuGet：`ez2lazer.Framework` · 主仓：[Ez2Lazer](https://github.com/SK-la/Ez2
 
 本仓库是 [ppy/osu-framework](https://github.com/ppy/osu-framework) 的 **Ez2Lazer 专用 fork**，为 [Ez2Lazer](https://github.com/SK-la/Ez2Lazer) 提供底层能力（低延迟音频、毛玻璃 UI、透视着色、多设备输入等）。
 
-日常开发与发布走 [SK-la/osu-framework](https://github.com/SK-la/osu-framework)；`upstream`（ppy）仅作只读同步源。
+日常开发与发布走 [SK-la/ez2lazer-framework](https://github.com/SK-la/ez2lazer-framework)；`upstream`（ppy）仅作只读同步源。
 
 NuGet 包名：`ez2lazer.Framework`（由 Ez2Lazer 主仓的 `Ez2Lazer.Dependencies.props` 引用）。
 
@@ -67,8 +67,8 @@ NuGet 包名：`ez2lazer.Framework`（由 Ez2Lazer 主仓的 `Ez2Lazer.Dependenc
 ## 与主仓的关系
 
 ```
-SK-la/osu-framework  →  NuGet: ez2lazer.Framework
-SK-la/osu-resources  →  NuGet: ez2lazer.Game.Resources
+SK-la/ez2lazer-framework  →  NuGet: ez2lazer.Framework
+SK-la/ez2lazer-resources  →  NuGet: ez2lazer.Game.Resources
 SK-la/Ez2Lazer       →  游戏本体（默认引用上述 NuGet；可切本地工程引用）
 ```
 
@@ -94,15 +94,15 @@ SK-la/Ez2Lazer       →  游戏本体（默认引用上述 NuGet；可切本地
 - 推荐用 Visual Studio / Rider / VS Code，加载平台对应的 `.slnf`，组件开发优先跑 `VisualTests`
 
 ```bash
-git clone https://github.com/SK-la/osu-framework
-# 与 Ez2Lazer、osu-resources 同级克隆后按 Dependencies.props 切换引用
+git clone https://github.com/SK-la/ez2lazer-framework
+# 与 Ez2Lazer、ez2lazer-resources 同级克隆后按 Dependencies.props 切换引用
 ```
 
 代码分析：`powershell ./InspectCode.ps1` 或 `./InspectCode.sh`
 
 ## 同步上游
 
-定期 `git fetch upstream` 后在本地 merge/rebase；**不要**向 `ppy/*` 推送或开 PR。发布与 PR 一律针对 `SK-la/osu-framework`。
+定期 `git fetch upstream` 后在本地 merge/rebase；**不要**向 `ppy/*` 推送或开 PR。发布与 PR 一律针对 `SK-la/ez2lazer-framework`。
 
 ## 许可
 
@@ -124,7 +124,7 @@ git clone https://github.com/SK-la/osu-framework
 
 This repository is the **Ez2Lazer fork** of [ppy/osu-framework](https://github.com/ppy/osu-framework). It powers [Ez2Lazer](https://github.com/SK-la/Ez2Lazer) with low-latency audio, acrylic UI, perspective shaders, multi-device input, and more.
 
-Day-to-day development and releases target [SK-la/osu-framework](https://github.com/SK-la/osu-framework). `upstream` (ppy) is **read-only** sync only.
+Day-to-day development and releases target [SK-la/ez2lazer-framework](https://github.com/SK-la/ez2lazer-framework). `upstream` (ppy) is **read-only** sync only.
 
 NuGet package: `ez2lazer.Framework` (referenced from Ez2Lazer’s `Ez2Lazer.Dependencies.props`).
 
@@ -162,8 +162,8 @@ Core upstream capabilities (UI, input, VisualTests, cross-platform host, etc.) r
 ## Relation to Ez2Lazer
 
 ```
-SK-la/osu-framework  →  NuGet: ez2lazer.Framework
-SK-la/osu-resources  →  NuGet: ez2lazer.Game.Resources
+SK-la/ez2lazer-framework  →  NuGet: ez2lazer.Framework
+SK-la/ez2lazer-resources  →  NuGet: ez2lazer.Game.Resources
 SK-la/Ez2Lazer       →  game (defaults to NuGet; can switch to sibling project refs)
 ```
 
@@ -190,15 +190,15 @@ Docs: [Ez2Lazer Wiki](https://github.com/SK-la/Ez2Lazer/wiki)
 - Prefer Visual Studio / Rider / VS Code; load the platform `.slnf`; develop components under `VisualTests`
 
 ```bash
-git clone https://github.com/SK-la/osu-framework
-# Clone beside Ez2Lazer and osu-resources, then toggle refs in Dependencies.props
+git clone https://github.com/SK-la/ez2lazer-framework
+# Clone beside Ez2Lazer and ez2lazer-resources, then toggle refs in Dependencies.props
 ```
 
 Code analysis: `powershell ./InspectCode.ps1` or `./InspectCode.sh`
 
 ## Syncing upstream
 
-`git fetch upstream` then merge/rebase locally. **Do not** push to or open PRs against `ppy/*`. Releases and PRs go to `SK-la/osu-framework` only.
+`git fetch upstream` then merge/rebase locally. **Do not** push to or open PRs against `ppy/*`. Releases and PRs go to `SK-la/ez2lazer-framework` only.
 
 ## Licence
 
