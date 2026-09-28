@@ -23,30 +23,12 @@ namespace osu.Framework.Graphics.Textures
         internal const int PADDING = (1 << IRenderer.MAX_MIPMAP_LEVELS) * Sprite.MAX_EDGE_SMOOTHNESS;
         internal const int WHITE_PIXEL_SIZE = 1;
 
-        private readonly List<RectangleI> subTextureBounds = new List<RectangleI>();
-        private Texture? atlasTexture;
-
         private readonly IRenderer renderer;
         private readonly int atlasWidth;
         private readonly int atlasHeight;
 
         private int maxFittableWidth => atlasWidth - PADDING * 2;
         private int maxFittableHeight => atlasHeight - PADDING * 2;
-
-        private Vector2I currentPosition;
-
-        internal TextureWhitePixel WhitePixel
-        {
-            get
-            {
-                if (atlasTexture == null)
-                    Reset();
-
-                Debug.Assert(atlasTexture != null, "Atlas texture should not be null after Reset().");
-
-                return new TextureWhitePixel(atlasTexture);
-            }
-        }
 
         private readonly bool manualMipmaps;
         private readonly TextureFilteringMode filteringMode;
@@ -56,6 +38,47 @@ namespace osu.Framework.Graphics.Textures
         /// Identifies this atlas in logs, so that an overflow can be traced back to the store which caused it.
         /// </summary>
         private readonly string label;
+
+        /// <summary>
+        /// All pages backing this atlas, oldest first.
+        /// </summary>
+        /// <remarks>
+        /// Overflowing the current page creates an additional page rather than discarding the current one, so that
+        /// space left over on earlier pages is still usable by later allocations. Previously the leftover space on
+        /// an overflowing page was permanently wasted, which is the main reason a store could end up with far more
+        /// pages (and therefore more texture binds) than the total texture area warranted.
+        /// Pages are filled in creation order, so the oldest page is the one most likely to be completely full and
+        /// the newest page is the one holding the most free space.
+        /// </remarks>
+        private readonly List<Page> pages = new List<Page>();
+
+        /// <summary>
+        /// The number of pages backing this atlas, for diagnostics and tests.
+        /// </summary>
+        internal int PageCount
+        {
+            get
+            {
+                lock (textureRetrievalLock)
+                    return pages.Count;
+            }
+        }
+
+        internal TextureWhitePixel WhitePixel
+        {
+            get
+            {
+                lock (textureRetrievalLock)
+                {
+                    if (pages.Count == 0)
+                        Reset();
+
+                    Debug.Assert(pages.Count > 0, "Atlas should have at least one page after Reset().");
+
+                    return new TextureWhitePixel(pages[0].Texture);
+                }
+            }
+        }
 
         public TextureAtlas(IRenderer renderer, int width, int height, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, string label = "unnamed")
         {
@@ -71,21 +94,17 @@ namespace osu.Framework.Graphics.Textures
         {
             lock (textureRetrievalLock)
             {
-                if (atlasTexture != null)
-                {
-                    new DisposableTexture(atlasTexture).Dispose();
-                    atlasTexture = null;
-                }
+                foreach (Page page in pages)
+                    new DisposableTexture(page.Texture).Dispose();
 
-                subTextureBounds.Clear();
-                currentPosition = Vector2I.Zero;
+                pages.Clear();
             }
         }
 
         private int exceedCount;
 
         /// <summary>
-        /// Creates a new empty texture.
+        /// Discards all existing pages, leaving the atlas with a single empty page.
         /// </summary>
         /// <remarks>
         /// Existing textures created via <see cref="Add"/> are not cleared and remain accessible by usages.
@@ -94,21 +113,8 @@ namespace osu.Framework.Graphics.Textures
         {
             lock (textureRetrievalLock)
             {
-                subTextureBounds.Clear();
-                currentPosition = Vector2I.Zero;
-
-                // We pass PADDING/2 as opposed to PADDING such that the padded region of each individual texture
-                // occupies half of the padded space.
-                atlasTexture = new BackingAtlasTexture(renderer, atlasWidth, atlasHeight, manualMipmaps, filteringMode, PADDING / 2);
-
-                RectangleI bounds = new RectangleI(0, 0, WHITE_PIXEL_SIZE, WHITE_PIXEL_SIZE);
-                subTextureBounds.Add(bounds);
-
-                using (var whiteTex = new TextureRegion(atlasTexture, bounds, WrapMode.Repeat, WrapMode.Repeat))
-                    // Generate white padding as if the white texture was wrapped, even though it isn't
-                    whiteTex.SetData(new TextureUpload(new Image<Rgba32>(SixLabors.ImageSharp.Configuration.Default, whiteTex.Width, whiteTex.Height, new Rgba32(Vector4.One))));
-
-                currentPosition = new Vector2I(PADDING + WHITE_PIXEL_SIZE, PADDING);
+                pages.Clear();
+                pages.Add(createPage());
             }
         }
 
@@ -127,18 +133,55 @@ namespace osu.Framework.Graphics.Textures
 
             lock (textureRetrievalLock)
             {
-                Vector2I position = findPosition(width, height);
-                Debug.Assert(atlasTexture != null, "Atlas texture should not be null after findPosition().");
+                if (pages.Count == 0)
+                    pages.Add(createPage());
 
-                RectangleI bounds = new RectangleI(position.X, position.Y, width, height);
-                subTextureBounds.Add(bounds);
+                foreach (Page page in pages)
+                {
+                    if (tryAllocate(page, width, height, out Vector2I position))
+                        return createRegion(page, position, width, height, wrapModeS, wrapModeT);
+                }
 
-                return new TextureRegion(atlasTexture, bounds, wrapModeS, wrapModeT);
+                // Every existing page is full. Add another one rather than resetting an existing page, as that would
+                // permanently strand whatever space is left on it.
+                // Every extra page is another texture the renderer has to bind between, and each of those binds breaks
+                // the current batch. The first overflow is the one worth surfacing; the rest only add detail.
+                Logger.Log($"TextureAtlas [{label}] size exceeded {++exceedCount} time(s); generating new texture ({atlasWidth}x{atlasHeight})", LoggingTarget.Performance);
+
+                var newPage = createPage();
+                pages.Add(newPage);
+
+                // canFitEmptyTextureAtlas() has already guaranteed this cannot fail.
+                if (!tryAllocate(newPage, width, height, out Vector2I newPosition))
+                {
+                    Debug.Assert(false, "A texture which fits an empty page failed to allocate on a freshly created page.");
+                    return null;
+                }
+
+                return createRegion(newPage, newPosition, width, height, wrapModeS, wrapModeT);
             }
         }
 
+        private Texture createRegion(Page page, Vector2I position, int width, int height, WrapMode wrapModeS, WrapMode wrapModeT)
+            => new TextureRegion(page.Texture, new RectangleI(position.X, position.Y, width, height), wrapModeS, wrapModeT);
+
+        private Page createPage()
+        {
+            var texture = new BackingAtlasTexture(renderer, atlasWidth, atlasHeight, manualMipmaps, filteringMode, PADDING / 2);
+
+            RectangleI bounds = new RectangleI(0, 0, WHITE_PIXEL_SIZE, WHITE_PIXEL_SIZE);
+
+            using (var whiteTex = new TextureRegion(texture, bounds, WrapMode.Repeat, WrapMode.Repeat))
+                // Generate white padding as if the white texture was wrapped, even though it isn't
+                whiteTex.SetData(new TextureUpload(new Image<Rgba32>(SixLabors.ImageSharp.Configuration.Default, whiteTex.Width, whiteTex.Height, new Rgba32(Vector4.One))));
+
+            // The first shelf starts after the white pixel; the next shelf starts below the white pixel, which is the
+            // lowest thing allocated so far.
+            return new Page(texture, new Vector2I(PADDING + WHITE_PIXEL_SIZE, PADDING), PADDING + WHITE_PIXEL_SIZE);
+        }
+
         /// <summary>
-        /// Whether or not a texture of the given width and height could be placed into a completely empty texture atlas
+        /// Whether or not a texture of the given width and height could be placed into a completely empty texture atlas.
         /// </summary>
         /// <param name="width">The width of the texture.</param>
         /// <param name="height">The height of the texture.</param>
@@ -157,45 +200,71 @@ namespace osu.Framework.Graphics.Textures
         }
 
         /// <summary>
-        /// Locates a position in the current texture atlas for a new texture of the given size, or
-        /// creates a new texture atlas if there is not enough space in the current one.
+        /// Attempts to place a texture of the given size on a single page, advancing that page's shelf state on success.
         /// </summary>
+        /// <param name="page">The page to allocate on.</param>
         /// <param name="width">The width of the requested texture.</param>
         /// <param name="height">The height of the requested texture.</param>
-        /// <returns>The position within the texture atlas to place the new texture.</returns>
-        private Vector2I findPosition(int width, int height)
+        /// <param name="position">The position within the page to place the texture at, when this returns true.</param>
+        /// <returns>Whether the texture fitted on the page.</returns>
+        private bool tryAllocate(Page page, int width, int height, out Vector2I position)
         {
-            if (atlasTexture == null)
+            // The current shelf still has room.
+            if (page.Cursor.X + width + PADDING <= atlasWidth && page.Cursor.Y + height + PADDING <= atlasHeight)
             {
-                Logger.Log($"TextureAtlas [{label}] initialised ({atlasWidth}x{atlasHeight})", LoggingTarget.Performance);
-                Reset();
+                position = page.Cursor;
+                page.Cursor.X += width + PADDING;
+                page.ShelfHeight = Math.Max(page.ShelfHeight, height);
+                page.NextShelfY = Math.Max(page.NextShelfY, position.Y + height + PADDING);
+                return true;
             }
 
-            if (currentPosition.Y + height + PADDING > atlasHeight)
+            // Start a new shelf below every shelf allocated so far. The width is known to fit thanks to
+            // canFitEmptyTextureAtlas(), so only the height needs checking.
+            int shelfY = page.NextShelfY;
+
+            if (PADDING + width + PADDING > atlasWidth || shelfY + height + PADDING > atlasHeight)
             {
-                // Every extra atlas is another texture the renderer has to bind between, and each of those binds breaks
-                // the current batch. The first overflow is the one worth surfacing; the rest only add detail.
-                Logger.Log($"TextureAtlas [{label}] size exceeded {++exceedCount} time(s); generating new texture ({atlasWidth}x{atlasHeight})", LoggingTarget.Performance);
-                Reset();
+                position = default;
+                return false;
             }
 
-            if (currentPosition.X + width + PADDING > atlasWidth)
+            position = new Vector2I(PADDING, shelfY);
+            page.Cursor = new Vector2I(position.X + width + PADDING, shelfY);
+            page.ShelfHeight = height;
+            page.NextShelfY = shelfY + height + PADDING;
+            return true;
+        }
+
+        /// <summary>
+        /// A single backing texture and the shelf packing state used to allocate within it.
+        /// </summary>
+        private sealed class Page
+        {
+            public readonly BackingAtlasTexture Texture;
+
+            /// <summary>
+            /// The position to write the next texture of the current shelf at. <see cref="Vector2I.X"/> advances as
+            /// textures are added, while <see cref="Vector2I.Y"/> stays fixed at the top of the current shelf.
+            /// </summary>
+            public Vector2I Cursor;
+
+            /// <summary>
+            /// The height of the tallest texture placed on the current shelf, which decides where the next shelf starts.
+            /// </summary>
+            public int ShelfHeight;
+
+            /// <summary>
+            /// The Y coordinate at which the next shelf will be placed, i.e. below every texture allocated so far.
+            /// </summary>
+            public int NextShelfY;
+
+            public Page(BackingAtlasTexture texture, Vector2I cursor, int nextShelfY)
             {
-                int maxY = 0;
-
-                foreach (RectangleI bounds in subTextureBounds)
-                    maxY = Math.Max(maxY, bounds.Bottom + PADDING);
-
-                subTextureBounds.Clear();
-                currentPosition = new Vector2I(PADDING, maxY);
-
-                return findPosition(width, height);
+                Texture = texture;
+                Cursor = cursor;
+                NextShelfY = nextShelfY;
             }
-
-            var result = currentPosition;
-            currentPosition.X += width + PADDING;
-
-            return result;
         }
     }
 }

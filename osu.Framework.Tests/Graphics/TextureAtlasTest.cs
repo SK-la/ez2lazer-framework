@@ -3,6 +3,9 @@
 
 #nullable disable
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics.Primitives;
@@ -111,5 +114,103 @@ namespace osu.Framework.Tests.Graphics
             Assert.True(tex2.IsAtlasTexture);
             Assert.True(tex3.IsAtlasTexture);
         }
+
+        [Test]
+        public void TestResetLeavesSingleEmptyPage()
+        {
+            var atlas = new TextureAtlas(new DummyRenderer(), 1024, 1024);
+
+            atlas.Add(100, 100);
+            atlas.Add(100, 100);
+
+            Assert.That(atlas.PageCount, Is.EqualTo(1));
+
+            atlas.Reset();
+
+            Assert.That(atlas.PageCount, Is.EqualTo(1));
+        }
+
+        /// <summary>
+        /// Overflowing a page must not strand the space left on it, otherwise a store keeps opening pages even though
+        /// earlier pages could still accept smaller textures.
+        /// </summary>
+        [Test]
+        public void TestOverflowReusesSpaceLeftOnEarlierPages()
+        {
+            const int atlas_size = 1024;
+
+            var atlas = new TextureAtlas(new DummyRenderer(), atlas_size, atlas_size);
+
+            // Two tall textures exceed a single page in both directions, so the second one needs a page of its own.
+            Texture first = atlas.Add(700, 900).AsNonNull();
+            atlas.Add(976, 900).AsNonNull();
+
+            Assert.That(atlas.PageCount, Is.EqualTo(2), "the second tall texture should have opened a new page");
+
+            // These fit neither below the tall textures nor next to the second one, but they do fit beside the first.
+            var small = new List<Texture>();
+
+            for (int i = 0; i < 10; i++)
+                small.Add(atlas.Add(100, 50).AsNonNull());
+
+            Assert.That(atlas.PageCount, Is.EqualTo(2), "small textures should have reused the first page rather than opening more pages");
+            Assert.That(small.All(t => t.HasSameNativeTexture(first)), Is.True, "small textures should all live on the first page");
+        }
+
+        /// <summary>
+        /// Distributes random sizes over the atlas and verifies that no two textures allocated to the same page overlap.
+        /// </summary>
+        [Test]
+        public void TestAllocatedTexturesDoNotOverlap()
+        {
+            const int atlas_size = 1024;
+            const int iterations = 500;
+
+            var atlas = new TextureAtlas(new DummyRenderer(), atlas_size, atlas_size);
+            var random = new Random(12345);
+
+            var allocated = new List<(Texture texture, RectangleI bounds)>();
+
+            for (int i = 0; i < iterations; i++)
+            {
+                Texture texture = atlas.Add(random.Next(1, 300), random.Next(1, 200));
+
+                if (texture == null)
+                    continue;
+
+                allocated.Add((texture, pixelBounds(texture, atlas_size)));
+            }
+
+            Assert.That(allocated, Is.Not.Empty);
+
+            for (int i = 0; i < allocated.Count; i++)
+            {
+                for (int j = i + 1; j < allocated.Count; j++)
+                {
+                    var a = allocated[i];
+                    var b = allocated[j];
+
+                    if (!a.texture.HasSameNativeTexture(b.texture))
+                        continue;
+
+                    Assert.That(overlaps(a.bounds, b.bounds), Is.False,
+                        $"{a.bounds} overlaps {b.bounds} on the same page");
+                }
+            }
+        }
+
+        private static RectangleI pixelBounds(Texture texture, int atlasSize)
+        {
+            RectangleF rect = texture.GetTextureRect();
+
+            return new RectangleI(
+                (int)MathF.Round(rect.X * atlasSize),
+                (int)MathF.Round(rect.Y * atlasSize),
+                texture.Width,
+                texture.Height);
+        }
+
+        private static bool overlaps(RectangleI a, RectangleI b)
+            => a.X < b.Right && b.X < a.Right && a.Y < b.Bottom && b.Y < a.Bottom;
     }
 }
