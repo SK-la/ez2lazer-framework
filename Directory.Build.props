@@ -10,8 +10,8 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup Label="License">
-    <None Include="$(MSBuildThisFileDirectory)osu-framework.licenseheader">
-      <Link>osu-framework.licenseheader</Link>
+    <None Include="$(MSBuildThisFileDirectory)ez2lazer-framework.licenseheader">
+      <Link>ez2lazer-Framework.licenseheader</Link>
     </None>
   </ItemGroup>
   <ItemGroup Label="Resources">
@@ -27,7 +27,7 @@
     <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" PrivateAssets="All" />
     <AdditionalFiles Include="$(MSBuildThisFileDirectory)CodeAnalysis\BannedSymbols.txt" />
     <!-- Rider compatibility: .globalconfig needs to be explicitly referenced instead of using the global file name. -->
-    <GlobalAnalyzerConfigFiles Include="$(MSBuildThisFileDirectory)CodeAnalysis\osu-framework.globalconfig" />
+    <GlobalAnalyzerConfigFiles Include="$(MSBuildThisFileDirectory)CodeAnalysis\ez2lazer-framework.globalconfig" />
   </ItemGroup>
   <PropertyGroup Label="Code Analysis">
     <AnalysisMode>Default</AnalysisMode>
@@ -50,8 +50,8 @@
     <PackageReleaseNotes>Automated release.</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageIcon>icon.png</PackageIcon>
-    <PackageProjectUrl>https://github.com/SK-la/osu-framework</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/SK-la/osu-framework</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/SK-la/ez2lazer-framework</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/SK-la/ez2lazer-framework</RepositoryUrl>
     <Tags>ez2lazer framework fork</Tags>
   </PropertyGroup>
 </Project>
