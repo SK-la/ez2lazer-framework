@@ -79,6 +79,15 @@ namespace osu.Framework.Graphics.Textures
         }
 
         /// <summary>
+        /// Binary-compatibility constructor for rulesets compiled against a framework version predating <c>atlasLabel</c>.
+        /// </summary>
+        [Obsolete("Compatibility overload for pre-built rulesets only; the compiler-bound signature predates atlasLabel. Prefer the overload accepting atlasLabel.")]
+        public TextureStore(IRenderer renderer, IResourceStore<TextureUpload> store, bool useAtlas, TextureFilteringMode filteringMode, bool manualMipmaps, float scaleAdjust, int? preferredAtlasSize)
+            : this(renderer, store, useAtlas, filteringMode, manualMipmaps, scaleAdjust, preferredAtlasSize, null)
+        {
+        }
+
+        /// <summary>
         /// Adds a texture data lookup source to load <see cref="Texture"/>s with.
         /// </summary>
         /// <remarks>
