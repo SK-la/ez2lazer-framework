@@ -1031,3 +1031,6 @@ internal static class ApiDiff
         }
     }
 }
+
+// Appeases CodeFileSanity.
+internal class ApiCompat;
