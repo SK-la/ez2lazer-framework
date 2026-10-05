@@ -95,7 +95,7 @@ namespace osu.Framework.Tests.IO
         private class LabelExposingTextureStore : TextureStore
         {
             public LabelExposingTextureStore(IRenderer renderer, string? atlasLabel)
-                : base(renderer, atlasLabel: atlasLabel)
+                : base(renderer, null, true, TextureFilteringMode.Linear, false, 2, null, atlasLabel)
             {
             }
 

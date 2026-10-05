@@ -53,14 +53,31 @@ namespace osu.Framework.Graphics.Textures
         /// </summary>
         public readonly float ScaleAdjust;
 
+        /// <remarks>
+        /// Optional parameters are part of the CLR signature. Extra trailing parameters must not be appended
+        /// here — external rulesets compiled against upstream bind to this exact 6-parameter constructor.
+        /// </remarks>
+        public TextureStore(IRenderer renderer, IResourceStore<TextureUpload> store = null, bool useAtlas = true, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, bool manualMipmaps = false, float scaleAdjust = 2)
+            : this(renderer, store, useAtlas, filteringMode, manualMipmaps, scaleAdjust, null, null)
+        {
+        }
+
+        /// <summary>
+        /// Binary-compatibility constructor for builds that gained <c>preferredAtlasSize</c> but not <c>atlasLabel</c>.
+        /// </summary>
+        [Obsolete("Compatibility overload for pre-built rulesets only. Prefer the overload accepting atlasLabel.")]
+        public TextureStore(IRenderer renderer, IResourceStore<TextureUpload> store, bool useAtlas, TextureFilteringMode filteringMode, bool manualMipmaps, float scaleAdjust, int? preferredAtlasSize)
+            : this(renderer, store, useAtlas, filteringMode, manualMipmaps, scaleAdjust, preferredAtlasSize, null)
+        {
+        }
+
         // preferredAtlasSize raises the limit above for stores which would otherwise overflow into several atlases, at
         // the cost of a more expensive mipmap regeneration per upload batch. Still clamped to the renderer's maximum.
         //
         // atlasLabel names this store's atlas in the overflow logs. An application owning several stores of one type
         // should give each a distinct label, otherwise an overflow report is unattributable - every store would
         // otherwise be reported under the same name.
-        public TextureStore(IRenderer renderer, IResourceStore<TextureUpload> store = null, bool useAtlas = true, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, bool manualMipmaps = false, float scaleAdjust = 2,
-                            int? preferredAtlasSize = null, string atlasLabel = null)
+        public TextureStore(IRenderer renderer, IResourceStore<TextureUpload> store, bool useAtlas, TextureFilteringMode filteringMode, bool manualMipmaps, float scaleAdjust, int? preferredAtlasSize, string atlasLabel)
         {
             if (store != null)
                 AddTextureSource(store);
@@ -76,15 +93,6 @@ namespace osu.Framework.Graphics.Textures
                 atlasSize = Math.Min(preferredAtlasSize ?? max_atlas_size, renderer.MaxTextureSize);
                 Atlas = new TextureAtlas(renderer, atlasSize, atlasSize, filteringMode: filteringMode, manualMipmaps: manualMipmaps, label: atlasLabel ?? GetType().Name);
             }
-        }
-
-        /// <summary>
-        /// Binary-compatibility constructor for rulesets compiled against a framework version predating <c>atlasLabel</c>.
-        /// </summary>
-        [Obsolete("Compatibility overload for pre-built rulesets only; the compiler-bound signature predates atlasLabel. Prefer the overload accepting atlasLabel.")]
-        public TextureStore(IRenderer renderer, IResourceStore<TextureUpload> store, bool useAtlas, TextureFilteringMode filteringMode, bool manualMipmaps, float scaleAdjust, int? preferredAtlasSize)
-            : this(renderer, store, useAtlas, filteringMode, manualMipmaps, scaleAdjust, preferredAtlasSize, null)
-        {
         }
 
         /// <summary>
