@@ -1475,6 +1475,7 @@ namespace osu.Framework.Graphics.UserInterface
             FinalizeImeComposition(true);
 
             var lastSelectionBounds = getTextSelectionBounds();
+            int lastSelectionLength = selectionLength;
 
             float tripleClickTime = GetContainingInputManager().AsNonNull().GetButtonEventManagerFor(e.Button).DoubleClickTime;
 
@@ -1487,6 +1488,19 @@ namespace osu.Framework.Graphics.UserInterface
                 onTextSelectionChanged(TextSelectionType.All, lastSelectionBounds);
 
                 tripleClickOngoing = true;
+
+                return true;
+            }
+
+            if (e.ShiftPressed)
+            {
+                selectionEnd = getCharacterClosestTo(e.MousePosition);
+
+                cursorAndLayout.Invalidate();
+
+                int selectionLengthDelta = Math.Abs(lastSelectionLength - selectionLength);
+
+                onTextSelectionChanged(selectionLengthDelta > 1 ? TextSelectionType.Word : TextSelectionType.Character, lastSelectionBounds);
 
                 return true;
             }
