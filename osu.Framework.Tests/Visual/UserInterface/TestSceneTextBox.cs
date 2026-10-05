@@ -1168,6 +1168,10 @@ namespace osu.Framework.Tests.Visual.UserInterface
         {
             InsertableTextBox textBox = null;
 
+            // Character indices are used instead of fixed pixel offsets so the test remains
+            // stable across BMFont vs TrueType glyph advances (Ez uses OutlineFont Roboto).
+            const int caret_index = 16;
+
             AddStep("add textbox", () =>
             {
                 textBoxes.Add(textBox = new InsertableTextBox
@@ -1177,9 +1181,9 @@ namespace osu.Framework.Tests.Visual.UserInterface
                 });
             });
 
-            AddStep("focus textbox", () =>
+            AddStep("focus textbox at caret index", () =>
             {
-                InputManager.MoveMouseTo(textBox);
+                InputManager.MoveMouseTo(textBox.GetScreenSpacePositionForCharacterIndex(caret_index));
                 InputManager.Click(MouseButton.Left);
             });
 
@@ -1187,56 +1191,56 @@ namespace osu.Framework.Tests.Visual.UserInterface
 
             AddStep("select text to the left", () =>
             {
-                InputManager.MoveMouseTo(textBox.ToScreenSpace(textBox.LayoutRectangle.Centre - new Vector2(80f, 0f)));
+                InputManager.MoveMouseTo(textBox.GetScreenSpacePositionForCharacterIndex(8));
                 InputManager.Click(MouseButton.Left);
             });
             AddAssert("verify selected text", () => textBox.SelectedText == "very lon");
 
             AddStep("extend selection to the left", () =>
             {
-                InputManager.MoveMouseTo(textBox.ToScreenSpace(textBox.LayoutRectangle.Centre - new Vector2(145f, 0f)));
+                InputManager.MoveMouseTo(textBox.GetScreenSpacePositionForCharacterIndex(0));
                 InputManager.Click(MouseButton.Left);
             });
             AddAssert("verify selected text", () => textBox.SelectedText == "this is very lon");
 
             AddStep("turn around", () =>
             {
-                InputManager.MoveMouseTo(textBox.ToScreenSpace(textBox.LayoutRectangle.Centre + new Vector2(80f, 0f)));
+                InputManager.MoveMouseTo(textBox.GetScreenSpacePositionForCharacterIndex(26));
                 InputManager.Click(MouseButton.Left);
             });
             AddAssert("verify selected text", () => textBox.SelectedText == "g text in ");
 
             AddStep("extend selection to the right", () =>
             {
-                InputManager.MoveMouseTo(textBox.ToScreenSpace(textBox.LayoutRectangle.Centre + new Vector2(145f, 0f)));
+                InputManager.MoveMouseTo(textBox.GetScreenSpacePositionForCharacterIndex(31));
                 InputManager.Click(MouseButton.Left);
             });
             AddAssert("verify selected text", () => textBox.SelectedText == "g text in a box");
 
             AddStep("shrink selection to the left", () =>
             {
-                InputManager.MoveMouseTo(textBox.ToScreenSpace(textBox.LayoutRectangle.Centre + new Vector2(80f, 0f)));
+                InputManager.MoveMouseTo(textBox.GetScreenSpacePositionForCharacterIndex(26));
                 InputManager.Click(MouseButton.Left);
             });
             AddAssert("verify selected text", () => textBox.SelectedText == "g text in ");
 
             AddStep("turn around again", () =>
             {
-                InputManager.MoveMouseTo(textBox.ToScreenSpace(textBox.LayoutRectangle.Centre - new Vector2(145f, 0f)));
+                InputManager.MoveMouseTo(textBox.GetScreenSpacePositionForCharacterIndex(0));
                 InputManager.Click(MouseButton.Left);
             });
             AddAssert("verify selected text", () => textBox.SelectedText == "this is very lon");
 
             AddStep("shrink selection to the right", () =>
             {
-                InputManager.MoveMouseTo(textBox.ToScreenSpace(textBox.LayoutRectangle.Centre - new Vector2(80f, 0f)));
+                InputManager.MoveMouseTo(textBox.GetScreenSpacePositionForCharacterIndex(8));
                 InputManager.Click(MouseButton.Left);
             });
             AddAssert("verify selected text", () => textBox.SelectedText == "very lon");
 
-            AddStep("click at the center", () =>
+            AddStep("click at caret index", () =>
             {
-                InputManager.MoveMouseTo(textBox);
+                InputManager.MoveMouseTo(textBox.GetScreenSpacePositionForCharacterIndex(caret_index));
                 InputManager.Click(MouseButton.Left);
             });
             AddAssert("verify selected text", () => textBox.SelectedText.Length == 0);
@@ -1282,6 +1286,28 @@ namespace osu.Framework.Tests.Visual.UserInterface
             public string FlowingText => string.Concat(TextFlow.FlowingChildren.OfType<FallingDownContainer>().Select(c => c.OfType<SpriteText>().Single().Text.ToString()[0]));
 
             public new void InsertString(string text) => base.InsertString(text);
+
+            /// <summary>
+            /// Screen-space point that resolves to <paramref name="index"/> via TextBox midpoint hit-testing.
+            /// </summary>
+            public Vector2 GetScreenSpacePositionForCharacterIndex(int index)
+            {
+                float y = TextFlow.DrawHeight / 2;
+                float x;
+
+                if (index >= TextFlow.Count)
+                {
+                    var last = TextFlow.Children[^1];
+                    x = last.DrawPosition.X + last.DrawSize.X * 0.75f;
+                }
+                else
+                {
+                    var d = TextFlow.Children[index];
+                    x = d.DrawPosition.X + d.DrawSize.X * 0.25f;
+                }
+
+                return TextFlow.ToScreenSpace(new Vector2(x, y));
+            }
         }
 
         private partial class CustomTextBox : BasicTextBox
