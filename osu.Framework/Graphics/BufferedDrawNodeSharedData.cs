@@ -121,6 +121,40 @@ namespace osu.Framework.Graphics
         /// </summary>
         internal void ResetCurrentEffectBuffer() => currentEffectBuffer = -1;
 
+        /// <summary>
+        /// Drops allocated frame buffers so a disabled effect does not keep textures alive.
+        /// The next draw recreates them. Disposal is deferred so the GPU can finish frames that still sample them.
+        /// </summary>
+        internal void ReleaseBuffers()
+        {
+            if (!IsInitialised || renderer == null)
+                return;
+
+            if (mainBuffer == null && !hasAllocatedEffectBuffer())
+                return;
+
+            renderer.ScheduleDisposal(static buffers => buffers.Dispose(), new ReleasedBufferSet(mainBuffer, effectBuffers));
+
+            mainBuffer = null;
+
+            for (int i = 0; i < effectBuffers.Length; i++)
+                effectBuffers[i] = null;
+
+            currentEffectBuffer = -1;
+            DrawVersion = -1;
+        }
+
+        private bool hasAllocatedEffectBuffer()
+        {
+            for (int i = 0; i < effectBuffers.Length; i++)
+            {
+                if (effectBuffers[i] != null)
+                    return true;
+            }
+
+            return false;
+        }
+
         public void Dispose()
         {
             renderer?.ScheduleDisposal(static d => d.Dispose(true), this);
@@ -131,9 +165,35 @@ namespace osu.Framework.Graphics
         {
             Debug.Assert(IsInitialised);
 
-            MainBuffer?.Dispose();
+            // Use the field. The MainBuffer getter allocates on first access.
+            mainBuffer?.Dispose();
+            mainBuffer = null;
+
             for (int i = 0; i < effectBuffers.Length; i++)
+            {
                 effectBuffers[i]?.Dispose();
+                effectBuffers[i] = null;
+            }
+        }
+
+        private sealed class ReleasedBufferSet
+        {
+            private readonly IFrameBuffer mainBuffer;
+            private readonly IFrameBuffer[] effectBuffers;
+
+            public ReleasedBufferSet(IFrameBuffer mainBuffer, IFrameBuffer[] effectBuffers)
+            {
+                this.mainBuffer = mainBuffer;
+                this.effectBuffers = (IFrameBuffer[])effectBuffers.Clone();
+            }
+
+            public void Dispose()
+            {
+                mainBuffer?.Dispose();
+
+                for (int i = 0; i < effectBuffers.Length; i++)
+                    effectBuffers[i]?.Dispose();
+            }
         }
     }
 }
