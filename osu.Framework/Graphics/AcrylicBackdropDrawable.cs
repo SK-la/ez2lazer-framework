@@ -58,6 +58,12 @@ namespace osu.Framework.Graphics
                     return;
 
                 effectEnabled = value;
+
+                // Pooled cards outlive one appearance. Dropping the ping-pong FBOs here is what stops
+                // raw / horizontal-blur / full-blur textures from stacking after the card leaves the screen.
+                if (!effectEnabled && sharedData.IsInitialised)
+                    sharedData.ReleaseBuffers();
+
                 Invalidate(Invalidation.DrawNode);
             }
         }
