@@ -909,6 +909,11 @@ namespace osu.Framework.Threading
 
         private void freeWasapi()
         {
+            // basswasapi ships only for Windows. This runs on every device init, so on
+            // Linux/macOS the runtime searches for libbasswasapi.so and fails the startup.
+            if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                return;
+
             int? mixerToFree = globalMixerHandle.Value;
             bool hadWasapi = wasapiExclusiveActive || mixerToFree != null;
 
