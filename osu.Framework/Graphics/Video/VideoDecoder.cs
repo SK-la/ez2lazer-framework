@@ -38,6 +38,9 @@ namespace osu.Framework.Graphics.Video
 
         private double nextBackdropSampleTime = -1;
         private int backdropSamplePacked;
+        private int backdropSampleX = -1;
+        private int backdropSampleY = -1;
+        private static int backdropSampleSalt;
 
         /// <summary>
         /// One pixel from an already decoded YUV frame. Written on the decoder thread.
@@ -66,6 +69,26 @@ namespace osu.Framework.Graphics.Video
         /// </summary>
         internal static bool ShouldTakeBackdropSample(double frameTime, double nextSampleTime)
             => !(nextSampleTime >= 0 && frameTime < nextSampleTime && frameTime > nextSampleTime - 5000);
+
+        /// <summary>
+        /// Picks a point once. Later calls keep that point until the stored coordinates are reset.
+        /// </summary>
+        internal static void ResolveBackdropSamplePoint(ref int storedX, ref int storedY, int width, int height, uint salt)
+        {
+            if (storedX < 0 || storedY < 0)
+            {
+                uint hash = salt * 2246822519u;
+                storedX = (int)(hash % (uint)width);
+                storedY = (int)((hash >> 16) % (uint)height);
+                return;
+            }
+
+            if (storedX >= width)
+                storedX = width - 1;
+
+            if (storedY >= height)
+                storedY = height - 1;
+        }
 
         internal static void ConvertYuvToRgb(byte y, byte u, byte v, out int r, out int g, out int b)
         {
@@ -733,9 +756,10 @@ namespace osu.Framework.Graphics.Video
 
             nextBackdropSampleTime = frameTime + 1000;
 
-            uint hash = (uint)frameTime * 2246822519u;
-            int x = (int)(hash % (uint)width);
-            int y = (int)((hash >> 16) % (uint)height);
+            uint salt = backdropSampleX < 0 ? (uint)System.Threading.Interlocked.Increment(ref backdropSampleSalt) : 0;
+            ResolveBackdropSamplePoint(ref backdropSampleX, ref backdropSampleY, width, height, salt);
+            int x = backdropSampleX;
+            int y = backdropSampleY;
 
             ConvertYuvToRgb(
                 ptr->data[0][y * yStride + x],

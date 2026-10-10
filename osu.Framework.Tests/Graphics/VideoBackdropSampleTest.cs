@@ -50,5 +50,29 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(VideoDecoder.ShouldTakeBackdropSample(1000, 1000), Is.True);
             Assert.That(VideoDecoder.ShouldTakeBackdropSample(1000, 10000), Is.True);
         }
+
+        [Test]
+        public void TestSamplePointStaysFixedUntilReset()
+        {
+            int x = -1;
+            int y = -1;
+
+            VideoDecoder.ResolveBackdropSamplePoint(ref x, ref y, 320, 180, 3);
+            int fixedX = x;
+            int fixedY = y;
+
+            VideoDecoder.ResolveBackdropSamplePoint(ref x, ref y, 320, 180, 99);
+
+            Assert.That(x, Is.EqualTo(fixedX));
+            Assert.That(y, Is.EqualTo(fixedY));
+            Assert.That(x, Is.GreaterThanOrEqualTo(0).And.LessThan(320));
+            Assert.That(y, Is.GreaterThanOrEqualTo(0).And.LessThan(180));
+
+            int nextX = -1;
+            int nextY = -1;
+            VideoDecoder.ResolveBackdropSamplePoint(ref nextX, ref nextY, 320, 180, 4);
+
+            Assert.That(nextX != fixedX || nextY != fixedY, Is.True);
+        }
     }
 }
