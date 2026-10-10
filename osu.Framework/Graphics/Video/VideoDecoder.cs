@@ -756,7 +756,7 @@ namespace osu.Framework.Graphics.Video
 
             nextBackdropSampleTime = frameTime + 1000;
 
-            uint salt = backdropSampleX < 0 ? (uint)System.Threading.Interlocked.Increment(ref backdropSampleSalt) : 0;
+            uint salt = backdropSampleX < 0 ? (uint)Interlocked.Increment(ref backdropSampleSalt) : 0;
             ResolveBackdropSamplePoint(ref backdropSampleX, ref backdropSampleY, width, height, salt);
             int x = backdropSampleX;
             int y = backdropSampleY;
