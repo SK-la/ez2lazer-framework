@@ -43,9 +43,10 @@ namespace osu.Framework.Graphics.Video
         /// One pixel from an already decoded YUV frame. Written on the decoder thread.
         /// </summary>
         public bool TryGetBackdropSample(out Colour4 colour)
-        {
-            int packed = Volatile.Read(ref backdropSamplePacked);
+            => TryUnpackBackdropSample(Volatile.Read(ref backdropSamplePacked), out colour);
 
+        internal static bool TryUnpackBackdropSample(int packed, out Colour4 colour)
+        {
             if (packed == 0)
             {
                 colour = default;
@@ -54,6 +55,31 @@ namespace osu.Framework.Graphics.Video
 
             colour = new Colour4(((packed >> 16) & 0xff) / 255f, ((packed >> 8) & 0xff) / 255f, (packed & 0xff) / 255f, 1);
             return true;
+        }
+
+        internal static int PackBackdropSample(int r, int g, int b)
+            => b | (g << 8) | (r << 16) | (1 << 24);
+
+        /// <summary>
+        /// True when this frame should contribute a sample. Skips frames inside the one-second window,
+        /// and samples again after a seek that jumps more than five seconds backward.
+        /// </summary>
+        internal static bool ShouldTakeBackdropSample(double frameTime, double nextSampleTime)
+            => !(nextSampleTime >= 0 && frameTime < nextSampleTime && frameTime > nextSampleTime - 5000);
+
+        internal static void ConvertYuvToRgb(byte y, byte u, byte v, out int r, out int g, out int b)
+        {
+            int c = y - 16;
+            int d = u - 128;
+            int e = v - 128;
+
+            r = (298 * c + 409 * e + 128) >> 8;
+            g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+            b = (298 * c + 516 * d + 128) >> 8;
+
+            if ((uint)r > 255) r = r < 0 ? 0 : 255;
+            if ((uint)g > 255) g = g < 0 ? 0 : 255;
+            if ((uint)b > 255) b = b < 0 ? 0 : 255;
         }
 
         /// <summary>
@@ -688,7 +714,7 @@ namespace osu.Framework.Graphics.Video
 
         private void sampleBackdropPixel(FFmpegFrame frame, double frameTime)
         {
-            if (nextBackdropSampleTime >= 0 && frameTime < nextBackdropSampleTime && frameTime > nextBackdropSampleTime - 5000)
+            if (!ShouldTakeBackdropSample(frameTime, nextBackdropSampleTime))
                 return;
 
             AVFrame* ptr = frame.Pointer;
@@ -711,20 +737,14 @@ namespace osu.Framework.Graphics.Video
             int x = (int)(hash % (uint)width);
             int y = (int)((hash >> 16) % (uint)height);
 
-            int c = ptr->data[0][y * yStride + x] - 16;
-            int d = ptr->data[1][(y / 2) * uStride + (x / 2)] - 128;
-            int e = ptr->data[2][(y / 2) * vStride + (x / 2)] - 128;
-
-            int r = (298 * c + 409 * e + 128) >> 8;
-            int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
-            int b = (298 * c + 516 * d + 128) >> 8;
-
-            if ((uint)r > 255) r = r < 0 ? 0 : 255;
-            if ((uint)g > 255) g = g < 0 ? 0 : 255;
-            if ((uint)b > 255) b = b < 0 ? 0 : 255;
+            ConvertYuvToRgb(
+                ptr->data[0][y * yStride + x],
+                ptr->data[1][(y / 2) * uStride + (x / 2)],
+                ptr->data[2][(y / 2) * vStride + (x / 2)],
+                out int r, out int g, out int b);
 
             // High byte marks a valid sample so black (0,0,0) is distinct from "not yet".
-            Volatile.Write(ref backdropSamplePacked, b | (g << 8) | (r << 16) | (1 << 24));
+            Volatile.Write(ref backdropSamplePacked, PackBackdropSample(r, g, b));
         }
 
         private readonly ConcurrentQueue<FFmpegFrame> scalerFrames = new ConcurrentQueue<FFmpegFrame>();
