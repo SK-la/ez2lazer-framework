@@ -36,6 +36,26 @@ namespace osu.Framework.Graphics.Video
         /// </summary>
         public double Duration { get; private set; }
 
+        private double nextBackdropSampleTime = -1;
+        private int backdropSamplePacked;
+
+        /// <summary>
+        /// One pixel from an already decoded YUV frame. Written on the decoder thread.
+        /// </summary>
+        public bool TryGetBackdropSample(out Colour4 colour)
+        {
+            int packed = Volatile.Read(ref backdropSamplePacked);
+
+            if (packed == 0)
+            {
+                colour = default;
+                return false;
+            }
+
+            colour = new Colour4(((packed >> 16) & 0xff) / 255f, ((packed >> 8) & 0xff) / 255f, (packed & 0xff) / 255f, 1);
+            return true;
+        }
+
         /// <summary>
         /// True if the decoder currently does not decode any more frames, false otherwise.
         /// </summary>
@@ -653,6 +673,8 @@ namespace osu.Framework.Graphics.Video
                 if (frame == null)
                     continue;
 
+                sampleBackdropPixel(frame, frameTime);
+
                 if (!availableTextures.TryDequeue(out var tex))
                     tex = renderer.CreateVideoTexture(frame.Pointer->width, frame.Pointer->height);
 
@@ -662,6 +684,47 @@ namespace osu.Framework.Graphics.Video
                 tex.SetData(upload, Opacity.Opaque);
                 decodedFrames.Enqueue(new DecodedFrame { Time = frameTime, Texture = tex });
             }
+        }
+
+        private void sampleBackdropPixel(FFmpegFrame frame, double frameTime)
+        {
+            if (nextBackdropSampleTime >= 0 && frameTime < nextBackdropSampleTime && frameTime > nextBackdropSampleTime - 5000)
+                return;
+
+            AVFrame* ptr = frame.Pointer;
+            int width = ptr->width;
+            int height = ptr->height;
+
+            if (width <= 0 || height <= 0 || ptr->data[0] == null || ptr->data[1] == null || ptr->data[2] == null)
+                return;
+
+            int yStride = ptr->linesize[0];
+            int uStride = ptr->linesize[1];
+            int vStride = ptr->linesize[2];
+
+            if (yStride <= 0 || uStride <= 0 || vStride <= 0)
+                return;
+
+            nextBackdropSampleTime = frameTime + 1000;
+
+            uint hash = (uint)frameTime * 2246822519u;
+            int x = (int)(hash % (uint)width);
+            int y = (int)((hash >> 16) % (uint)height);
+
+            int c = ptr->data[0][y * yStride + x] - 16;
+            int d = ptr->data[1][(y / 2) * uStride + (x / 2)] - 128;
+            int e = ptr->data[2][(y / 2) * vStride + (x / 2)] - 128;
+
+            int r = (298 * c + 409 * e + 128) >> 8;
+            int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+            int b = (298 * c + 516 * d + 128) >> 8;
+
+            if ((uint)r > 255) r = r < 0 ? 0 : 255;
+            if ((uint)g > 255) g = g < 0 ? 0 : 255;
+            if ((uint)b > 255) b = b < 0 ? 0 : 255;
+
+            // High byte marks a valid sample so black (0,0,0) is distinct from "not yet".
+            Volatile.Write(ref backdropSamplePacked, b | (g << 8) | (r << 16) | (1 << 24));
         }
 
         private readonly ConcurrentQueue<FFmpegFrame> scalerFrames = new ConcurrentQueue<FFmpegFrame>();
