@@ -62,16 +62,14 @@ namespace osu.Framework.Graphics.Veldrid
 
         private sealed class SwapchainCopyTexture : VeldridTexture
         {
-            private readonly PixelFormat format;
-
-            protected override PixelFormat NativePixelFormat => format;
+            protected override PixelFormat NativePixelFormat { get; }
 
             protected override uint MipLevelCount => 1;
 
             public SwapchainCopyTexture(IVeldridRenderer renderer, PixelFormat format)
                 : base(renderer, 1, 1, TexturePixelFormat.R8G8B8A8Float, manualMipmaps: true, TextureFilteringMode.Linear)
             {
-                this.format = format;
+                NativePixelFormat = format;
                 BypassTextureUploadQueueing = true;
                 SetData(new TextureUpload());
                 Upload();

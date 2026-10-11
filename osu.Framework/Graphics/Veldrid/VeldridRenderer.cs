@@ -10,13 +10,13 @@ using osu.Framework.Graphics.Rendering.Vertices;
 using osu.Framework.Graphics.Shaders;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.Graphics.Veldrid.Batches;
-using osu.Framework.Platform;
 using osu.Framework.Graphics.Veldrid.Buffers;
 using osu.Framework.Graphics.Veldrid.Buffers.Staging;
 using osu.Framework.Graphics.Veldrid.Pipelines;
 using osu.Framework.Graphics.Veldrid.Shaders;
 using osu.Framework.Graphics.Veldrid.Textures;
 using osu.Framework.Graphics.Veldrid.Vertices;
+using osu.Framework.Platform;
 using osuTK;
 using osuTK.Graphics;
 using SixLabors.ImageSharp;
@@ -86,7 +86,7 @@ namespace osu.Framework.Graphics.Veldrid
 
         private SharedBackbufferAcrylic? sharedAcrylic;
 
-        internal override SharedBackbufferAcrylic? SharedAcrylic
+        internal override SharedBackbufferAcrylic SharedAcrylic
             => sharedAcrylic ??= new SharedBackbufferAcrylic(this, (acrylicCapture ??= new VeldridAcrylicCapture(this)).TryCapture);
 
         protected internal override IFrameBuffer? PrepareBackbufferRegionSnapshot(RectangleI screenRect)

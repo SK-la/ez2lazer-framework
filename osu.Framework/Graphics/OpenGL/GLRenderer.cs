@@ -171,10 +171,7 @@ namespace osu.Framework.Graphics.OpenGL
             GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, backbufferFramebuffer);
             GL.BindFramebuffer(FramebufferTarget.DrawFramebuffer, destination.FrameBuffer);
 
-            if (backbufferFramebuffer == 0)
-                GL.ReadBuffer(ReadBufferMode.Back);
-            else
-                GL.ReadBuffer(ReadBufferMode.ColorAttachment0);
+            GL.ReadBuffer(backbufferFramebuffer == 0 ? ReadBufferMode.Back : ReadBufferMode.ColorAttachment0);
 
             GL.BlitFramebuffer(
                 0, 0, backbufferPixels.X, backbufferPixels.Y,

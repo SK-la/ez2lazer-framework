@@ -58,9 +58,8 @@ namespace osu.Framework.Graphics.Veldrid.Textures
 
         private readonly SamplerFilter nativeFilteringMode;
         private readonly TextureFilteringMode filteringMode;
-        private readonly PixelFormat nativePixelFormat;
 
-        protected virtual PixelFormat NativePixelFormat => nativePixelFormat;
+        protected virtual PixelFormat NativePixelFormat { get; }
 
         protected virtual uint MipLevelCount => (uint)CalculateMipmapLevels(Width, Height);
         private readonly TexturePixelFormat pixelFormat;
@@ -103,7 +102,7 @@ namespace osu.Framework.Graphics.Veldrid.Textures
             nativeFilteringMode = filteringMode.ToSamplerFilter();
             this.initialisationColour = initialisationColour;
             pixelFormat = textureFormat;
-            nativePixelFormat = textureFormat.ToPixelFormat();
+            NativePixelFormat = textureFormat.ToPixelFormat();
 
             Renderer = renderer;
             Width = width;
