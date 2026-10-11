@@ -77,14 +77,17 @@ namespace osu.Framework.Graphics.Veldrid
         private Vector2I backbufferRegionSnapshotSize = Vector2I.One;
         private VeldridFrameBuffer? passBreakFrameBuffer;
 
-        // TODO(Vulkan): End the swapchain render pass and vkCmdBlitImage into one half-resolution image (the blit can scale; D3D11 CopyTexture cannot), then one blur per quantized sigma. See D3D11SharedAcrylic.
-        // TODO(Metal): End the render encoder and blit currentDrawable.texture into one half-resolution texture, then one blur per quantized sigma. The drawable cannot be sampled while a render pass is open.
+        // Metal (macOS) and Vulkan end the swapchain pass via the 1x1 framebuffer switch, then CopyTexture.
+        // Veldrid cannot scale during that copy; SharedBackbufferAcrylic downsamples to half resolution.
         public override bool SupportsBackbufferRegionCopy
-            => SurfaceType == GraphicsSurfaceType.Direct3D11;
+            => SurfaceType is GraphicsSurfaceType.Direct3D11 or GraphicsSurfaceType.Metal or GraphicsSurfaceType.Vulkan;
 
-        private D3D11SharedAcrylic? sharedAcrylic;
+        private VeldridAcrylicCapture? acrylicCapture;
 
-        internal D3D11SharedAcrylic SharedAcrylic => sharedAcrylic ??= new D3D11SharedAcrylic(this);
+        private SharedBackbufferAcrylic? sharedAcrylic;
+
+        internal override SharedBackbufferAcrylic? SharedAcrylic
+            => sharedAcrylic ??= new SharedBackbufferAcrylic(this, (acrylicCapture ??= new VeldridAcrylicCapture(this)).TryCapture);
 
         protected internal override IFrameBuffer? PrepareBackbufferRegionSnapshot(RectangleI screenRect)
         {

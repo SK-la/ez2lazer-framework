@@ -377,16 +377,15 @@ namespace osu.Framework.Graphics.Veldrid
             return Device.WaitForFence(fence, (ulong)(millisecondsTimeout * 1_000_000));
         }
 
-        /// <summary>
-        /// Clamps a screen-space rectangle to the current swapchain backbuffer bounds.
-        /// </summary>
-        /// <returns><c>false</c> if the rectangle does not intersect the backbuffer.</returns>
+        private bool canCopySwapchain
+            => graphicsSurface.Type is GraphicsSurfaceType.Direct3D11 or GraphicsSurfaceType.Metal or GraphicsSurfaceType.Vulkan;
+
         internal bool TryGetBackbufferPixelSize(out Vector2I size, out PixelFormat format)
         {
             size = default;
             format = default;
 
-            if (graphicsSurface.Type != GraphicsSurfaceType.Direct3D11)
+            if (!canCopySwapchain)
                 return false;
 
             var source = Device.SwapchainFramebuffer.ColorTargets[0].Target;
@@ -402,7 +401,7 @@ namespace osu.Framework.Graphics.Veldrid
         {
             clampedRegion = default;
 
-            if (graphicsSurface.Type != GraphicsSurfaceType.Direct3D11)
+            if (!canCopySwapchain)
                 return false;
 
             var source = Device.SwapchainFramebuffer.ColorTargets[0].Target;
@@ -454,11 +453,11 @@ namespace osu.Framework.Graphics.Veldrid
 
         /// <summary>
         /// Copies a screen-space region from the swapchain backbuffer into a sampleable framebuffer.
-        /// Only supported on Direct3D 11. <paramref name="screenRect"/> must already be clamped via <see cref="ClampBackbufferCopyRegion"/>.
+        /// Supported on Direct3D 11, Metal, and Vulkan. <paramref name="screenRect"/> must already be clamped via <see cref="ClampBackbufferCopyRegion"/>.
         /// </summary>
         public void CopyBackbufferRegionToFrameBuffer(CommandList commands, IVeldridFrameBuffer destination, RectangleI screenRect)
         {
-            if (graphicsSurface.Type != GraphicsSurfaceType.Direct3D11)
+            if (!canCopySwapchain)
                 return;
 
             if (!ClampBackbufferCopyRegion(screenRect, out screenRect))

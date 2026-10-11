@@ -32,9 +32,17 @@ namespace osu.Framework.Graphics.OpenGL
 {
     internal class GLRenderer : Renderer
     {
-        // TODO(OpenGL): Desktop GL can pause the draw and glBlitFramebuffer / glCopyTexSubImage2D from the default framebuffer into one half-resolution texture, then share one blur per quantized sigma (see D3D11SharedAcrylic). GLES on Android often cannot sample the default framebuffer; keep AcrylicCaptureScope there.
-
         private IOpenGLGraphicsSurface openGLSurface = null!;
+
+        private bool desktopGl;
+        private Vector2I backbufferPixels;
+        private IFrameBuffer? acrylicHalf;
+        private SharedBackbufferAcrylic? sharedAcrylic;
+
+        public override bool SupportsBackbufferRegionCopy => desktopGl;
+
+        internal override SharedBackbufferAcrylic? SharedAcrylic
+            => desktopGl ? sharedAcrylic ??= new SharedBackbufferAcrylic(this, tryCaptureAcrylic) : null;
 
         protected internal override bool VerticalSync
         {
@@ -95,6 +103,7 @@ namespace osu.Framework.Graphics.OpenGL
                         GL Extensions:              {extensions}");
 
             UseStructuredBuffers = extensions.Contains(@"GL_ARB_shader_storage_buffer_object") && !FrameworkEnvironment.NoStructuredBuffers;
+            desktopGl = !IsEmbedded;
 
             Logger.Log($"{nameof(UseStructuredBuffers)}: {UseStructuredBuffers}");
 
@@ -121,12 +130,66 @@ namespace osu.Framework.Graphics.OpenGL
             lastBoundVertexArray = 0;
             boundUniformBuffers.Clear();
 
+            backbufferPixels = new Vector2I(Math.Max(1, (int)windowSize.X), Math.Max(1, (int)windowSize.Y));
+            sharedAcrylic?.BeginFrame();
+
             // Seems to be required on some drivers as the context is lost from the draw thread.
             MakeCurrent();
 
             GL.UseProgram(0);
 
             base.BeginFrame(windowSize);
+        }
+
+        private bool tryCaptureAcrylic(out IFrameBuffer color, out Vector2I screenPixels, out bool alreadyHalfResolution)
+        {
+            color = null!;
+            screenPixels = default;
+            alreadyHalfResolution = true;
+
+            if (!desktopGl || backbufferPixels.X < 1 || backbufferPixels.Y < 1)
+                return false;
+
+            var half = new Vector2(
+                Math.Max(1, (int)MathF.Ceiling(backbufferPixels.X * 0.5f)),
+                Math.Max(1, (int)MathF.Ceiling(backbufferPixels.Y * 0.5f)));
+
+            acrylicHalf ??= CreateFrameBuffer(filteringMode: TextureFilteringMode.Linear);
+
+            if (acrylicHalf.Size != half)
+                acrylicHalf.Size = half;
+
+            if (acrylicHalf is not GLFrameBuffer destination)
+                return false;
+
+            FlushCurrentBatch(FlushBatchSource.SetFrameBuffer);
+
+            bool scissor = GL.IsEnabled(EnableCap.ScissorTest);
+            if (scissor)
+                GL.Disable(EnableCap.ScissorTest);
+
+            GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, backbufferFramebuffer);
+            GL.BindFramebuffer(FramebufferTarget.DrawFramebuffer, destination.FrameBuffer);
+
+            if (backbufferFramebuffer == 0)
+                GL.ReadBuffer(ReadBufferMode.Back);
+            else
+                GL.ReadBuffer(ReadBufferMode.ColorAttachment0);
+
+            GL.BlitFramebuffer(
+                0, 0, backbufferPixels.X, backbufferPixels.Y,
+                0, 0, (int)half.X, (int)half.Y,
+                ClearBufferMask.ColorBufferBit,
+                BlitFramebufferFilter.Linear);
+
+            GL.BindFramebuffer(FramebufferTarget.Framebuffer, backbufferFramebuffer);
+
+            if (scissor)
+                GL.Enable(EnableCap.ScissorTest);
+
+            color = acrylicHalf;
+            screenPixels = backbufferPixels;
+            return true;
         }
 
         protected internal override void WaitUntilNextFrameReady()

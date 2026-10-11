@@ -231,7 +231,7 @@ namespace osu.Framework.Graphics.Rendering.Deferred
         private IFrameBuffer? backbufferRegionSnapshot;
         private Vector2I backbufferRegionSnapshotSize = Vector2I.One;
 
-        // TODO(Deferred): The swapchain has no pixels until the recorded frame executes, on D3D11, Vulkan, Metal, and GL alike. Best path is one offscreen scene target (AcrylicCaptureScope) plus one blur per quantized sigma sampled from that target. Do not copy the backbuffer here.
+        // TODO(Deferred): Immediate Metal, Vulkan, D3D11, and desktop GL already copy the swapchain. A recorded frame still has no pixels until it executes, so this path keeps the offscreen capture.
         public override bool SupportsBackbufferRegionCopy => false;
 
         protected internal override IFrameBuffer? PrepareBackbufferRegionSnapshot(RectangleI screenRect)

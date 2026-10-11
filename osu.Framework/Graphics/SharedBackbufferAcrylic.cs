@@ -10,36 +10,26 @@ using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Shaders;
 using osu.Framework.Graphics.Shaders.Types;
 using osu.Framework.Graphics.Textures;
-using osu.Framework.Graphics.Veldrid.Buffers;
-using osu.Framework.Graphics.Veldrid.Textures;
 using osu.Framework.Utils;
 using osuTK;
 using osuTK.Graphics;
-using Veldrid;
 
-namespace osu.Framework.Graphics.Veldrid
+namespace osu.Framework.Graphics
 {
     /// <summary>
-    /// D3D11 immediate mode: one full swapchain copy per frame (CopyTexture cannot scale), one half-resolution
-    /// downsample, then one separable blur per quantized sigma. Cards sample the matching result.
+    /// One captured backdrop per frame, then one half-resolution blur per quantized sigma.
+    /// Each backend only has to fill <see cref="Capture"/>.
     /// </summary>
-    /// <remarks>
-    /// TODO(OpenGL): Desktop GL can glBlitFramebuffer from the default framebuffer straight into the half-resolution image. GLES on Android usually cannot; keep the offscreen capture there.
-    /// TODO(Vulkan): vkCmdBlitImage from the swapchain can scale in the same copy. End the render pass first.
-    /// TODO(Metal): Blit the drawable texture after ending the render encoder. It cannot be sampled while the pass is open.
-    /// TODO(Deferred): No backend has swapchain pixels until the frame executes. Blur the offscreen scene target once per sigma instead of copying the backbuffer.
-    /// </remarks>
-    internal sealed class D3D11SharedAcrylic
+    internal sealed class SharedBackbufferAcrylic
     {
         private const float resolution_scale = 0.5f;
 
-        private readonly VeldridRenderer renderer;
+        private readonly IRenderer renderer;
+        private readonly Capture capture;
 
-        private SwapchainCopyTexture? snapshotTexture;
-        private VeldridFrameBuffer? snapshotBuffer;
-        private PixelFormat snapshotFormat;
-        private bool snapshotReady;
-        private Vector2I snapshotPixelSize;
+        private bool captured;
+        private IFrameBuffer? fullSnapshot;
+        private Vector2I screenPixels;
 
         private IFrameBuffer? sourceHalf;
         private bool sourceHalfReady;
@@ -47,14 +37,17 @@ namespace osu.Framework.Graphics.Veldrid
 
         private readonly Dictionary<int, Bucket> buckets = new Dictionary<int, Bucket>();
 
-        public D3D11SharedAcrylic(VeldridRenderer renderer)
+        public SharedBackbufferAcrylic(IRenderer renderer, Capture capture)
         {
             this.renderer = renderer;
+            this.capture = capture;
         }
+
+        public delegate bool Capture(out IFrameBuffer color, out Vector2I screenPixels, out bool alreadyHalfResolution);
 
         public void BeginFrame()
         {
-            snapshotReady = false;
+            captured = false;
             sourceHalfReady = false;
 
             foreach (var bucket in buckets.Values)
@@ -69,13 +62,10 @@ namespace osu.Framework.Graphics.Veldrid
             if (textureShader == null || blurShader == null)
                 return false;
 
-            if (!ensureSnapshot())
+            if (!ensureSource(textureShader))
                 return false;
 
-            if (!ensureHalf(textureShader))
-                return false;
-
-            screenRectangle = new RectangleF(0, 0, snapshotPixelSize.X, snapshotPixelSize.Y);
+            screenRectangle = new RectangleF(0, 0, screenPixels.X, screenPixels.Y);
 
             int key = (int)MathF.Round(Math.Max(0, sigma));
 
@@ -95,46 +85,37 @@ namespace osu.Framework.Graphics.Veldrid
             return bucket.Ready;
         }
 
-        private bool ensureSnapshot()
+        private bool ensureSource(IShader textureShader)
         {
-            if (snapshotReady)
-                return true;
-
-            if (!renderer.TryGetBackbufferPixelSize(out var size, out var format))
-                return false;
-
-            if (snapshotBuffer == null || snapshotFormat != format)
+            if (!captured)
             {
-                snapshotBuffer?.Dispose();
-                snapshotTexture?.Dispose();
+                if (!capture(out var color, out screenPixels, out bool alreadyHalfResolution))
+                    return false;
 
-                snapshotTexture = new SwapchainCopyTexture(renderer, format);
-                snapshotBuffer = new VeldridFrameBuffer(renderer, snapshotTexture, 0);
-                snapshotFormat = format;
+                captured = true;
+                fullSnapshot = alreadyHalfResolution ? null : color;
+
+                if (alreadyHalfResolution)
+                {
+                    sourceHalf = color;
+                    sourceHalfSize = color.Size;
+                    sourceHalfReady = true;
+                }
+                else
+                {
+                    sourceHalfReady = false;
+                }
             }
 
-            var target = new Vector2(size.X, size.Y);
+            if (sourceHalfReady)
+                return sourceHalf != null;
 
-            if (snapshotBuffer.Size != target)
-                snapshotBuffer.Size = target;
-
-            if (!renderer.TryCopyFullBackbuffer(snapshotBuffer))
+            if (fullSnapshot == null)
                 return false;
 
-            snapshotPixelSize = size;
-            snapshotReady = true;
-            sourceHalfReady = false;
-            return true;
-        }
-
-        private bool ensureHalf(IShader textureShader)
-        {
-            if (sourceHalfReady)
-                return true;
-
             var size = new Vector2(
-                Math.Max(1, (int)MathF.Ceiling(snapshotPixelSize.X * resolution_scale)),
-                Math.Max(1, (int)MathF.Ceiling(snapshotPixelSize.Y * resolution_scale)));
+                Math.Max(1, (int)MathF.Ceiling(screenPixels.X * resolution_scale)),
+                Math.Max(1, (int)MathF.Ceiling(screenPixels.Y * resolution_scale)));
 
             sourceHalf ??= renderer.CreateFrameBuffer(filteringMode: TextureFilteringMode.Linear);
 
@@ -146,7 +127,7 @@ namespace osu.Framework.Graphics.Veldrid
             drawInto(sourceHalf, () =>
             {
                 textureShader.Bind();
-                renderer.DrawFrameBuffer(snapshotBuffer!, new RectangleF(0, 0, size.X, size.Y), ColourInfo.SingleColour(Color4.White));
+                renderer.DrawFrameBuffer(fullSnapshot, new RectangleF(0, 0, size.X, size.Y), ColourInfo.SingleColour(Color4.White));
                 textureShader.Unbind();
             });
 
@@ -187,7 +168,7 @@ namespace osu.Framework.Graphics.Veldrid
             {
                 float radians = float.DegreesToRadians(rotation);
 
-                using (var parameters = ((IRenderer)renderer).CreateUniformBuffer<BlurParameters>())
+                using (var parameters = renderer.CreateUniformBuffer<BlurParameters>())
                 {
                     parameters.Data = new BlurParameters
                     {
@@ -240,24 +221,6 @@ namespace osu.Framework.Graphics.Veldrid
             public IFrameBuffer? Pong;
             public IFrameBuffer Result = null!;
             public bool Ready;
-        }
-
-        private sealed class SwapchainCopyTexture : VeldridTexture
-        {
-            private readonly PixelFormat format;
-
-            protected override PixelFormat NativePixelFormat => format;
-
-            protected override uint MipLevelCount => 1;
-
-            public SwapchainCopyTexture(IVeldridRenderer renderer, PixelFormat format)
-                : base(renderer, 1, 1, TexturePixelFormat.R8G8B8A8Float, manualMipmaps: true, TextureFilteringMode.Linear)
-            {
-                this.format = format;
-                BypassTextureUploadQueueing = true;
-                SetData(new TextureUpload());
-                Upload();
-            }
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]

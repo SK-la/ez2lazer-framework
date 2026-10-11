@@ -336,6 +336,8 @@ namespace osu.Framework.Graphics.Rendering
         /// <inheritdoc cref="IRenderer.SupportsBackbufferRegionCopy"/>
         public virtual bool SupportsBackbufferRegionCopy => false;
 
+        internal virtual SharedBackbufferAcrylic? SharedAcrylic => null;
+
         /// <inheritdoc cref="IRenderer.PrepareBackbufferRegionSnapshot"/>
         protected internal virtual IFrameBuffer? PrepareBackbufferRegionSnapshot(RectangleI screenRect) => null;
 

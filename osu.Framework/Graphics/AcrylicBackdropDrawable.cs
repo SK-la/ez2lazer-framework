@@ -12,7 +12,6 @@ using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Shaders;
 using osu.Framework.Graphics.Shaders.Types;
-using osu.Framework.Graphics.Veldrid;
 using osu.Framework.Utils;
 using osuTK;
 using osuTK.Graphics;
@@ -40,8 +39,8 @@ namespace osu.Framework.Graphics
     /// 这正是"全屏 HUD 任意拖动毛玻璃"的目标场景。
     /// </para>
     /// <para>
-    /// D3D11 立即模式在直接画到交换链时改为整帧拷贝一次、按整数 sigma 共用半分辨率虚化，卡片不再各持三张缓冲。
-    /// 旋转或各向异性模糊仍走原来的逐卡片路径。OpenGL / Vulkan / Metal / 延迟渲染的对应做法标在 <c>D3D11SharedAcrylic</c>。
+    /// D3D11、Metal、Vulkan 和桌面 OpenGL 在直接画到交换链时整帧捕获一次，再按整数 sigma 共用半分辨率虚化。
+    /// 旋转或各向异性模糊仍走逐卡片路径。延迟渲染仍不能读交换链。
     /// </para>
     /// </remarks>
     public partial class AcrylicBackdropDrawable : Drawable, ITexturedShaderDrawable
@@ -280,10 +279,10 @@ namespace osu.Framework.Graphics
                 if (blurRotation != 0 || blurSigma.X != blurSigma.Y)
                     return false;
 
-                if (renderer is not VeldridRenderer veldrid || !veldrid.SupportsBackbufferRegionCopy)
+                if (renderer is not Renderer concrete || concrete.SharedAcrylic == null || !concrete.SupportsBackbufferRegionCopy)
                     return false;
 
-                if (!veldrid.SharedAcrylic.TryGetBlur(blurSigma.X, ((ITexturedShaderDrawable)Source).TextureShader, blurShader, out var blurred, out var screenRectangle))
+                if (!concrete.SharedAcrylic.TryGetBlur(blurSigma.X, ((ITexturedShaderDrawable)Source).TextureShader, blurShader, out var blurred, out var screenRectangle))
                     return false;
 
                 BindTextureShader(renderer);
