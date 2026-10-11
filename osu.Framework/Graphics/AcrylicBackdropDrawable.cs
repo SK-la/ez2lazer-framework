@@ -12,6 +12,7 @@ using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Shaders;
 using osu.Framework.Graphics.Shaders.Types;
+using osu.Framework.Graphics.Veldrid;
 using osu.Framework.Utils;
 using osuTK;
 using osuTK.Graphics;
@@ -37,6 +38,10 @@ namespace osu.Framework.Graphics
     /// 需要被透视的整块内容包进一个全屏 <see cref="Containers.BufferedContainer"/>，再把本卡片作为它的
     /// 子节点放在任意位置。当前版本的几何映射假定该承载缓冲为"全屏、原点对齐、FrameBufferScale=1"，
     /// 这正是"全屏 HUD 任意拖动毛玻璃"的目标场景。
+    /// </para>
+    /// <para>
+    /// D3D11 立即模式在直接画到交换链时改为整帧拷贝一次、按整数 sigma 共用半分辨率虚化，卡片不再各持三张缓冲。
+    /// 旋转或各向异性模糊仍走原来的逐卡片路径。OpenGL / Vulkan / Metal / 延迟渲染的对应做法标在 <c>D3D11SharedAcrylic</c>。
     /// </para>
     /// </remarks>
     public partial class AcrylicBackdropDrawable : Drawable, ITexturedShaderDrawable
@@ -200,6 +205,9 @@ namespace osu.Framework.Graphics
                 if (!effectEnabled || frameBufferSize.X < 1 || frameBufferSize.Y < 1)
                     return;
 
+                if (tryDrawSharedBackbuffer(renderer))
+                    return;
+
                 // 当前绑定的离屏帧缓冲即"下层已渲染内容"。若直接渲染到 backbuffer（不可采样）则尝试从 backbuffer 拷贝区域。
                 IFrameBuffer scene = renderer.CurrentFrameBuffer;
                 RectangleF sceneScreenRectangle;
@@ -262,6 +270,26 @@ namespace osu.Framework.Graphics
                 base.Draw(renderer);
                 renderer.DrawFrameBuffer(SharedData.CurrentEffectBuffer, screenSpaceDrawRectangle, drawColour);
                 UnbindTextureShader(renderer);
+            }
+
+            private bool tryDrawSharedBackbuffer(IRenderer renderer)
+            {
+                if (renderer.CurrentFrameBuffer != null)
+                    return false;
+
+                if (blurRotation != 0 || blurSigma.X != blurSigma.Y)
+                    return false;
+
+                if (renderer is not VeldridRenderer veldrid || !veldrid.SupportsBackbufferRegionCopy)
+                    return false;
+
+                if (!veldrid.SharedAcrylic.TryGetBlur(blurSigma.X, ((ITexturedShaderDrawable)Source).TextureShader, blurShader, out var blurred, out var screenRectangle))
+                    return false;
+
+                BindTextureShader(renderer);
+                renderer.DrawFrameBuffer(blurred, screenRectangle, drawColour);
+                UnbindTextureShader(renderer);
+                return true;
             }
 
             private void populateBlur(IRenderer renderer)

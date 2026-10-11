@@ -381,6 +381,23 @@ namespace osu.Framework.Graphics.Veldrid
         /// Clamps a screen-space rectangle to the current swapchain backbuffer bounds.
         /// </summary>
         /// <returns><c>false</c> if the rectangle does not intersect the backbuffer.</returns>
+        internal bool TryGetBackbufferPixelSize(out Vector2I size, out PixelFormat format)
+        {
+            size = default;
+            format = default;
+
+            if (graphicsSurface.Type != GraphicsSurfaceType.Direct3D11)
+                return false;
+
+            var source = Device.SwapchainFramebuffer.ColorTargets[0].Target;
+            if (source.Width == 0 || source.Height == 0)
+                return false;
+
+            size = new Vector2I((int)source.Width, (int)source.Height);
+            format = source.Format;
+            return true;
+        }
+
         public bool ClampBackbufferCopyRegion(RectangleI screenRect, out RectangleI clampedRegion)
         {
             clampedRegion = default;

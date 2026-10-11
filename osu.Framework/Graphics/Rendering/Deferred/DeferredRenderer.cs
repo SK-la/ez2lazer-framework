@@ -231,9 +231,7 @@ namespace osu.Framework.Graphics.Rendering.Deferred
         private IFrameBuffer? backbufferRegionSnapshot;
         private Vector2I backbufferRegionSnapshotSize = Vector2I.One;
 
-        // Deferred rendering records the full frame before executing GPU commands; mid-frame
-        // backbuffer snapshots cannot reliably read swapchain pixels that correspond to the
-        // acrylic source region. Use AcrylicCaptureScope (CurrentFrameBuffer) instead.
+        // TODO(Deferred): The swapchain has no pixels until the recorded frame executes, on D3D11, Vulkan, Metal, and GL alike. Best path is one offscreen scene target (AcrylicCaptureScope) plus one blur per quantized sigma sampled from that target. Do not copy the backbuffer here.
         public override bool SupportsBackbufferRegionCopy => false;
 
         protected internal override IFrameBuffer? PrepareBackbufferRegionSnapshot(RectangleI screenRect)

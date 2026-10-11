@@ -59,6 +59,10 @@ namespace osu.Framework.Graphics.Veldrid.Textures
         private readonly SamplerFilter nativeFilteringMode;
         private readonly TextureFilteringMode filteringMode;
         private readonly PixelFormat nativePixelFormat;
+
+        protected virtual PixelFormat NativePixelFormat => nativePixelFormat;
+
+        protected virtual uint MipLevelCount => (uint)CalculateMipmapLevels(Width, Height);
         private readonly TexturePixelFormat pixelFormat;
         private readonly Color4? initialisationColour;
 
@@ -467,7 +471,7 @@ namespace osu.Framework.Graphics.Veldrid.Textures
                 if (texture != null)
                     Renderer.ScheduleDisposal(static t => t.Dispose(), texture);
 
-                var textureDescription = TextureDescription.Texture2D((uint)Width, (uint)Height, (uint)CalculateMipmapLevels(Width, Height), 1, nativePixelFormat, Usages);
+                var textureDescription = TextureDescription.Texture2D((uint)Width, (uint)Height, MipLevelCount, 1, NativePixelFormat, Usages);
                 texture = Renderer.Factory.CreateTexture(ref textureDescription);
 
                 // todo: we may want to look into not having to allocate chunks of zero byte region for initialising textures

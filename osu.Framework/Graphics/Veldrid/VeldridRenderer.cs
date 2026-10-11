@@ -77,8 +77,14 @@ namespace osu.Framework.Graphics.Veldrid
         private Vector2I backbufferRegionSnapshotSize = Vector2I.One;
         private VeldridFrameBuffer? passBreakFrameBuffer;
 
+        // TODO(Vulkan): End the swapchain render pass and vkCmdBlitImage into one half-resolution image (the blit can scale; D3D11 CopyTexture cannot), then one blur per quantized sigma. See D3D11SharedAcrylic.
+        // TODO(Metal): End the render encoder and blit currentDrawable.texture into one half-resolution texture, then one blur per quantized sigma. The drawable cannot be sampled while a render pass is open.
         public override bool SupportsBackbufferRegionCopy
             => SurfaceType == GraphicsSurfaceType.Direct3D11;
+
+        private D3D11SharedAcrylic? sharedAcrylic;
+
+        internal D3D11SharedAcrylic SharedAcrylic => sharedAcrylic ??= new D3D11SharedAcrylic(this);
 
         protected internal override IFrameBuffer? PrepareBackbufferRegionSnapshot(RectangleI screenRect)
         {
@@ -113,6 +119,35 @@ namespace osu.Framework.Graphics.Veldrid
             return backbufferRegionSnapshot;
         }
 
+        internal bool TryGetBackbufferPixelSize(out Vector2I size, out PixelFormat format)
+            => veldridDevice.TryGetBackbufferPixelSize(out size, out format);
+
+        internal bool TryCopyFullBackbuffer(VeldridFrameBuffer destination)
+        {
+            if (!SupportsBackbufferRegionCopy)
+                return false;
+
+            if (!veldridDevice.TryGetBackbufferPixelSize(out var size, out _))
+                return false;
+
+            var screenRect = new RectangleI(0, 0, size.X, size.Y);
+
+            if (!veldridDevice.ClampBackbufferCopyRegion(screenRect, out screenRect))
+                return false;
+
+            passBreakFrameBuffer ??= (VeldridFrameBuffer)CreateFrameBuffer();
+
+            if (passBreakFrameBuffer.Size != Vector2.One)
+                passBreakFrameBuffer.Size = Vector2.One;
+
+            var snapshot = graphicsPipeline.CreateSnapshot();
+
+            graphicsPipeline.SetFrameBuffer(passBreakFrameBuffer);
+            veldridDevice.CopyBackbufferRegionToFrameBuffer(graphicsPipeline.Commands, destination, screenRect);
+            graphicsPipeline.RestoreSnapshot(snapshot);
+            return true;
+        }
+
         protected override void Initialise(IGraphicsSurface graphicsSurface)
         {
             veldridDevice = new VeldridDevice(graphicsSurface);
@@ -131,6 +166,7 @@ namespace osu.Framework.Graphics.Veldrid
             uniformBufferResetList.Clear();
 
             veldridDevice.Resize(new Vector2I((int)windowSize.X, (int)windowSize.Y));
+            sharedAcrylic?.BeginFrame();
             graphicsPipeline.Begin();
             bufferUpdatePipeline.Begin();
 

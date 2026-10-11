@@ -32,6 +32,8 @@ namespace osu.Framework.Graphics.OpenGL
 {
     internal class GLRenderer : Renderer
     {
+        // TODO(OpenGL): Desktop GL can pause the draw and glBlitFramebuffer / glCopyTexSubImage2D from the default framebuffer into one half-resolution texture, then share one blur per quantized sigma (see D3D11SharedAcrylic). GLES on Android often cannot sample the default framebuffer; keep AcrylicCaptureScope there.
+
         private IOpenGLGraphicsSurface openGLSurface = null!;
 
         protected internal override bool VerticalSync
