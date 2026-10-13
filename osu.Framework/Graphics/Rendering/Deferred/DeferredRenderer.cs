@@ -231,7 +231,9 @@ namespace osu.Framework.Graphics.Rendering.Deferred
         private IFrameBuffer? backbufferRegionSnapshot;
         private Vector2I backbufferRegionSnapshotSize = Vector2I.One;
 
-        // TODO(Deferred): Immediate Metal, Vulkan, D3D11, and desktop GL already copy the swapchain. A recorded frame still has no pixels until it executes, so this path keeps the offscreen capture.
+        // Not a missing capability: a recorded frame has no swapchain pixels until it executes, and the only
+        // mid-frame read available to deferred submits the command list and waits on a fence. Deferred therefore
+        // keeps the offscreen capture (AcrylicCaptureScope) rather than the shared swapchain copy.
         public override bool SupportsBackbufferRegionCopy => false;
 
         protected internal override IFrameBuffer? PrepareBackbufferRegionSnapshot(RectangleI screenRect)
