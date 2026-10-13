@@ -55,10 +55,18 @@ namespace osu.Framework.Graphics
                 bucket.Ready = false;
         }
 
-        public bool TryGetBlur(float sigma, IShader? textureShader, IShader? blurShader, out IFrameBuffer blurred, out RectangleF screenRectangle)
+        /// <summary>
+        /// Returns the shared blur for <paramref name="sigma"/>, together with the texture coordinates that
+        /// <paramref name="screenSpaceRect"/> covers inside it.
+        /// </summary>
+        /// <remarks>
+        /// The blur spans the whole screen, so consumers must sample only the region they draw. Drawing the whole
+        /// texture at the whole screen rect would overwrite every other drawable in the frame.
+        /// </remarks>
+        public bool TryGetBlur(RectangleF screenSpaceRect, float sigma, IShader? textureShader, IShader? blurShader, out IFrameBuffer blurred, out RectangleF textureCoords)
         {
             blurred = null!;
-            screenRectangle = default;
+            textureCoords = default;
 
             if (textureShader == null || blurShader == null)
                 return false;
@@ -66,24 +74,41 @@ namespace osu.Framework.Graphics
             if (!ensureSource(textureShader))
                 return false;
 
-            screenRectangle = new RectangleF(0, 0, screenPixels.X, screenPixels.Y);
+            if (screenPixels.X < 1 || screenPixels.Y < 1)
+                return false;
 
             int key = (int)MathF.Round(Math.Max(0, sigma));
 
             if (key == 0)
             {
                 blurred = sourceHalf!;
-                return true;
+            }
+            else
+            {
+                if (!buckets.TryGetValue(key, out var bucket))
+                    buckets[key] = bucket = new Bucket();
+
+                if (!bucket.Ready)
+                    blur(bucket, key * resolution_scale, blurShader);
+
+                blurred = bucket.Result;
             }
 
-            if (!buckets.TryGetValue(key, out var bucket))
-                buckets[key] = bucket = new Bucket();
+            // 快照覆盖整屏：screenPixels 既是快照的像素尺寸，也是它在屏幕空间的尺寸（两个后端都按
+            // window.ClientSize 建立交换链，而框架屏幕空间就用同一尺寸）。因此 quad 直接用调用方的
+            // 屏幕矩形、UV 用同一比例换算，两端不会因像素/逻辑口径不同而错位。
+            float u0 = screenSpaceRect.Left / screenPixels.X;
+            float v0 = screenSpaceRect.Top / screenPixels.Y;
+            float u1 = screenSpaceRect.Right / screenPixels.X;
+            float v1 = screenSpaceRect.Bottom / screenPixels.Y;
 
-            if (!bucket.Ready)
-                blur(bucket, key * resolution_scale, blurShader);
+            textureCoords = new RectangleF(
+                u0 * sourceHalfSize.X,
+                v0 * sourceHalfSize.Y,
+                (u1 - u0) * sourceHalfSize.X,
+                (v1 - v0) * sourceHalfSize.Y);
 
-            blurred = bucket.Result;
-            return bucket.Ready;
+            return true;
         }
 
         private bool ensureSource(IShader textureShader)
