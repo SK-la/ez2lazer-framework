@@ -286,6 +286,11 @@ namespace osu.Framework.Graphics
                     return false;
 
                 BindTextureShader(renderer);
+
+                // 与回退路径一致：先套用本节点的混合参数。SharedBackbufferAcrylic 离屏阶段会把混合关成
+                // None，若沿用，mask 外 alpha=0 的片元会连边框色（默认黑）一起写进后缓冲，形成方块黑块。
+                base.Draw(renderer);
+
                 renderer.DrawFrameBuffer(blurred, screenRectangle, drawColour);
                 UnbindTextureShader(renderer);
                 return true;
