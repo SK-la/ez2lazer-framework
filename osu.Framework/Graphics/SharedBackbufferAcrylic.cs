@@ -94,21 +94,30 @@ namespace osu.Framework.Graphics
                 blurred = bucket.Result;
             }
 
-            // 快照覆盖整屏：screenPixels 既是快照的像素尺寸，也是它在屏幕空间的尺寸（两个后端都按
-            // window.ClientSize 建立交换链，而框架屏幕空间就用同一尺寸）。因此 quad 直接用调用方的
-            // 屏幕矩形、UV 用同一比例换算，两端不会因像素/逻辑口径不同而错位。
-            float u0 = screenSpaceRect.Left / screenPixels.X;
-            float v0 = screenSpaceRect.Top / screenPixels.Y;
-            float u1 = screenSpaceRect.Right / screenPixels.X;
-            float v1 = screenSpaceRect.Bottom / screenPixels.Y;
-
-            textureCoords = new RectangleF(
-                u0 * sourceHalfSize.X,
-                v0 * sourceHalfSize.Y,
-                (u1 - u0) * sourceHalfSize.X,
-                (v1 - v0) * sourceHalfSize.Y);
+            textureCoords = ComputeTextureCoords(screenSpaceRect, screenPixels, sourceHalfSize);
 
             return true;
+        }
+
+        /// <summary>
+        /// Maps a screen-space rectangle into the texture coordinates of a blur texture stretched over the whole screen.
+        /// </summary>
+        /// <remarks>
+        /// The blur textures span the entire screen, so every consumer must sample the region it covers. Sampling the
+        /// whole texture draws the whole blurred screen, which overwrites every other drawable in the frame.
+        /// </remarks>
+        internal static RectangleF ComputeTextureCoords(RectangleF screenSpaceRect, Vector2 screenSize, Vector2 textureSize)
+        {
+            float u0 = screenSpaceRect.Left / screenSize.X;
+            float v0 = screenSpaceRect.Top / screenSize.Y;
+            float u1 = screenSpaceRect.Right / screenSize.X;
+            float v1 = screenSpaceRect.Bottom / screenSize.Y;
+
+            return new RectangleF(
+                u0 * textureSize.X,
+                v0 * textureSize.Y,
+                (u1 - u0) * textureSize.X,
+                (v1 - v0) * textureSize.Y);
         }
 
         private bool ensureSource(IShader textureShader)
