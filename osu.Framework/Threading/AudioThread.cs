@@ -348,10 +348,15 @@ namespace osu.Framework.Threading
             // Bass.Init does not fight NAudio for the same device (rapid VoiceMeeter switches → BASS_ERROR_UNKNOWN).
             int bassHostDeviceId = useNAudioDefault ? Bass.NoSoundDevice : deviceId;
 
-            // Read the selected device's driver up front. Bass.GetDeviceInfo() is an ordinary device query that
-            // still leaves a stale Bass.LastError behind on some platforms (a successful call reports
-            // Errors.Parameter on Linux), so reading it *after* a successful Bass.Init() would make callers
-            // treat that initialisation as failed. Reading it first lets the succeeding Init() reset the code.
+            // Queried before the device is initialised on purpose. Bass.GetDeviceInfo() is an ordinary query,
+            // but on Linux a *successful* call still leaves Errors.Parameter in the process-wide Bass.LastError;
+            // running it after a successful Bass.Init() would dirty that code again for later readers. The
+            // selected device is queried directly because its info is available even when the NAudio path hosts
+            // BASS on NoSound.
+            //
+            // This only keeps the code clean on paths where an Init() actually runs below. The
+            // already-initialised early return in tryInitBassDevice() never resets Bass.LastError, so it must
+            // not be read as a success signal (see AudioManager.InitBass).
             string? latencyDriver = Bass.GetDeviceInfo(deviceId, out var latencyDeviceInfo) ? latencyDeviceInfo.Driver : null;
 
             if (!tryInitBassDevice(bassHostDeviceId))
@@ -460,7 +465,6 @@ namespace osu.Framework.Threading
                 initialised_devices.Add(deviceId);
 
             // Bind latency probe context to the active output endpoint/backend.
-            // Selected device info is available without that device being Bass.Init'd (NAudio path uses NoSound host).
             EzLatencyManager.GLOBAL.NotifyOutputDeviceChanged(latencyDriver, outputMode);
 
             publishWindowsOutputRuntime(outputMode);
