@@ -24,7 +24,8 @@ namespace osu.Framework.Graphics
     {
         private const float resolution_scale = 0.5f;
 
-        private readonly IRenderer renderer;
+        // IRenderer 不暴露当前混合参数，而离屏绘制后必须还原它。
+        private readonly Renderer renderer;
         private readonly Capture capture;
 
         private bool captured;
@@ -37,7 +38,7 @@ namespace osu.Framework.Graphics
 
         private readonly Dictionary<int, Bucket> buckets = new Dictionary<int, Bucket>();
 
-        public SharedBackbufferAcrylic(IRenderer renderer, Capture capture)
+        public SharedBackbufferAcrylic(Renderer renderer, Capture capture)
         {
             this.renderer = renderer;
             this.capture = capture;
@@ -168,7 +169,7 @@ namespace osu.Framework.Graphics
             {
                 float radians = float.DegreesToRadians(rotation);
 
-                using (var parameters = renderer.CreateUniformBuffer<BlurParameters>())
+                using (var parameters = ((IRenderer)renderer).CreateUniformBuffer<BlurParameters>())
                 {
                     parameters.Data = new BlurParameters
                     {
@@ -205,8 +206,13 @@ namespace osu.Framework.Graphics
 
             target.Bind();
             renderer.Clear(new ClearInfo(new Color4(0, 0, 0, 0)));
+
+            // 离屏 setup 期间关混合，但必须还原：调用方可能正要靠混合参数画回后缓冲。
+            BlendingParameters previousBlend = renderer.CurrentBlendingParameters;
             renderer.SetBlend(BlendingParameters.None);
             draw();
+            renderer.SetBlend(previousBlend);
+
             target.Unbind();
 
             renderer.PopOrtho();
