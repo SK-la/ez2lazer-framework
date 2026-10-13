@@ -1163,12 +1163,17 @@ namespace osu.Framework.Audio
                     return true;
                 }
 
-                if (BassUtils.CheckFaulted(false))
-                    return false;
-
                 if (!innerSuccess)
                 {
-                    Logger.Log("BASS failed to initialize but did not provide an error code", name: "audio", level: LogLevel.Error);
+                    // Bass.LastError is process-wide sticky state which any preceding BASS call can overwrite;
+                    // on Linux a *successful* Bass.GetDeviceInfo() leaves Errors.Parameter behind, so it must
+                    // not be used to decide whether this initialisation succeeded. Trust innerSuccess and only
+                    // consult the error code to enrich the log.
+                    BassUtils.CheckFaulted(false);
+
+                    if (Bass.LastError == Errors.OK)
+                        Logger.Log("BASS failed to initialize but did not provide an error code", name: "audio", level: LogLevel.Error);
+
                     return false;
                 }
 
