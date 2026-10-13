@@ -112,6 +112,9 @@ namespace osu.Framework.Graphics.Veldrid
             if (passBreakFrameBuffer.Size != Vector2.One)
                 passBreakFrameBuffer.Size = Vector2.One;
 
+            // Pending draws live in the batch buffers until flushed; without this the copy below reads a stale swapchain.
+            FlushCurrentBatch(FlushBatchSource.SetFrameBuffer);
+
             var snapshot = graphicsPipeline.CreateSnapshot();
 
             // End the swapchain render pass without submitting the command list (mid-frame End() causes flicker/tearing).
@@ -142,6 +145,9 @@ namespace osu.Framework.Graphics.Veldrid
 
             if (passBreakFrameBuffer.Size != Vector2.One)
                 passBreakFrameBuffer.Size = Vector2.One;
+
+            // Pending draws live in the batch buffers until flushed; without this the copy below reads a stale swapchain.
+            FlushCurrentBatch(FlushBatchSource.SetFrameBuffer);
 
             var snapshot = graphicsPipeline.CreateSnapshot();
 

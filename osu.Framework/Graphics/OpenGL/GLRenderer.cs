@@ -173,8 +173,11 @@ namespace osu.Framework.Graphics.OpenGL
 
             GL.ReadBuffer(backbufferFramebuffer == 0 ? ReadBufferMode.Back : ReadBufferMode.ColorAttachment0);
 
+            // glBlitFramebuffer addresses the read framebuffer bottom-up, while sh_Vertex_Output.h stores framebuffer
+            // output top-down when the backend's UV origin is bottom-left. Flipping the source rows here makes the
+            // captured texture follow the same convention as a normally rendered framebuffer texture.
             GL.BlitFramebuffer(
-                0, 0, backbufferPixels.X, backbufferPixels.Y,
+                0, backbufferPixels.Y, backbufferPixels.X, 0,
                 0, 0, (int)half.X, (int)half.Y,
                 ClearBufferMask.ColorBufferBit,
                 BlitFramebufferFilter.Linear);

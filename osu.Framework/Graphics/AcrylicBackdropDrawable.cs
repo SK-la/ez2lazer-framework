@@ -282,7 +282,7 @@ namespace osu.Framework.Graphics
                 if (renderer is not Renderer concrete || concrete.SharedAcrylic == null || !concrete.SupportsBackbufferRegionCopy)
                     return false;
 
-                if (!concrete.SharedAcrylic.TryGetBlur(blurSigma.X, ((ITexturedShaderDrawable)Source).TextureShader, blurShader, out var blurred, out var screenRectangle))
+                if (!concrete.SharedAcrylic.TryGetBlur(screenSpaceDrawRectangle, blurSigma.X, ((ITexturedShaderDrawable)Source).TextureShader, blurShader, out var blurred, out var textureCoords))
                     return false;
 
                 BindTextureShader(renderer);
@@ -291,7 +291,8 @@ namespace osu.Framework.Graphics
                 // None，若沿用，mask 外 alpha=0 的片元会连边框色（默认黑）一起写进后缓冲，形成方块黑块。
                 base.Draw(renderer);
 
-                renderer.DrawFrameBuffer(blurred, screenRectangle, drawColour);
+                // 共享纹理是整屏快照，这里只取本卡片对应的子矩形，避免把整屏糊到所有其它绘制之上。
+                renderer.DrawQuad(blurred.Texture, screenSpaceDrawRectangle, drawColour, textureCoords: textureCoords);
                 UnbindTextureShader(renderer);
                 return true;
             }

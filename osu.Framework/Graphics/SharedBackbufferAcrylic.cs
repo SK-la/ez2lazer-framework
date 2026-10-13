@@ -55,10 +55,18 @@ namespace osu.Framework.Graphics
                 bucket.Ready = false;
         }
 
-        public bool TryGetBlur(float sigma, IShader? textureShader, IShader? blurShader, out IFrameBuffer blurred, out RectangleF screenRectangle)
+        /// <summary>
+        /// Returns the shared blur for <paramref name="sigma"/>, together with the texture coordinates that
+        /// <paramref name="screenSpaceRect"/> covers inside it.
+        /// </summary>
+        /// <remarks>
+        /// The blur spans the whole screen, so consumers must sample only the region they draw. Drawing the whole
+        /// texture at the whole screen rect would overwrite every other drawable in the frame.
+        /// </remarks>
+        public bool TryGetBlur(RectangleF screenSpaceRect, float sigma, IShader? textureShader, IShader? blurShader, out IFrameBuffer blurred, out RectangleF textureCoords)
         {
             blurred = null!;
-            screenRectangle = default;
+            textureCoords = default;
 
             if (textureShader == null || blurShader == null)
                 return false;
@@ -66,24 +74,50 @@ namespace osu.Framework.Graphics
             if (!ensureSource(textureShader))
                 return false;
 
-            screenRectangle = new RectangleF(0, 0, screenPixels.X, screenPixels.Y);
+            if (screenPixels.X < 1 || screenPixels.Y < 1)
+                return false;
 
             int key = (int)MathF.Round(Math.Max(0, sigma));
 
             if (key == 0)
             {
                 blurred = sourceHalf!;
-                return true;
+            }
+            else
+            {
+                if (!buckets.TryGetValue(key, out var bucket))
+                    buckets[key] = bucket = new Bucket();
+
+                if (!bucket.Ready)
+                    blur(bucket, key * resolution_scale, blurShader);
+
+                blurred = bucket.Result;
             }
 
-            if (!buckets.TryGetValue(key, out var bucket))
-                buckets[key] = bucket = new Bucket();
+            textureCoords = ComputeTextureCoords(screenSpaceRect, screenPixels, sourceHalfSize);
 
-            if (!bucket.Ready)
-                blur(bucket, key * resolution_scale, blurShader);
+            return true;
+        }
 
-            blurred = bucket.Result;
-            return bucket.Ready;
+        /// <summary>
+        /// Maps a screen-space rectangle into the texture coordinates of a blur texture stretched over the whole screen.
+        /// </summary>
+        /// <remarks>
+        /// The blur textures span the entire screen, so every consumer must sample the region it covers. Sampling the
+        /// whole texture draws the whole blurred screen, which overwrites every other drawable in the frame.
+        /// </remarks>
+        internal static RectangleF ComputeTextureCoords(RectangleF screenSpaceRect, Vector2 screenSize, Vector2 textureSize)
+        {
+            float u0 = screenSpaceRect.Left / screenSize.X;
+            float v0 = screenSpaceRect.Top / screenSize.Y;
+            float u1 = screenSpaceRect.Right / screenSize.X;
+            float v1 = screenSpaceRect.Bottom / screenSize.Y;
+
+            return new RectangleF(
+                u0 * textureSize.X,
+                v0 * textureSize.Y,
+                (u1 - u0) * textureSize.X,
+                (v1 - v0) * textureSize.Y);
         }
 
         private bool ensureSource(IShader textureShader)
