@@ -52,6 +52,20 @@ namespace osu.Framework.Graphics.Video
 
         internal double CurrentFrameTime => lastFrame?.Time ?? 0;
 
+        /// <summary>
+        /// Latest colour sampled from a decoded frame, at most once per second.
+        /// </summary>
+        public bool TryGetBackdropSample(out Colour4 colour)
+        {
+            if (decoder == null)
+            {
+                colour = default;
+                return false;
+            }
+
+            return decoder.TryGetBackdropSample(out colour);
+        }
+
         internal int AvailableFrames => availableFrames.Count;
 
         private VideoDecoder decoder;

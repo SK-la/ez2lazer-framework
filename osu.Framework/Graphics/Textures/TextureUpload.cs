@@ -45,6 +45,37 @@ namespace osu.Framework.Graphics.Textures
 
         public int Height => image?.Height ?? 0;
 
+        private static int sampleCursor;
+
+        /// <summary>
+        /// Reads one already-decoded opaque pixel. Does not allocate.
+        /// </summary>
+        public bool TrySampleOpaquePixel(out Colour4 colour)
+        {
+            colour = default;
+
+            ReadOnlySpan<Rgba32> data = Data;
+            int length = data.Length;
+
+            if (length == 0)
+                return false;
+
+            uint start = (uint)System.Threading.Interlocked.Increment(ref sampleCursor);
+
+            for (int n = 0; n < 8; n++)
+            {
+                Rgba32 pixel = data[(int)((start + (uint)n * 997u) % (uint)length)];
+
+                if (pixel.A < 16)
+                    continue;
+
+                colour = new Colour4(pixel.R / 255f, pixel.G / 255f, pixel.B / 255f, 1);
+                return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// The backing texture. A handle is kept to avoid early GC.
         /// </summary>
