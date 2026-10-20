@@ -162,6 +162,7 @@ namespace osu.Framework.Graphics.Shaders
         public const string PERSPECTIVE = "Perspective";
         public const string GLOW = "Glow";
         public const string BLUR = "Blur";
+        public const string LIQUID_GLASS = "LiquidGlass";
         public const string GRAYSCALE = "Grayscale";
         public const string VIDEO = "Video";
     }

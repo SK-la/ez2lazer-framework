@@ -43,7 +43,7 @@ namespace osu.Framework.Graphics
     /// 旋转或各向异性模糊仍走逐卡片路径。延迟渲染仍不能读交换链。
     /// </para>
     /// </remarks>
-    public partial class AcrylicBackdropDrawable : Drawable, ITexturedShaderDrawable
+    public partial class AcrylicBackdropDrawable : Drawable, ITexturedShaderDrawable, IAcrylicEffectTarget
     {
         // 两个效果缓冲用于横/纵两趟高斯模糊的乒乓。
         private readonly BufferedDrawNodeSharedData sharedData = new BufferedDrawNodeSharedData(2, TexturePixelFormat.R8G8B8A8Float, pixelSnapping: true, clipToRootNode: false);
