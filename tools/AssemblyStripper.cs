@@ -50,7 +50,7 @@ static void processType(TypeDefinition type)
             il.Append(il.Create(OpCodes.Ret));
         else
         {
-            il.Append(il.Create(OpCodes.Newobj, method.Module.ImportReference(typeof(PlatformNotSupportedException).GetConstructor(Type.EmptyTypes)!)));
+            il.Append(il.Create(OpCodes.Newobj, method.Module.ImportReference(typeof(PlatformNotSupportedException).GetConstructor(Type.EmptyTypes))));
             il.Append(il.Create(OpCodes.Throw));
         }
     }

@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <Import Project="..\osu.Framework.Android.props" />
   <PropertyGroup>
     <TargetFramework>net10.0-android</TargetFramework>
