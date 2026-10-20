@@ -8,7 +8,7 @@ using osu.Framework.Audio;
 using osu.Framework.IO.Stores;
 using osu.Framework.Threading;
 
-namespace osu.Framework.Tests.Audio
+namespace osu.Framework.Tests.Ez
 {
     [TestFixture]
     public class AsioDeviceSwitchingTest

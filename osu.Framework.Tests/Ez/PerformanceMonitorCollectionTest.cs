@@ -5,7 +5,7 @@ using NUnit.Framework;
 using osu.Framework.Statistics;
 using osu.Framework.Threading;
 
-namespace osu.Framework.Tests.Statistics
+namespace osu.Framework.Tests.Ez
 {
     [TestFixture]
     public class PerformanceMonitorCollectionTest

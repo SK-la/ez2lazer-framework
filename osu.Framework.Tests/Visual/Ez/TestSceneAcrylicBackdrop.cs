@@ -12,7 +12,7 @@ using osu.Framework.Input.Events;
 using osuTK;
 using osuTK.Graphics;
 
-namespace osu.Framework.Tests.Visual.Drawables
+namespace osu.Framework.Tests.Visual.Ez
 {
     [System.ComponentModel.Description("内容无关的全局毛玻璃：可拖动卡片透出下层完整图片的模糊")]
     public partial class TestSceneAcrylicBackdrop : FrameworkTestScene

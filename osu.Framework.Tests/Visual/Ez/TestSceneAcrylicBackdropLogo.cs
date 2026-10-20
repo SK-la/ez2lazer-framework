@@ -11,7 +11,7 @@ using osu.Framework.Graphics.Textures;
 using osuTK;
 using osuTK.Graphics;
 
-namespace osu.Framework.Tests.Visual.Drawables
+namespace osu.Framework.Tests.Visual.Ez
 {
     [System.ComponentModel.Description("大 logo 场景：圆形裁切里的毛玻璃直接画到后缓冲，圈外与菜单展开后都不应出现黑块")]
     public partial class TestSceneAcrylicBackdropLogo : FrameworkTestScene

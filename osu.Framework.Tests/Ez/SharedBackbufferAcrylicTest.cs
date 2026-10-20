@@ -7,7 +7,7 @@ using osu.Framework.Graphics.Primitives;
 using osu.Framework.Utils;
 using osuTK;
 
-namespace osu.Framework.Tests.Graphics
+namespace osu.Framework.Tests.Ez
 {
     [TestFixture]
     public class SharedBackbufferAcrylicTest

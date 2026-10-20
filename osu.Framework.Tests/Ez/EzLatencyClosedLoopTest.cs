@@ -9,7 +9,7 @@ using System.Threading;
 using NUnit.Framework;
 using osu.Framework.Audio.EzLatency;
 
-namespace osu.Framework.Tests.Audio
+namespace osu.Framework.Tests.Ez
 {
     [TestFixture]
     public class EzLatencyClosedLoopTest

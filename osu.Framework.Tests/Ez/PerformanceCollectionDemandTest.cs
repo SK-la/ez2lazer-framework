@@ -8,7 +8,7 @@ using NUnit.Framework;
 using osu.Framework.Platform;
 using osu.Framework.Testing;
 
-namespace osu.Framework.Tests.Platform
+namespace osu.Framework.Tests.Ez
 {
     /// <summary>
     /// [Ez] Covers the wiring that keeps the per-thread performance monitors idle until a diagnostic overlay

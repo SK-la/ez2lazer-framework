@@ -7,7 +7,7 @@ using osu.Framework.Extensions;
 using osu.Framework.IO.Stores;
 using osu.Framework.Text;
 
-namespace osu.Framework.Tests.Text
+namespace osu.Framework.Tests.Ez
 {
     [TestFixture]
     public class FontVariationTest

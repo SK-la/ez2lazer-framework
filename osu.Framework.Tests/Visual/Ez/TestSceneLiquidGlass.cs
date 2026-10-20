@@ -13,7 +13,7 @@ using osu.Framework.Input.Events;
 using osuTK;
 using osuTK.Graphics;
 
-namespace osu.Framework.Tests.Visual.Graphics
+namespace osu.Framework.Tests.Visual.Ez
 {
     [System.ComponentModel.Description("液态玻璃：可拖动卡片在动态背景上做边缘折射、色散与高光")]
     public partial class TestSceneLiquidGlass : FrameworkTestScene

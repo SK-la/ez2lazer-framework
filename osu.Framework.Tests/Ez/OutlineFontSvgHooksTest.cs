@@ -13,7 +13,7 @@ using osu.Framework.Platform;
 using osu.Framework.Text;
 using SixLabors.ImageSharp.PixelFormats;
 
-namespace osu.Framework.Tests.Text
+namespace osu.Framework.Tests.Ez
 {
     [TestFixture]
     public class OutlineFontSvgHooksTest
