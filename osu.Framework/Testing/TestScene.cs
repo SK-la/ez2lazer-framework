@@ -117,11 +117,13 @@ namespace osu.Framework.Testing
         protected internal override bool RemoveInternal(Drawable drawable, bool disposeImmediately) =>
             throw new InvalidOperationException($"Modifying {nameof(InternalChildren)} will cause critical failure. Use {nameof(Remove)} instead.");
 
+#pragma warning disable CS0618 // NUnit 5 deprecates OrderAttribute, but DependsOnTest cannot express "must run before all other tests".
         /// <summary>
         /// Tests any steps and assertions in the constructor of this <see cref="TestScene"/>.
         /// This test must run before any other tests, as it relies on <see cref="StepsContainer"/> not being cleared and not having any elements.
         /// </summary>
         [Test, Order(int.MinValue)]
+#pragma warning restore CS0618
         public void TestConstructor()
         {
         }

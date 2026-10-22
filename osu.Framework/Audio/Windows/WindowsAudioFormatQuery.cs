@@ -88,7 +88,7 @@ namespace osu.Framework.Audio.Windows
             {
                 device.GetPropertyInformation();
 
-                if (device.Properties.TryGetValue(PropertyKeys.PKEY_AudioEngine_DeviceFormat, out byte[] blob))
+                if (device.Properties.TryGetValue(PropertyKeys.PKEY_AudioEngine_DeviceFormat, out byte[]? blob))
                     addWaveFormat(results, waveFormatFromBlob(blob));
             }
             catch (Exception ex)
@@ -231,7 +231,7 @@ namespace osu.Framework.Audio.Windows
             return null;
         }
 
-        private static WaveFormat? tryGetMixFormat(MMDevice device)
+        private static WaveFormat tryGetMixFormat(MMDevice device)
         {
             using var audioClient = device.CreateAudioClient();
             return audioClient.MixFormat;

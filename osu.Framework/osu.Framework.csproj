@@ -19,14 +19,14 @@
     <PackageTags>ez2lazer framework</PackageTags>
   </PropertyGroup>
   <ItemGroup Label="Package References">
-    <PackageReference Include="NAudio" Version="3.1.0" />
-    <PackageReference Include="NAudio.Wasapi" Version="3.1.0" />
+    <PackageReference Include="NAudio" Version="3.3.0" />
+    <PackageReference Include="NAudio.Wasapi" Version="3.3.0" />
     <PackageReference Include="BASS.ASIO" Version="1.3.1.2">
       <PrivateAssets>none</PrivateAssets>
       <IncludeAssets>all</IncludeAssets>
     </PackageReference>
     <PackageReference Include="FFmpeg.AutoGen" Version="4.3.0.1" />
-    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="10.0.13" />
     <PackageReference Include="ppy.managed-midi" Version="1.10.2" />
     <PackageReference Include="ManagedBass" Version="4.0.2" />
     <PackageReference Include="ManagedBass.Fx" Version="4.0.2" />
@@ -41,7 +41,7 @@
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12">
       <NoWarn>NU1902,NU1903</NoWarn>
     </PackageReference>
-    <PackageReference Include="NUnit" Version="4.6.1" />
+    <PackageReference Include="NUnit" Version="5.0.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="OpenTabletDriver" Version="0.6.7" />
     <PackageReference Include="JetBrains.Annotations" Version="2026.2.0" />
@@ -57,12 +57,12 @@
 
     <!-- Any version ahead of this will cause AOT issues with iOS
          See https://github.com/mono/mono/issues/21188 -->
-    <PackageReference Include="Microsoft.Diagnostics.Runtime" Version="4.1.745802" />
+    <PackageReference Include="Microsoft.Diagnostics.Runtime" Version="4.2.751201" />
 
     <!-- Any version ahead of this will cause runtime issues on iOS
          See https://github.com/xoofx/markdig/issues/564 -->
     <PackageReference Include="Markdig" Version="1.3.2" />
-    <PackageReference Include="System.Numerics.Tensors" Version="10.0.11" />
+    <PackageReference Include="System.Numerics.Tensors" Version="10.0.13" />
   </ItemGroup>
   <!-- PlutoSVG FreeType OT-SVG hooks (plutosvgft). Packed into ez2lazer.Framework for NuGet consumers.
        Do NOT set CopyToOutputDirectory here: flowing win/linux .dll/.so into iOS app projects causes mtouch MT158
