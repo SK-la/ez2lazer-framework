@@ -318,6 +318,7 @@ namespace osu.Framework.Graphics
                     EdgeHighlight = material.EdgeHighlight,
                     InnerShadow = material.InnerShadow,
                     TintStrength = material.TintStrength,
+                    EdgeSaturation = material.EdgeSaturation,
                 };
 
                 glassShader.BindUniformBlock("m_LiquidGlassParameters", parametersBuffer);
@@ -453,7 +454,7 @@ namespace osu.Framework.Graphics
                 public UniformFloat EdgeHighlight;
                 public UniformFloat InnerShadow;
                 public UniformFloat TintStrength;
-                private readonly UniformPadding4 tail;
+                public UniformFloat EdgeSaturation;
             }
 
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -514,6 +515,11 @@ namespace osu.Framework.Graphics
         public Color4 Tint;
 
         /// <summary>
+        /// 边缘带饱和度提升量，制造厚玻璃的体积感。0 表示不改变饱和度。
+        /// </summary>
+        public float EdgeSaturation;
+
+        /// <summary>
         /// 虚拟光源方向（屏幕空间，指向光源）。
         /// </summary>
         public Vector2 LightDirection;
@@ -527,6 +533,7 @@ namespace osu.Framework.Graphics
             EdgeHighlight = 0.4f,
             InnerShadow = 0.2f,
             TintStrength = 0.35f,
+            EdgeSaturation = 0.35f,
             Tint = new Color4(1f, 1f, 1f, 0.08f),
             LightDirection = new Vector2(-0.65f, -0.76f),
         };

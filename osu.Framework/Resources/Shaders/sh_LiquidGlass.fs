@@ -27,6 +27,7 @@ layout(std140, set = 0, binding = 0) uniform m_LiquidGlassParameters
 	highp float lg_EdgeHighlight;
 	highp float lg_InnerShadow;
 	highp float lg_TintStrength;
+	highp float lg_EdgeSaturation;
 };
 
 layout(set = 1, binding = 0) uniform lowp texture2D m_Texture;
@@ -69,7 +70,12 @@ void main(void)
 	// 0 = 边界，1 = 折射带内侧。
 	highp float band = max(lg_RefractionDepth, 0.001);
 	highp float edge = clamp(inside / band, 0.0, 1.0);
-	highp float lens = (1.0 - edge) * (1.0 - edge);
+	highp float rim = 1.0 - edge;
+	highp float rim2 = rim * rim;
+
+	// 位移剖面：三次幂让最外几像素位移最强、带内侧迅速归位。
+	// 二次幂会把整条带一起拉伸，看起来是「糊」而不是「厚边」。
+	highp float lens = rim2 * rim;
 
 	highp vec2 offset = outward * (lens * lg_RefractionStrength) * lg_UvPerPixel;
 	highp float chroma = lens * lg_ChromaticStrength;
@@ -83,13 +89,21 @@ void main(void)
 	colour.g = sampleGlass(v_TexCoord + offset, minCoord, maxCoord).g;
 	colour.b = sampleGlass(v_TexCoord + offset * (1.0 - chroma), minCoord, maxCoord).b;
 
-	highp float rim = 1.0 - edge;
 	highp vec2 light = normalize(lg_LightDirection + vec2(0.000001));
 	highp float facing = max(dot(outward, light), 0.0);
 	highp float awayFromLight = max(dot(-outward, light), 0.0);
 
-	colour += vec3(rim * rim * rim * lg_EdgeHighlight * (0.25 + 0.75 * facing));
-	colour *= 1.0 - rim * rim * lg_InnerShadow * awayFromLight;
+	// 高光分两层：贴边 1–2 px 的窄镜面线，加覆盖整条带的弱柔辉。
+	// 单层高次幂会把整条带一起提亮，读起来像发光边框而不是玻璃反光。
+	highp float specular = pow(rim, 12.0) * smoothstep(0.15, 0.85, facing);
+	highp float sheen = rim2 * (0.2 + 0.8 * facing);
+
+	colour += vec3(lg_EdgeHighlight * (specular + sheen * 0.35));
+	colour *= 1.0 - rim2 * lg_InnerShadow * awayFromLight;
+
+	// 边缘提高饱和度，制造厚玻璃的体积感。
+	highp float luma = dot(colour, vec3(0.2126, 0.7152, 0.0722));
+	colour = mix(vec3(luma), colour, 1.0 + rim2 * lg_EdgeSaturation);
 
 	colour = mix(colour, lg_Tint.rgb, clamp(lg_Tint.a * lg_TintStrength, 0.0, 1.0));
 
