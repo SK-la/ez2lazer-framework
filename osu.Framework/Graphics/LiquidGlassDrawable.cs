@@ -528,12 +528,12 @@ namespace osu.Framework.Graphics
         {
             CornerRadius = 0,
             RefractionDepth = 22,
-            RefractionStrength = 7,
-            ChromaticStrength = 0.15f,
-            EdgeHighlight = 0.4f,
+            RefractionStrength = 10,
+            ChromaticStrength = 0.35f,
+            EdgeHighlight = 0.35f,
             InnerShadow = 0.2f,
-            TintStrength = 0.35f,
-            EdgeSaturation = 0.35f,
+            TintStrength = 0.2f,
+            EdgeSaturation = 0.5f,
             Tint = new Color4(1f, 1f, 1f, 0.08f),
             LightDirection = new Vector2(-0.65f, -0.76f),
         };
