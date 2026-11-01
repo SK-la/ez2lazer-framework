@@ -5,6 +5,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -105,7 +106,13 @@ namespace osu.Framework.Graphics.Rendering
         private readonly GlobalStatistic<int> vboInUse;
 
         private readonly ConcurrentQueue<ScheduledDelegate> expensiveOperationQueue = new ConcurrentQueue<ScheduledDelegate>();
-        private readonly ConcurrentQueue<INativeTexture> textureUploadQueue = new ConcurrentQueue<INativeTexture>();
+
+        // Global texture upload scheduling. The queue and its membership set are guarded by a single short lock; membership
+        // tracks the physical entries waiting in the FIFO so that duplicate scheduling is a constant-time check. The lock is
+        // never held while uploading or while acquiring a texture's own upload queue lock (see the lock ordering in EnqueueTextureUpload).
+        private readonly Queue<INativeTexture> textureUploadQueue = new Queue<INativeTexture>();
+        private readonly HashSet<INativeTexture> textureUploadQueueMembership = new HashSet<INativeTexture>();
+        private readonly object textureUploadQueueLock = new object();
         private readonly RendererDisposalQueue disposalQueue = new RendererDisposalQueue();
 
         private readonly Scheduler resetScheduler = new Scheduler(() => ThreadSafety.IsDrawThread, new StopwatchClock(true)); // force no thread set until we are actually on the draw thread.
@@ -275,17 +282,23 @@ namespace osu.Framework.Graphics.Rendering
             freeUnusedVertexBuffers();
             vboInUse.Value = vertexBuffersInUse.Count;
 
-            statTextureUploadsQueued.Value = textureUploadQueue.Count;
+            // one locked snapshot serves both the queued statistic and the drain target below.
+            int queuedUploadCount;
+
+            lock (textureUploadQueueLock)
+                queuedUploadCount = textureUploadQueue.Count;
+
+            statTextureUploadsQueued.Value = queuedUploadCount;
             statTextureUploadsDequeued.Value = 0;
             statTextureUploadsPerformed.Value = 0;
 
             // increase the number of items processed with the queue length to ensure it doesn't get out of hand.
-            int targetUploads = Math.Clamp(textureUploadQueue.Count / 2, 1, MaxTexturesUploadedPerFrame);
+            int targetUploads = Math.Clamp(queuedUploadCount / 2, 1, MaxTexturesUploadedPerFrame);
             int uploads = 0;
             int uploadedPixels = 0;
 
             // continue attempting to upload textures until enough uploads have been performed.
-            while (textureUploadQueue.TryDequeue(out INativeTexture? texture))
+            while (tryDequeueTextureUpload(out INativeTexture? texture))
             {
                 statTextureUploadsDequeued.Value++;
 
@@ -912,15 +925,43 @@ namespace osu.Framework.Graphics.Rendering
         }
 
         /// <summary>
+        /// Attempts to dequeue a texture awaiting upload. The renderer queue lock is released before the caller uploads.
+        /// </summary>
+        private bool tryDequeueTextureUpload([NotNullWhen(true)] out INativeTexture? texture)
+        {
+            lock (textureUploadQueueLock)
+            {
+                if (textureUploadQueue.Count == 0)
+                {
+                    texture = null;
+                    return false;
+                }
+
+                texture = textureUploadQueue.Dequeue();
+                textureUploadQueueMembership.Remove(texture);
+                return true;
+            }
+        }
+
+        /// <summary>
         /// Enqueues a texture to be uploaded in the next frame.
         /// </summary>
         /// <param name="texture">The texture to be uploaded.</param>
         internal void EnqueueTextureUpload(INativeTexture texture)
         {
-            if (!IsInitialised || textureUploadQueue.Contains(texture))
+            if (!IsInitialised)
                 return;
 
-            textureUploadQueue.Enqueue(texture);
+            // Lock ordering: this locks the renderer's queue only, briefly, and never enters a texture's own upload lock.
+            // A texture's SetData() holds its local upload lock while requesting global scheduling, so entering that lock
+            // here would invert the order. Membership and the FIFO entry are added atomically, removing the check/enqueue race.
+            lock (textureUploadQueueLock)
+            {
+                if (!textureUploadQueueMembership.Add(texture))
+                    return;
+
+                textureUploadQueue.Enqueue(texture);
+            }
         }
 
         /// <summary>
