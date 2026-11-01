@@ -40,7 +40,7 @@ namespace osu.Framework.Text
         /// <summary>
         /// Locks <see cref="library"/> for opening and closing fonts.
         /// </summary>
-        private static readonly object library_lock = new object();
+        private static readonly Lock library_lock = new Lock();
 
         /// <summary>
         /// The underlying unmanaged font handle.

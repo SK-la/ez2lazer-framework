@@ -35,8 +35,7 @@ namespace osu.Framework.Audio.EzLatency
         private readonly Action<EzLatencyRecord> serviceHandler;
         private readonly Lock probeSync = new Lock();
 
-        /// <summary>Volatile for lock-free observe from audio callbacks.</summary>
-        private volatile OutputPathAcousticProbe? outputPathProbe;
+        private OutputPathAcousticProbe? outputPathProbe;
 
         private string? currentOutputDriverId;
         private AudioOutputMode? currentOutputMode;
@@ -130,7 +129,7 @@ namespace osu.Framework.Audio.EzLatency
             if (!analyzer.Enabled || !analyzer.AwaitAcoustic)
                 return;
 
-            outputPathProbe?.ObserveFloat(buffer, bytes);
+            Volatile.Read(ref outputPathProbe)?.ObserveFloat(buffer, bytes);
         }
 
         /// <summary>
@@ -141,7 +140,7 @@ namespace osu.Framework.Audio.EzLatency
             if (!analyzer.Enabled || !analyzer.AwaitAcoustic)
                 return;
 
-            outputPathProbe?.Observe(buffer, bytes, format);
+            Volatile.Read(ref outputPathProbe)?.Observe(buffer, bytes, format);
         }
 
         /// <summary>
@@ -152,7 +151,7 @@ namespace osu.Framework.Audio.EzLatency
             if (!analyzer.Enabled || !analyzer.AwaitAcoustic)
                 return;
 
-            outputPathProbe?.Observe(buffer, bytes, format);
+            Volatile.Read(ref outputPathProbe)?.Observe(buffer, bytes, format);
         }
 
         /// <summary>
@@ -166,7 +165,7 @@ namespace osu.Framework.Audio.EzLatency
             double inputTime = analyzer.GetCurrentTimestamp();
             analyzer.RecordInputData(inputTime, keyValue);
 
-            outputPathProbe?.Arm(inputTime);
+            Volatile.Read(ref outputPathProbe)?.Arm(inputTime);
         }
 
         /// <summary>
@@ -275,13 +274,10 @@ namespace osu.Framework.Audio.EzLatency
         {
             lock (probeSync)
             {
-                if (outputPathProbe == null)
-                {
-                    outputPathProbe = new OutputPathAcousticProbe(
-                        analyzer.GetCurrentTimestamp,
-                        analyzer.PollTimeout,
-                        RecordHardwareData);
-                }
+                outputPathProbe ??= new OutputPathAcousticProbe(
+                    analyzer.GetCurrentTimestamp,
+                    analyzer.PollTimeout,
+                    RecordHardwareData);
 
                 outputPathProbe.Threshold = acousticThreshold;
                 analyzer.AwaitAcoustic = true;
@@ -296,10 +292,10 @@ namespace osu.Framework.Audio.EzLatency
         private void stopAcousticProbe()
         {
             analyzer.AwaitAcoustic = false;
-            outputPathProbe?.Disarm();
+            Volatile.Read(ref outputPathProbe)?.Disarm();
         }
 
-        private void disarmAcousticProbe() => outputPathProbe?.Disarm();
+        private void disarmAcousticProbe() => Volatile.Read(ref outputPathProbe)?.Disarm();
 
         /// <summary>
         /// 释放资源
