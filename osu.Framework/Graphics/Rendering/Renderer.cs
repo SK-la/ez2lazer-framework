@@ -9,6 +9,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 using osu.Framework.Development;
 using osu.Framework.Extensions.TypeExtensions;
 using osu.Framework.Graphics.Primitives;
@@ -40,6 +41,11 @@ namespace osu.Framework.Graphics.Rendering
         /// The length of no usage (in frames) before freeing unused resources.
         /// </summary>
         internal const int RESOURCE_FREE_NO_USAGE_LENGTH = 300;
+
+        /// <summary>
+        /// How long <see cref="BeginFrame"/> may spend running pending expensive operations before returning to the frame loop.
+        /// </summary>
+        private static readonly long expensive_operation_budget_ticks = Stopwatch.Frequency * 2 / 1000;
 
         protected internal abstract bool VerticalSync { get; set; }
         protected internal abstract bool AllowTearing { get; set; }
@@ -112,7 +118,7 @@ namespace osu.Framework.Graphics.Rendering
         // never held while uploading or while acquiring a texture's own upload queue lock (see the lock ordering in EnqueueTextureUpload).
         private readonly Queue<INativeTexture> textureUploadQueue = new Queue<INativeTexture>();
         private readonly HashSet<INativeTexture> textureUploadQueueMembership = new HashSet<INativeTexture>();
-        private readonly object textureUploadQueueLock = new object();
+        private readonly Lock textureUploadQueueLock = new Lock();
         private readonly RendererDisposalQueue disposalQueue = new RendererDisposalQueue();
 
         private readonly Scheduler resetScheduler = new Scheduler(() => ThreadSafety.IsDrawThread, new StopwatchClock(true)); // force no thread set until we are actually on the draw thread.
@@ -226,13 +232,20 @@ namespace osu.Framework.Graphics.Rendering
 
             statExpensiveOperationsQueued.Value = expensiveOperationQueue.Count;
 
+            // Run at least one pending operation, then continue while within a small budget. With a warm shader cache most
+            // operations are short, and draining several per frame lets loading screens finish shader initialisation before
+            // anything needs to bind those shaders (which would otherwise initialise them inline, mid-frame).
+            long budgetEnd = Stopwatch.GetTimestamp() + expensive_operation_budget_ticks;
+
             while (expensiveOperationQueue.TryDequeue(out ScheduledDelegate? operation))
             {
-                if (operation.State == ScheduledDelegate.RunState.Waiting)
-                {
-                    operation.RunTask();
+                if (operation.State != ScheduledDelegate.RunState.Waiting)
+                    continue;
+
+                operation.RunTask();
+
+                if (Stopwatch.GetTimestamp() >= budgetEnd)
                     break;
-                }
             }
 
             globalUniformsChanged = true;

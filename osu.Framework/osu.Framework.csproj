@@ -35,6 +35,8 @@
     <PackageReference Include="ManagedBass.Asio" Version="4.0.2" />
     <PackageReference Include="ppy.Veldrid" Version="4.9.69-ga405fe8484" />
     <PackageReference Include="ppy.Veldrid.SPIRV" Version="1.0.15-g5911265ec3" />
+    <!-- Used to compile HLSL to DXBC ahead of draw-thread shader creation (see ShaderCompilationStore.CompileHlslBytecode). -->
+    <PackageReference Include="Vortice.D3DCompiler" Version="2.4.2" />
     <PackageReference Include="McEndu.FreeTypeSharp" Version="4.1.5" />
     <PackageReference Include="SharpFNT" Version="2.0.0" />
     <!-- Silenced advisories are mitigated in usage; same set upstream silences on 3.1.11. -->
