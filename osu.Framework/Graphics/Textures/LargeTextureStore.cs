@@ -71,5 +71,18 @@ namespace osu.Framework.Graphics.Textures
             referenceCounts.Remove(texture.LookupKey);
             Purge(texture);
         }
+
+        /// <summary>
+        /// Drops the store's not-found (null) cache entries so files added or replaced on disk become
+        /// visible on the next lookup.
+        /// </summary>
+        /// <remarks>
+        /// Successfully loaded textures do not need clearing here: a texture is purged automatically the
+        /// moment its last <see cref="TextureWithRefCount"/> reference is released, so no stale entry
+        /// survives. The only entries that linger are cached misses. Calling <see cref="TextureStore.ClearCache"/>
+        /// instead would dispose the native texture of live entries and empty any drawable still holding
+        /// one (and crash when that drawable is later disposed).
+        /// </remarks>
+        public void ClearFailedCache() => ClearFailedCacheEntries();
     }
 }

@@ -4,7 +4,6 @@
 #nullable disable
 
 using System;
-using osu.Framework.IO.Stores;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -14,6 +13,7 @@ using System.Threading.Tasks;
 using JetBrains.Annotations;
 using osu.Framework.Extensions;
 using osu.Framework.Graphics.Rendering;
+using osu.Framework.IO.Stores;
 using osu.Framework.Logging;
 
 namespace osu.Framework.Graphics.Textures
@@ -338,6 +338,25 @@ namespace osu.Framework.Graphics.Textures
 
             if (disposeAtlas && Atlas != null)
                 Atlas.DisposeResources();
+        }
+
+        /// <summary>
+        /// Removes not-found (null) entries from the cache, without touching any cached texture.
+        /// A failed lookup is cached as a null entry (see <see cref="get(string, WrapMode, WrapMode)"/>),
+        /// which keeps a file added to disk later invisible until the entry is dropped.
+        /// </summary>
+        /// <remarks>
+        /// Needed by stores that keep textures alive until all consumers release them, where
+        /// <see cref="ClearCache"/> cannot be used: it disposes the underlying native texture of every
+        /// entry, including ones still held by outstanding consumers.
+        /// </remarks>
+        protected void ClearFailedCacheEntries()
+        {
+            lock (textureCache)
+            {
+                foreach (string key in textureCache.Where(kvp => kvp.Value == null).Select(kvp => kvp.Key).ToArray())
+                    textureCache.Remove(key);
+            }
         }
 
         /// <summary>
