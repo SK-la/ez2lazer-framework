@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using osu.Framework.Extensions;
 using osu.Framework.Extensions.EnumExtensions;
 using osu.Framework.Graphics.OpenGL.Batches;
 using osu.Framework.Graphics.OpenGL.Buffers;
@@ -68,6 +69,20 @@ namespace osu.Framework.Graphics.OpenGL
         /// </summary>
         public bool IsEmbedded { get; private set; }
 
+        /// <summary>
+        /// Whether linked programs can be retrieved and restored as driver binaries.
+        /// </summary>
+        internal bool SupportsProgramBinaries { get; private set; }
+
+        private string programBinaryDriver = string.Empty;
+
+        /// <summary>
+        /// The cache key for a program's driver binary. Binaries are only valid for the driver that produced them,
+        /// so the key includes the vendor, renderer and version strings.
+        /// </summary>
+        internal string? GetProgramBinaryKey(string vertexText, string fragmentText)
+            => SupportsProgramBinaries ? $"{vertexText.ComputeMD5Hash()}#{fragmentText.ComputeMD5Hash()}#{programBinaryDriver}#glprogram#1" : null;
+
         private int backbufferFramebuffer;
 
         private readonly Dictionary<string, IGLUniformBuffer> boundUniformBuffers = new Dictionary<string, IGLUniformBuffer>();
@@ -89,6 +104,11 @@ namespace osu.Framework.Graphics.OpenGL
 
             MaxTextureSize = GL.GetInteger(GetPName.MaxTextureSize);
             MaxRenderBufferSize = GL.GetInteger(GetPName.MaxRenderbufferSize);
+
+            // Program binaries are core in OpenGL ES 3.0 and OpenGL 4.1 (ARB_get_program_binary before that); drivers may still offer no formats.
+            SupportsProgramBinaries = GL.GetInteger(GetPName.NumProgramBinaryFormats) > 0;
+            GL.GetError();
+            programBinaryDriver = $"{GL.GetString(StringName.Vendor)}|{GL.GetString(StringName.Renderer)}|{GL.GetString(StringName.Version)}".ComputeMD5Hash();
 
             GL.Disable(EnableCap.StencilTest);
             GL.Enable(EnableCap.Blend);

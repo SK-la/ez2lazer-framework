@@ -5,9 +5,11 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 using osu.Framework.Development;
 using osu.Framework.Extensions.TypeExtensions;
 using osu.Framework.Graphics.Primitives;
@@ -39,6 +41,11 @@ namespace osu.Framework.Graphics.Rendering
         /// The length of no usage (in frames) before freeing unused resources.
         /// </summary>
         internal const int RESOURCE_FREE_NO_USAGE_LENGTH = 300;
+
+        /// <summary>
+        /// How long <see cref="BeginFrame"/> may spend running pending expensive operations before returning to the frame loop.
+        /// </summary>
+        private static readonly long expensive_operation_budget_ticks = Stopwatch.Frequency * 2 / 1000;
 
         protected internal abstract bool VerticalSync { get; set; }
         protected internal abstract bool AllowTearing { get; set; }
@@ -105,7 +112,13 @@ namespace osu.Framework.Graphics.Rendering
         private readonly GlobalStatistic<int> vboInUse;
 
         private readonly ConcurrentQueue<ScheduledDelegate> expensiveOperationQueue = new ConcurrentQueue<ScheduledDelegate>();
-        private readonly ConcurrentQueue<INativeTexture> textureUploadQueue = new ConcurrentQueue<INativeTexture>();
+
+        // Global texture upload scheduling. The queue and its membership set are guarded by a single short lock; membership
+        // tracks the physical entries waiting in the FIFO so that duplicate scheduling is a constant-time check. The lock is
+        // never held while uploading or while acquiring a texture's own upload queue lock (see the lock ordering in EnqueueTextureUpload).
+        private readonly Queue<INativeTexture> textureUploadQueue = new Queue<INativeTexture>();
+        private readonly HashSet<INativeTexture> textureUploadQueueMembership = new HashSet<INativeTexture>();
+        private readonly Lock textureUploadQueueLock = new Lock();
         private readonly RendererDisposalQueue disposalQueue = new RendererDisposalQueue();
 
         private readonly Scheduler resetScheduler = new Scheduler(() => ThreadSafety.IsDrawThread, new StopwatchClock(true)); // force no thread set until we are actually on the draw thread.
@@ -140,6 +153,17 @@ namespace osu.Framework.Graphics.Rendering
         private MaskingInfo currentMaskingInfo;
         private int lastActiveTextureUnit;
         private bool globalUniformsChanged;
+
+        // The clipping state attached to queued geometry, which may lag the logical push/pop state (see ApplyPendingMaskingState).
+        // Intermediate push/pop transitions without geometry must not split otherwise compatible batches.
+        private MaskingInfo appliedMaskingInfo;
+        private bool appliedMaskingActive;
+        private RectangleI? appliedScissor;
+        private bool appliedScissorEnabled;
+        private RectangleI? appliedHardwareScissor;
+        private bool maskingStatePending;
+
+        private readonly FrameDrawCapture? drawCapture = FrameDrawCapture.Create();
 
         private static readonly GlobalStatistic<int>[] flush_source_statistics;
 
@@ -200,25 +224,37 @@ namespace osu.Framework.Graphics.Rendering
 
             FrameIndex++;
 
+            drawCapture?.Begin(FrameIndex, windowSize, GetType().Name);
+
             backBufferDepth.Reset();
 
             resetScheduler.Update();
 
             statExpensiveOperationsQueued.Value = expensiveOperationQueue.Count;
 
+            // Run at least one pending operation, then continue while within a small budget. With a warm shader cache most
+            // operations are short, and draining several per frame lets loading screens finish shader initialisation before
+            // anything needs to bind those shaders (which would otherwise initialise them inline, mid-frame).
+            long budgetEnd = Stopwatch.GetTimestamp() + expensive_operation_budget_ticks;
+
             while (expensiveOperationQueue.TryDequeue(out ScheduledDelegate? operation))
             {
-                if (operation.State == ScheduledDelegate.RunState.Waiting)
-                {
-                    operation.RunTask();
+                if (operation.State != ScheduledDelegate.RunState.Waiting)
+                    continue;
+
+                operation.RunTask();
+
+                if (Stopwatch.GetTimestamp() >= budgetEnd)
                     break;
-                }
             }
 
             globalUniformsChanged = true;
             currentActiveBatch = null;
             CurrentBlendingParameters = new BlendingParameters();
             currentMaskingInfo = default;
+            appliedMaskingInfo = default;
+            appliedMaskingActive = false;
+            invalidateAppliedScissor();
 
             foreach (var b in batchResetList)
                 b.ResetCounters();
@@ -271,17 +307,23 @@ namespace osu.Framework.Graphics.Rendering
             freeUnusedVertexBuffers();
             vboInUse.Value = vertexBuffersInUse.Count;
 
-            statTextureUploadsQueued.Value = textureUploadQueue.Count;
+            // one locked snapshot serves both the queued statistic and the drain target below.
+            int queuedUploadCount;
+
+            lock (textureUploadQueueLock)
+                queuedUploadCount = textureUploadQueue.Count;
+
+            statTextureUploadsQueued.Value = queuedUploadCount;
             statTextureUploadsDequeued.Value = 0;
             statTextureUploadsPerformed.Value = 0;
 
             // increase the number of items processed with the queue length to ensure it doesn't get out of hand.
-            int targetUploads = Math.Clamp(textureUploadQueue.Count / 2, 1, MaxTexturesUploadedPerFrame);
+            int targetUploads = Math.Clamp(queuedUploadCount / 2, 1, MaxTexturesUploadedPerFrame);
             int uploads = 0;
             int uploadedPixels = 0;
 
             // continue attempting to upload textures until enough uploads have been performed.
-            while (textureUploadQueue.TryDequeue(out INativeTexture? texture))
+            while (tryDequeueTextureUpload(out INativeTexture? texture))
             {
                 statTextureUploadsDequeued.Value++;
 
@@ -307,6 +349,8 @@ namespace osu.Framework.Graphics.Rendering
         protected internal virtual void FinishFrame()
         {
             FlushCurrentBatch(FlushBatchSource.FinishFrame);
+
+            drawCapture?.Finish();
         }
 
         public void ScheduleExpensiveOperation(ScheduledDelegate operation)
@@ -473,8 +517,10 @@ namespace osu.Framework.Graphics.Rendering
             if (Viewport == viewport)
                 return;
 
+            FlushCurrentBatch(FlushBatchSource.SetScissor);
             SetViewportImplementation(viewport);
             Viewport = viewport;
+            invalidateAppliedScissor();
         }
 
         /// <summary>
@@ -546,17 +592,11 @@ namespace osu.Framework.Graphics.Rendering
             if (Scissor == scissor)
                 return;
 
-            // when rendering to a framebuffer on a backend which has the UV origin set to bottom-left (OpenGL),
-            // vertex positions are flipped vertically in sh_Vertex_Output.h to match that UV origin.
-            // for scissoring to continue to work correctly with that, the scissor box has to be inverted too.
-            var compensatedScissor = scissor;
-            if (!UsingBackbuffer && !IsUvOriginTopLeft)
-                compensatedScissor.Y = Viewport.Height - scissor.Bottom;
-
-            FlushCurrentBatch(FlushBatchSource.SetScissor);
-            SetScissorImplementation(compensatedScissor.Intersect(Viewport));
-            // do not expose the implementation detail of flipping the scissor box to Scissor readers.
             Scissor = scissor;
+
+            // The applied scissor is not updated here; it is applied together with masking state just before new geometry
+            // is submitted. A push/pop pair with no geometry in between therefore does not split the batch.
+            maskingStatePending = true;
         }
 
         private void setScissorState(bool enabled)
@@ -567,6 +607,10 @@ namespace osu.Framework.Graphics.Rendering
             FlushCurrentBatch(FlushBatchSource.SetScissor);
             SetScissorStateImplementation(enabled);
             ScissorState = enabled;
+
+            // disabling scissor clipping (or the framebuffer's scissor) does not change the scissor rectangle, but new
+            // geometry must still account for the state change.
+            maskingStatePending = true;
         }
 
         private void setScissorOffset(Vector2I offset)
@@ -639,11 +683,6 @@ namespace osu.Framework.Graphics.Rendering
 
         private void setMaskingInfo(MaskingInfo maskingInfo, bool isPushing, bool overwritePreviousScissor)
         {
-            if (CurrentMaskingInfo == maskingInfo)
-                return;
-
-            FlushCurrentBatch(FlushBatchSource.SetMasking);
-
             if (isPushing)
             {
                 // When drawing to a viewport that doesn't match the projection size (e.g. via framebuffers), the resultant image will be scaled
@@ -668,7 +707,66 @@ namespace osu.Framework.Graphics.Rendering
 
             // Masking is enabled for as long as any masking info is active that's not the default.
             IsMaskingActive = maskingStack.Count > 1;
+
+            // The shader parameters are only committed when geometry is next submitted, so push/pop pairs without geometry
+            // do not flush the current batch.
+            maskingStatePending = true;
+        }
+
+        /// <summary>
+        /// Applies the logical clipping state before new geometry is submitted. Push/pop transitions without geometry in
+        /// between therefore do not flush the current batch.
+        /// </summary>
+        /// <param name="batch">The batch that geometry is about to be added to, used to decide the appropriate flush source.</param>
+        internal void ApplyPendingMaskingState(IVertexBatch? batch = null)
+        {
+            if (!maskingStatePending)
+                return;
+
+            RectangleI hardwareScissor = getEffectiveScissor();
+
+            bool maskChanged = appliedMaskingActive != IsMaskingActive
+                               || !appliedMaskingInfo.HasSameShaderParameters(currentMaskingInfo);
+            bool scissorChanged = appliedScissor != Scissor || appliedScissorEnabled != ScissorState;
+
+            // The flush must happen before the applied state is updated: the geometry being flushed was submitted under the
+            // previous state, and DrawBatchVertices reads the applied state. If applied state were updated first, that
+            // geometry would be drawn with the pending mask.
+            if (maskChanged || scissorChanged)
+                FlushCurrentBatch(maskChanged ? FlushBatchSource.SetMasking : FlushBatchSource.SetScissor);
+
+            appliedMaskingInfo = currentMaskingInfo;
+            appliedMaskingActive = IsMaskingActive;
+            appliedScissor = Scissor;
+            appliedScissorEnabled = ScissorState;
+
+            if (appliedHardwareScissor != hardwareScissor)
+            {
+                SetScissorImplementation(hardwareScissor);
+                appliedHardwareScissor = hardwareScissor;
+            }
+
             globalUniformsChanged = true;
+            maskingStatePending = false;
+        }
+
+        private void invalidateAppliedScissor()
+        {
+            appliedScissor = null;
+            appliedHardwareScissor = null;
+            maskingStatePending = true;
+        }
+
+        private RectangleI getEffectiveScissor()
+        {
+            // when rendering to a framebuffer on a backend which has the UV origin set to bottom-left (OpenGL),
+            // vertex positions are flipped vertically in sh_Vertex_Output.h to match that UV origin.
+            // for scissoring to continue to work correctly with that, the scissor box has to be inverted too.
+            var scissor = Scissor;
+            if (!UsingBackbuffer && !IsUvOriginTopLeft)
+                scissor.Y = Viewport.Height - scissor.Bottom;
+
+            return scissor.Intersect(Viewport);
         }
 
         #endregion
@@ -763,6 +861,13 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="batch">The batch.</param>
         internal void SetActiveBatch(IVertexBatch batch)
         {
+            // A different batch may contain geometry submitted under different clipping state, so pending clipping state
+            // must be committed before it becomes active.
+            if (currentActiveBatch != batch)
+                maskingStatePending = true;
+
+            ApplyPendingMaskingState(batch);
+
             if (currentActiveBatch == batch)
                 return;
 
@@ -779,8 +884,24 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="source">The source performing the flush, for profiling purposes.</param>
         protected internal void FlushCurrentBatch(FlushBatchSource? source)
         {
-            if (currentActiveBatch?.Draw() > 0 && source != null)
-                flush_source_statistics[(int)source].Value++;
+            if (drawCapture == null)
+            {
+                if (currentActiveBatch?.Draw() > 0 && source != null)
+                    flush_source_statistics[(int)source].Value++;
+                return;
+            }
+
+            drawCapture.FlushSource = source?.ToString();
+
+            try
+            {
+                if (currentActiveBatch?.Draw() > 0 && source != null)
+                    flush_source_statistics[(int)source].Value++;
+            }
+            finally
+            {
+                drawCapture.FlushSource = null;
+            }
         }
 
         private void freeUnusedVertexBuffers()
@@ -890,15 +1011,43 @@ namespace osu.Framework.Graphics.Rendering
         }
 
         /// <summary>
+        /// Attempts to dequeue a texture awaiting upload. The renderer queue lock is released before the caller uploads.
+        /// </summary>
+        private bool tryDequeueTextureUpload([NotNullWhen(true)] out INativeTexture? texture)
+        {
+            lock (textureUploadQueueLock)
+            {
+                if (textureUploadQueue.Count == 0)
+                {
+                    texture = null;
+                    return false;
+                }
+
+                texture = textureUploadQueue.Dequeue();
+                textureUploadQueueMembership.Remove(texture);
+                return true;
+            }
+        }
+
+        /// <summary>
         /// Enqueues a texture to be uploaded in the next frame.
         /// </summary>
         /// <param name="texture">The texture to be uploaded.</param>
         internal void EnqueueTextureUpload(INativeTexture texture)
         {
-            if (!IsInitialised || textureUploadQueue.Contains(texture))
+            if (!IsInitialised)
                 return;
 
-            textureUploadQueue.Enqueue(texture);
+            // Lock ordering: this locks the renderer's queue only, briefly, and never enters a texture's own upload lock.
+            // A texture's SetData() holds its local upload lock while requesting global scheduling, so entering that lock
+            // here would invert the order. Membership and the FIFO entry are added atomically, removing the check/enqueue race.
+            lock (textureUploadQueueLock)
+            {
+                if (!textureUploadQueueMembership.Add(texture))
+                    return;
+
+                textureUploadQueue.Enqueue(texture);
+            }
         }
 
         /// <summary>
@@ -940,6 +1089,7 @@ namespace osu.Framework.Graphics.Rendering
 
             UsingBackbuffer = frameBuffer == null;
             globalUniformsChanged = true;
+            invalidateAppliedScissor();
         }
 
         /// <summary>
@@ -966,6 +1116,18 @@ namespace osu.Framework.Graphics.Rendering
 
         public void DrawVertices(PrimitiveTopology topology, int vertexStart, int verticesCount)
         {
+            // Commit any logical clipping change before new geometry is submitted.
+            ApplyPendingMaskingState();
+
+            DrawBatchVertices(topology, vertexStart, verticesCount);
+        }
+
+        /// <summary>
+        /// Submits vertices that were already added to a batch at an earlier point in the frame. The clipping state is
+        /// deliberately not re-applied here: buffered vertices retain the state they were submitted with.
+        /// </summary>
+        internal void DrawBatchVertices(PrimitiveTopology topology, int vertexStart, int verticesCount)
+        {
             if (Shader == null)
                 throw new InvalidOperationException("No shader bound.");
 
@@ -978,45 +1140,45 @@ namespace osu.Framework.Graphics.Rendering
                     IsClipSpaceYInverted = IsClipSpaceYInverted,
                     IsUvOriginTopLeft = IsUvOriginTopLeft,
                     ProjMatrix = ProjectionMatrix,
-                    ToMaskingSpace = currentMaskingInfo.ToMaskingSpace,
-                    IsMasking = IsMaskingActive,
-                    CornerRadius = currentMaskingInfo.CornerRadius,
-                    CornerExponent = currentMaskingInfo.CornerExponent,
+                    ToMaskingSpace = appliedMaskingInfo.ToMaskingSpace,
+                    IsMasking = appliedMaskingActive,
+                    CornerRadius = appliedMaskingInfo.CornerRadius,
+                    CornerExponent = appliedMaskingInfo.CornerExponent,
                     MaskingRect = new Vector4(
-                        currentMaskingInfo.MaskingRect.Left,
-                        currentMaskingInfo.MaskingRect.Top,
-                        currentMaskingInfo.MaskingRect.Right,
-                        currentMaskingInfo.MaskingRect.Bottom),
-                    BorderThickness = currentMaskingInfo.BorderThickness / currentMaskingInfo.BlendRange,
-                    BorderColour = currentMaskingInfo.BorderThickness > 0
+                        appliedMaskingInfo.MaskingRect.Left,
+                        appliedMaskingInfo.MaskingRect.Top,
+                        appliedMaskingInfo.MaskingRect.Right,
+                        appliedMaskingInfo.MaskingRect.Bottom),
+                    BorderThickness = appliedMaskingInfo.BorderThickness / appliedMaskingInfo.BlendRange,
+                    BorderColour = appliedMaskingInfo.BorderThickness > 0
                         ? new Matrix4(
                             // TopLeft
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.R,
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.G,
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.B,
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.A,
+                            appliedMaskingInfo.BorderColour.TopLeft.SRGB.R,
+                            appliedMaskingInfo.BorderColour.TopLeft.SRGB.G,
+                            appliedMaskingInfo.BorderColour.TopLeft.SRGB.B,
+                            appliedMaskingInfo.BorderColour.TopLeft.SRGB.A,
                             // BottomLeft
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.R,
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.G,
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.B,
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.A,
+                            appliedMaskingInfo.BorderColour.BottomLeft.SRGB.R,
+                            appliedMaskingInfo.BorderColour.BottomLeft.SRGB.G,
+                            appliedMaskingInfo.BorderColour.BottomLeft.SRGB.B,
+                            appliedMaskingInfo.BorderColour.BottomLeft.SRGB.A,
                             // TopRight
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.R,
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.G,
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.B,
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.A,
+                            appliedMaskingInfo.BorderColour.TopRight.SRGB.R,
+                            appliedMaskingInfo.BorderColour.TopRight.SRGB.G,
+                            appliedMaskingInfo.BorderColour.TopRight.SRGB.B,
+                            appliedMaskingInfo.BorderColour.TopRight.SRGB.A,
                             // BottomRight
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.R,
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.G,
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.B,
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.A)
+                            appliedMaskingInfo.BorderColour.BottomRight.SRGB.R,
+                            appliedMaskingInfo.BorderColour.BottomRight.SRGB.G,
+                            appliedMaskingInfo.BorderColour.BottomRight.SRGB.B,
+                            appliedMaskingInfo.BorderColour.BottomRight.SRGB.A)
                         : globalUniformBuffer.Data.BorderColour,
-                    MaskingBlendRange = currentMaskingInfo.BlendRange,
-                    AlphaExponent = currentMaskingInfo.AlphaExponent,
-                    EdgeOffset = currentMaskingInfo.EdgeOffset,
-                    DiscardInner = currentMaskingInfo.Hollow,
-                    InnerCornerRadius = currentMaskingInfo.Hollow
-                        ? currentMaskingInfo.HollowCornerRadius
+                    MaskingBlendRange = appliedMaskingInfo.BlendRange,
+                    AlphaExponent = appliedMaskingInfo.AlphaExponent,
+                    EdgeOffset = appliedMaskingInfo.EdgeOffset,
+                    DiscardInner = appliedMaskingInfo.Hollow,
+                    InnerCornerRadius = appliedMaskingInfo.Hollow
+                        ? appliedMaskingInfo.HollowCornerRadius
                         : globalUniformBuffer.Data.InnerCornerRadius,
                     WrapModeS = (int)CurrentWrapModeS,
                     WrapModeT = (int)CurrentWrapModeT
@@ -1026,6 +1188,8 @@ namespace osu.Framework.Graphics.Rendering
             }
 
             Shader.BindUniformBlock("g_GlobalUniforms", globalUniformBuffer!);
+
+            drawCapture?.Record(topology, vertexStart, verticesCount, Shader, lastBoundTexture[0], UsingBackbuffer, currentActiveBatch);
 
             DrawVerticesImplementation(topology, vertexStart, verticesCount);
 

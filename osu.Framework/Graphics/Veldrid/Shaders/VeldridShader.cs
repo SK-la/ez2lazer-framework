@@ -157,8 +157,19 @@ namespace osu.Framework.Graphics.Veldrid.Shaders
                         cached &= platformCompilation.WasCached;
                     }
 
-                    vertexShaderDescription.ShaderBytes = Encoding.UTF8.GetBytes(platformCompilation.VertexText);
-                    fragmentShaderDescription.ShaderBytes = Encoding.UTF8.GetBytes(platformCompilation.FragmentText);
+                    if (renderer.SurfaceType == GraphicsSurfaceType.Direct3D11)
+                    {
+                        // Compile HLSL to bytecode here (off the draw thread when loaded asynchronously) and persist it,
+                        // so that GPU initialisation does not run D3DCompile.
+                        string profileSuffix = getDirect3DProfileSuffix();
+                        vertexShaderDescription.ShaderBytes = compilationStore.CompileHlslBytecode(platformCompilation.VertexText, vertexShaderDescription.EntryPoint, $"vs_{profileSuffix}");
+                        fragmentShaderDescription.ShaderBytes = compilationStore.CompileHlslBytecode(platformCompilation.FragmentText, fragmentShaderDescription.EntryPoint, $"ps_{profileSuffix}");
+                    }
+                    else
+                    {
+                        vertexShaderDescription.ShaderBytes = Encoding.UTF8.GetBytes(platformCompilation.VertexText);
+                        fragmentShaderDescription.ShaderBytes = Encoding.UTF8.GetBytes(platformCompilation.FragmentText);
+                    }
                 }
 
                 for (int set = 0; set < compilation.Reflection.ResourceLayouts.Length; set++)
@@ -210,6 +221,17 @@ namespace osu.Framework.Graphics.Veldrid.Shaders
                 renderer.Factory.CreateShader(vertexShaderDescription),
                 renderer.Factory.CreateShader(fragmentShaderDescription)
             };
+        }
+
+        /// <summary>
+        /// The shader model Veldrid's D3D11 backend selects for the device: 5.0 at feature level 11.0 and above, 4.0 below.
+        /// </summary>
+        private string getDirect3DProfileSuffix()
+        {
+            if (renderer.Device.GetD3D11Info().FeatureLevel >= Vortice.Direct3D.FeatureLevel.Level_11_0)
+                return "5_0";
+
+            return "4_0";
         }
 
         private bool isDisposed;

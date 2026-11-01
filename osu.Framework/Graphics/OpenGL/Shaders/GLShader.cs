@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Shaders;
@@ -37,12 +38,19 @@ namespace osu.Framework.Graphics.OpenGL.Shaders
         private readonly GLShaderPart vertexPart;
         private readonly GLShaderPart fragmentPart;
         private readonly VertexFragmentShaderCompilation compilation;
+        private readonly ShaderCompilationStore compilationStore;
+
+        /// <summary>
+        /// The number of programs restored from cached driver binaries, for diagnostics and tests.
+        /// </summary>
+        internal static int ProgramBinaryLoads;
 
         internal GLShader(GLRenderer renderer, string name, GLShaderPart[] parts, ShaderCompilationStore compilationStore)
         {
             this.renderer = renderer;
             this.name = name;
             this.parts = parts;
+            this.compilationStore = compilationStore;
 
             vertexPart = parts.Single(p => p.Type == ShaderType.VertexShader);
             fragmentPart = parts.Single(p => p.Type == ShaderType.FragmentShader);
@@ -132,20 +140,31 @@ namespace osu.Framework.Graphics.OpenGL.Shaders
 
         private protected virtual bool CompileInternal()
         {
-            vertexPart.Compile(compilation.VertexText);
-            fragmentPart.Compile(compilation.FragmentText);
+            string? binaryKey = renderer.GetProgramBinaryKey(compilation.VertexText, compilation.FragmentText);
 
-            foreach (GLShaderPart p in parts)
-                GL.AttachShader(this, p);
+            if (binaryKey == null || !tryLoadProgramBinary(binaryKey))
+            {
+                vertexPart.Compile(compilation.VertexText);
+                fragmentPart.Compile(compilation.FragmentText);
 
-            GL.LinkProgram(this);
-            GL.GetProgram(this, GetProgramParameterName.LinkStatus, out int linkResult);
+                foreach (GLShaderPart p in parts)
+                    GL.AttachShader(this, p);
 
-            foreach (var part in parts)
-                GL.DetachShader(this, part);
+                if (binaryKey != null)
+                    GL.ProgramParameter(this, ProgramParameterName.ProgramBinaryRetrievableHint, 1);
 
-            if (linkResult != 1)
-                return false;
+                GL.LinkProgram(this);
+                GL.GetProgram(this, GetProgramParameterName.LinkStatus, out int linkResult);
+
+                foreach (var part in parts)
+                    GL.DetachShader(this, part);
+
+                if (linkResult != 1)
+                    return false;
+
+                if (binaryKey != null)
+                    saveProgramBinary(binaryKey);
+            }
 
             int textureIndex = 0;
 
@@ -183,6 +202,58 @@ namespace osu.Framework.Graphics.OpenGL.Shaders
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// GL_PROGRAM_BINARY_LENGTH, which is missing from the bindings' enum.
+        /// </summary>
+        private const GetProgramParameterName program_binary_length = (GetProgramParameterName)0x8741;
+
+        /// <summary>
+        /// Restores the program from a cached driver binary, skipping compilation and linking.
+        /// Drivers may reject binaries (e.g. after an update), in which case the program is compiled normally.
+        /// </summary>
+        private unsafe bool tryLoadProgramBinary(string key)
+        {
+            if (!compilationStore.TryGetCachedBinary(key, out byte[]? cached) || cached.Length <= sizeof(int))
+                return false;
+
+            int format = BitConverter.ToInt32(cached, 0);
+
+            fixed (byte* data = &cached[sizeof(int)])
+                GL.ProgramBinary(this, (All)format, (IntPtr)data, cached.Length - sizeof(int));
+
+            GL.GetProgram(this, GetProgramParameterName.LinkStatus, out int linkResult);
+
+            // Rejected binaries may or may not raise an error depending on the driver; clear it either way.
+            GL.GetError();
+
+            if (linkResult != 1)
+                return false;
+
+            Interlocked.Increment(ref ProgramBinaryLoads);
+            return true;
+        }
+
+        private unsafe void saveProgramBinary(string key)
+        {
+            GL.GetProgram(this, program_binary_length, out int length);
+
+            if (length <= 0)
+                return;
+
+            byte[] cached = new byte[sizeof(int) + length];
+            int written;
+            All format;
+
+            fixed (byte* data = &cached[sizeof(int)])
+                GL.GetProgramBinary(this, length, &written, &format, (IntPtr)data);
+
+            if (GL.GetError() != ErrorCode.NoError || written <= 0)
+                return;
+
+            BitConverter.TryWriteBytes(cached.AsSpan(0, sizeof(int)), (int)format);
+            compilationStore.SaveBinary(key, cached.AsSpan(0, sizeof(int) + written).ToArray());
         }
 
         private protected virtual string GetProgramLog() => GL.GetProgramInfoLog(this);
