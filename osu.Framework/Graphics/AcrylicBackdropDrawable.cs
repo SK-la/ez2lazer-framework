@@ -46,7 +46,8 @@ namespace osu.Framework.Graphics
     public partial class AcrylicBackdropDrawable : Drawable, ITexturedShaderDrawable, IAcrylicEffectTarget
     {
         // 两个效果缓冲用于横/纵两趟高斯模糊的乒乓。
-        private readonly BufferedDrawNodeSharedData sharedData = new BufferedDrawNodeSharedData(2, TexturePixelFormat.R8G8B8A8Float, pixelSnapping: true, clipToRootNode: false);
+        // 用 Linear 而非 Nearest：效果缓冲尺寸按桶对齐后可能略大于卡片矩形，回贴是一次轻微缩小重采样。
+        private readonly BufferedDrawNodeSharedData sharedData = new BufferedDrawNodeSharedData(2, TexturePixelFormat.R8G8B8A8Float, pixelSnapping: false, clipToRootNode: false);
 
         private bool effectEnabled = true;
 
@@ -165,14 +166,19 @@ namespace osu.Framework.Graphics
             private RectangleF screenSpaceDrawRectangle;
             private Vector2 frameBufferScale;
             private Vector2 frameBufferSize;
+
+            // 效果缓冲容量只增不减地量化复用，避免卡片连续缩放时逐帧重建纹理。
+            private EffectBufferSizeQuantiser bufferSizeQuantiser;
+
             private ColourInfo drawColour;
 
             private Vector2 blurSigma;
+            private Vector2 compensatedBlurSigma;
             private Vector2I blurRadius;
             private float blurRotation;
 
             private IShader blurShader;
-
+            private IUniformBuffer<BlurParameters> blurParametersBuffer;
             private BlurParameters blurParameters;
 
             public AcrylicBackdropDrawNode(AcrylicBackdropDrawable source, BufferedDrawNodeSharedData sharedData)
@@ -188,13 +194,24 @@ namespace osu.Framework.Graphics
                 effectEnabled = Source.EffectEnabled;
                 screenSpaceDrawRectangle = Source.ScreenSpaceDrawQuad.AABBFloat;
                 frameBufferScale = Source.FrameBufferScale;
-                frameBufferSize = new Vector2(
-                    MathF.Ceiling(screenSpaceDrawRectangle.Width * frameBufferScale.X),
-                    MathF.Ceiling(screenSpaceDrawRectangle.Height * frameBufferScale.Y));
+
+                var unscaledBufferSize = new Vector2(
+                    screenSpaceDrawRectangle.Width * frameBufferScale.X,
+                    screenSpaceDrawRectangle.Height * frameBufferScale.Y);
+
+                frameBufferSize = bufferSizeQuantiser.Quantise(unscaledBufferSize);
+
+                // 屏幕空间 sigma：共用后缓冲路径直接把它当整屏模糊强度用，必须保持原值。
+                blurSigma = Source.BlurSigma;
+
+                // 逐卡片离屏路径的 sigma 需补偿容量对齐带来的缩小，使屏幕上的模糊宽度与量化前一致。
+                compensatedBlurSigma = new Vector2(
+                    unscaledBufferSize.X > 0 ? blurSigma.X * (frameBufferSize.X / unscaledBufferSize.X) : blurSigma.X,
+                    unscaledBufferSize.Y > 0 ? blurSigma.Y * (frameBufferSize.Y / unscaledBufferSize.Y) : blurSigma.Y);
+
                 drawColour = DrawColourInfo.Colour;
 
-                blurSigma = Source.BlurSigma;
-                blurRadius = new Vector2I(Blur.KernelSize(blurSigma.X), Blur.KernelSize(blurSigma.Y));
+                blurRadius = new Vector2I(Blur.KernelSize(compensatedBlurSigma.X), Blur.KernelSize(compensatedBlurSigma.Y));
                 blurRotation = Source.BlurRotation;
                 blurShader = Source.blurShader;
             }
@@ -305,10 +322,10 @@ namespace osu.Framework.Graphics
                 renderer.PushScissorState(false);
 
                 if (blurRadius.X > 0)
-                    drawBlurredFrameBuffer(renderer, blurRadius.X, blurSigma.X, blurRotation);
+                    drawBlurredFrameBuffer(renderer, blurRadius.X, compensatedBlurSigma.X, blurRotation);
 
                 if (blurRadius.Y > 0)
-                    drawBlurredFrameBuffer(renderer, blurRadius.Y, blurSigma.Y, blurRotation + 90);
+                    drawBlurredFrameBuffer(renderer, blurRadius.Y, compensatedBlurSigma.Y, blurRotation + 90);
 
                 renderer.PopScissorState();
             }
@@ -324,20 +341,19 @@ namespace osu.Framework.Graphics
                 {
                     float radians = float.DegreesToRadians(rotation);
 
-                    using (var blurParametersBuffer = renderer.CreateUniformBuffer<BlurParameters>())
-                    {
-                        blurParameters.Radius = kernelRadius;
-                        blurParameters.Sigma = sigma;
-                        blurParameters.TexSize = current.Size;
-                        blurParameters.Direction = new Vector2(MathF.Cos(radians), MathF.Sin(radians));
+                    blurParametersBuffer ??= renderer.CreateUniformBuffer<BlurParameters>();
 
-                        blurParametersBuffer.Data = blurParameters;
+                    blurParameters.Radius = kernelRadius;
+                    blurParameters.Sigma = sigma;
+                    blurParameters.TexSize = current.Size;
+                    blurParameters.Direction = new Vector2(MathF.Cos(radians), MathF.Sin(radians));
 
-                        blurShader.BindUniformBlock("m_BlurParameters", blurParametersBuffer);
-                        blurShader.Bind();
-                        renderer.DrawFrameBuffer(current, new RectangleF(0, 0, current.Texture.Width, current.Texture.Height), ColourInfo.SingleColour(Color4.White));
-                        blurShader.Unbind();
-                    }
+                    blurParametersBuffer.Data = blurParameters;
+
+                    blurShader.BindUniformBlock("m_BlurParameters", blurParametersBuffer);
+                    blurShader.Bind();
+                    renderer.DrawFrameBuffer(current, new RectangleF(0, 0, current.Texture.Width, current.Texture.Height), ColourInfo.SingleColour(Color4.White));
+                    blurShader.Unbind();
                 }
             }
 
@@ -398,6 +414,14 @@ namespace osu.Framework.Graphics
                 renderer.PopViewport();
                 renderer.PopScissor();
                 renderer.PopMaskingInfo();
+            }
+
+            protected override void Dispose(bool isDisposing)
+            {
+                base.Dispose(isDisposing);
+
+                blurParametersBuffer?.Dispose();
+                blurParametersBuffer = null;
             }
 
             [StructLayout(LayoutKind.Sequential, Pack = 1)]

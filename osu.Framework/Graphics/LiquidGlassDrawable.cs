@@ -34,7 +34,8 @@ namespace osu.Framework.Graphics
     public partial class LiquidGlassDrawable : Drawable, ITexturedShaderDrawable, IAcrylicEffectTarget
     {
         // 两个效果缓冲用于横/纵两趟高斯模糊的乒乓。
-        private readonly BufferedDrawNodeSharedData sharedData = new BufferedDrawNodeSharedData(2, TexturePixelFormat.R8G8B8A8Float, pixelSnapping: true, clipToRootNode: false);
+        // 用 Linear 而非 Nearest：效果缓冲尺寸按桶对齐后可能略大于抓取区，回贴是一次轻微缩小重采样。
+        private readonly BufferedDrawNodeSharedData sharedData = new BufferedDrawNodeSharedData(2, TexturePixelFormat.R8G8B8A8Float, pixelSnapping: false, clipToRootNode: false);
 
         private bool effectEnabled = true;
 
@@ -159,10 +160,14 @@ namespace osu.Framework.Graphics
             private LiquidGlassMaterial material;
             private ColourInfo drawColour;
 
+            // 效果缓冲容量只增不减地量化复用，避免卡片连续缩放时逐帧重建纹理。
+            private EffectBufferSizeQuantiser bufferSizeQuantiser;
+
             private IShader glassShader;
             private IShader blurShader;
 
             private IUniformBuffer<LiquidGlassParameters> parametersBuffer;
+            private IUniformBuffer<BlurParameters> blurParametersBuffer;
             private BlurParameters blurParameters;
 
             public LiquidGlassDrawNode(LiquidGlassDrawable source, BufferedDrawNodeSharedData sharedData)
@@ -207,9 +212,9 @@ namespace osu.Framework.Graphics
                 if (captureRectangle.Width < 1 || captureRectangle.Height < 1)
                     return;
 
-                Vector2 frameBufferSize = new Vector2(
-                    MathF.Ceiling(captureRectangle.Width * frameBufferScale.X),
-                    MathF.Ceiling(captureRectangle.Height * frameBufferScale.Y));
+                Vector2 frameBufferSize = bufferSizeQuantiser.Quantise(new Vector2(
+                    captureRectangle.Width * frameBufferScale.X,
+                    captureRectangle.Height * frameBufferScale.Y));
 
                 if (frameBufferSize.X < 1 || frameBufferSize.Y < 1)
                     return;
@@ -356,20 +361,19 @@ namespace osu.Framework.Graphics
                 {
                     float radians = float.DegreesToRadians(rotation);
 
-                    using (var blurParametersBuffer = renderer.CreateUniformBuffer<BlurParameters>())
-                    {
-                        blurParameters.Radius = kernelRadius;
-                        blurParameters.Sigma = sigma;
-                        blurParameters.TexSize = current.Size;
-                        blurParameters.Direction = new Vector2(MathF.Cos(radians), MathF.Sin(radians));
+                    blurParametersBuffer ??= renderer.CreateUniformBuffer<BlurParameters>();
 
-                        blurParametersBuffer.Data = blurParameters;
+                    blurParameters.Radius = kernelRadius;
+                    blurParameters.Sigma = sigma;
+                    blurParameters.TexSize = current.Size;
+                    blurParameters.Direction = new Vector2(MathF.Cos(radians), MathF.Sin(radians));
 
-                        blurShader.BindUniformBlock("m_BlurParameters", blurParametersBuffer);
-                        blurShader.Bind();
-                        renderer.DrawFrameBuffer(current, new RectangleF(0, 0, current.Texture.Width, current.Texture.Height), ColourInfo.SingleColour(Color4.White));
-                        blurShader.Unbind();
-                    }
+                    blurParametersBuffer.Data = blurParameters;
+
+                    blurShader.BindUniformBlock("m_BlurParameters", blurParametersBuffer);
+                    blurShader.Bind();
+                    renderer.DrawFrameBuffer(current, new RectangleF(0, 0, current.Texture.Width, current.Texture.Height), ColourInfo.SingleColour(Color4.White));
+                    blurShader.Unbind();
                 }
             }
 
@@ -436,6 +440,9 @@ namespace osu.Framework.Graphics
 
                 parametersBuffer?.Dispose();
                 parametersBuffer = null;
+
+                blurParametersBuffer?.Dispose();
+                blurParametersBuffer = null;
             }
 
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
