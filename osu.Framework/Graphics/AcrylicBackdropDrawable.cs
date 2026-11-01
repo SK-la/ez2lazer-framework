@@ -46,7 +46,8 @@ namespace osu.Framework.Graphics
     public partial class AcrylicBackdropDrawable : Drawable, ITexturedShaderDrawable, IAcrylicEffectTarget
     {
         // 两个效果缓冲用于横/纵两趟高斯模糊的乒乓。
-        private readonly BufferedDrawNodeSharedData sharedData = new BufferedDrawNodeSharedData(2, TexturePixelFormat.R8G8B8A8Float, pixelSnapping: true, clipToRootNode: false);
+        // 用 Linear 而非 Nearest：效果缓冲尺寸按桶对齐后可能略大于卡片矩形，回贴是一次轻微缩小重采样。
+        private readonly BufferedDrawNodeSharedData sharedData = new BufferedDrawNodeSharedData(2, TexturePixelFormat.R8G8B8A8Float, pixelSnapping: false, clipToRootNode: false);
 
         private bool effectEnabled = true;
 
@@ -165,14 +166,20 @@ namespace osu.Framework.Graphics
             private RectangleF screenSpaceDrawRectangle;
             private Vector2 frameBufferScale;
             private Vector2 frameBufferSize;
+
+            // 效果缓冲容量只增不减地量化复用，避免卡片连续缩放时逐帧重建纹理。
+            // 详见 quantiseBufferSize。
+            private Vector2 allocatedBufferSize;
+
             private ColourInfo drawColour;
 
             private Vector2 blurSigma;
+            private Vector2 compensatedBlurSigma;
             private Vector2I blurRadius;
             private float blurRotation;
 
             private IShader blurShader;
-
+            private IUniformBuffer<BlurParameters> blurParametersBuffer;
             private BlurParameters blurParameters;
 
             public AcrylicBackdropDrawNode(AcrylicBackdropDrawable source, BufferedDrawNodeSharedData sharedData)
@@ -188,13 +195,24 @@ namespace osu.Framework.Graphics
                 effectEnabled = Source.EffectEnabled;
                 screenSpaceDrawRectangle = Source.ScreenSpaceDrawQuad.AABBFloat;
                 frameBufferScale = Source.FrameBufferScale;
-                frameBufferSize = new Vector2(
-                    MathF.Ceiling(screenSpaceDrawRectangle.Width * frameBufferScale.X),
-                    MathF.Ceiling(screenSpaceDrawRectangle.Height * frameBufferScale.Y));
+
+                var unscaledBufferSize = new Vector2(
+                    screenSpaceDrawRectangle.Width * frameBufferScale.X,
+                    screenSpaceDrawRectangle.Height * frameBufferScale.Y);
+
+                frameBufferSize = quantiseBufferSize(unscaledBufferSize);
+
+                // 屏幕空间 sigma：共用后缓冲路径直接把它当整屏模糊强度用，必须保持原值。
+                blurSigma = Source.BlurSigma;
+
+                // 逐卡片离屏路径的 sigma 需补偿容量对齐带来的缩小，使屏幕上的模糊宽度与量化前一致。
+                compensatedBlurSigma = new Vector2(
+                    unscaledBufferSize.X > 0 ? blurSigma.X * (frameBufferSize.X / unscaledBufferSize.X) : blurSigma.X,
+                    unscaledBufferSize.Y > 0 ? blurSigma.Y * (frameBufferSize.Y / unscaledBufferSize.Y) : blurSigma.Y);
+
                 drawColour = DrawColourInfo.Colour;
 
-                blurSigma = Source.BlurSigma;
-                blurRadius = new Vector2I(Blur.KernelSize(blurSigma.X), Blur.KernelSize(blurSigma.Y));
+                blurRadius = new Vector2I(Blur.KernelSize(compensatedBlurSigma.X), Blur.KernelSize(compensatedBlurSigma.Y));
                 blurRotation = Source.BlurRotation;
                 blurShader = Source.blurShader;
             }
@@ -305,10 +323,10 @@ namespace osu.Framework.Graphics
                 renderer.PushScissorState(false);
 
                 if (blurRadius.X > 0)
-                    drawBlurredFrameBuffer(renderer, blurRadius.X, blurSigma.X, blurRotation);
+                    drawBlurredFrameBuffer(renderer, blurRadius.X, compensatedBlurSigma.X, blurRotation);
 
                 if (blurRadius.Y > 0)
-                    drawBlurredFrameBuffer(renderer, blurRadius.Y, blurSigma.Y, blurRotation + 90);
+                    drawBlurredFrameBuffer(renderer, blurRadius.Y, compensatedBlurSigma.Y, blurRotation + 90);
 
                 renderer.PopScissorState();
             }
@@ -324,21 +342,50 @@ namespace osu.Framework.Graphics
                 {
                     float radians = float.DegreesToRadians(rotation);
 
-                    using (var blurParametersBuffer = renderer.CreateUniformBuffer<BlurParameters>())
-                    {
-                        blurParameters.Radius = kernelRadius;
-                        blurParameters.Sigma = sigma;
-                        blurParameters.TexSize = current.Size;
-                        blurParameters.Direction = new Vector2(MathF.Cos(radians), MathF.Sin(radians));
+                    blurParametersBuffer ??= renderer.CreateUniformBuffer<BlurParameters>();
 
-                        blurParametersBuffer.Data = blurParameters;
+                    blurParameters.Radius = kernelRadius;
+                    blurParameters.Sigma = sigma;
+                    blurParameters.TexSize = current.Size;
+                    blurParameters.Direction = new Vector2(MathF.Cos(radians), MathF.Sin(radians));
 
-                        blurShader.BindUniformBlock("m_BlurParameters", blurParametersBuffer);
-                        blurShader.Bind();
-                        renderer.DrawFrameBuffer(current, new RectangleF(0, 0, current.Texture.Width, current.Texture.Height), ColourInfo.SingleColour(Color4.White));
-                        blurShader.Unbind();
-                    }
+                    blurParametersBuffer.Data = blurParameters;
+
+                    blurShader.BindUniformBlock("m_BlurParameters", blurParametersBuffer);
+                    blurShader.Bind();
+                    renderer.DrawFrameBuffer(current, new RectangleF(0, 0, current.Texture.Width, current.Texture.Height), ColourInfo.SingleColour(Color4.White));
+                    blurShader.Unbind();
                 }
+            }
+
+            /// <summary>
+            /// 向上对齐缓冲尺寸到固定容量桶，并套用迟滞，让卡片连续缩放时复用同一批缓冲。
+            /// </summary>
+            /// <remarks>
+            /// 缓冲尺寸是「容量」：卡片变小不急着回收，因此只在溢出当前容量时扩容、明显偏小时才收缩。
+            /// 迟滞（<see cref="buffer_shrink_ratio"/>）用于防止尺寸停在桶边界附近时逐帧横跳，
+            /// 那会让每帧都重建纹理，正是本类要消除的开销。
+            /// </remarks>
+            private Vector2 quantiseBufferSize(Vector2 size)
+            {
+                var desired = new Vector2(
+                    MathF.Ceiling(size.X / buffer_size_quantisation) * buffer_size_quantisation,
+                    MathF.Ceiling(size.Y / buffer_size_quantisation) * buffer_size_quantisation);
+
+                // 首次分配，或任一轴溢出当前容量：立即扩容。
+                if (allocatedBufferSize.X < 1 || allocatedBufferSize.Y < 1
+                    || desired.X > allocatedBufferSize.X || desired.Y > allocatedBufferSize.Y)
+                {
+                    allocatedBufferSize = desired;
+                }
+                // 两轴都明显变小才收缩，避免边界乒乓。
+                else if (desired.X < allocatedBufferSize.X * buffer_shrink_ratio
+                         && desired.Y < allocatedBufferSize.Y * buffer_shrink_ratio)
+                {
+                    allocatedBufferSize = desired;
+                }
+
+                return allocatedBufferSize;
             }
 
             /// <summary>
@@ -398,6 +445,24 @@ namespace osu.Framework.Graphics
                 renderer.PopViewport();
                 renderer.PopScissor();
                 renderer.PopMaskingInfo();
+            }
+
+            /// <summary>
+            /// 效果缓冲容量按此粒度向上对齐，使卡片连续缩放时复用同一批缓冲。
+            /// </summary>
+            private const float buffer_size_quantisation = 16;
+
+            /// <summary>
+            /// 容量收缩阈值：相对当前容量小于该比例才回收，防止尺寸停在桶边界附近时逐帧重建。
+            /// </summary>
+            private const float buffer_shrink_ratio = 0.9f;
+
+            protected override void Dispose(bool isDisposing)
+            {
+                base.Dispose(isDisposing);
+
+                blurParametersBuffer?.Dispose();
+                blurParametersBuffer = null;
             }
 
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
