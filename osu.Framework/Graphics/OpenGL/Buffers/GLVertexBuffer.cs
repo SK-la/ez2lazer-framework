@@ -3,11 +3,11 @@
 
 using System;
 using System.Buffers;
-using osuTK.Graphics.ES30;
-using osu.Framework.Statistics;
 using osu.Framework.Development;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Rendering.Vertices;
+using osu.Framework.Statistics;
+using osuTK.Graphics.ES30;
 using SixLabors.ImageSharp.Memory;
 
 namespace osu.Framework.Graphics.OpenGL.Buffers
@@ -127,7 +127,7 @@ namespace osu.Framework.Graphics.OpenGL.Buffers
         public void DrawRange(int startIndex, int endIndex)
         {
             Bind(true);
-            Renderer.DrawVertices(Topology, ToElementIndex(startIndex), ToElements(endIndex - startIndex));
+            Renderer.DrawBatchVertices(Topology, ToElementIndex(startIndex), ToElements(endIndex - startIndex));
         }
 
         public void Update()

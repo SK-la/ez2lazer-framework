@@ -148,6 +148,15 @@ namespace osu.Framework.Graphics.Rendering
         private int lastActiveTextureUnit;
         private bool globalUniformsChanged;
 
+        // The clipping state attached to queued geometry, which may lag the logical push/pop state (see ApplyPendingMaskingState).
+        // Intermediate push/pop transitions without geometry must not split otherwise compatible batches.
+        private MaskingInfo appliedMaskingInfo;
+        private bool appliedMaskingActive;
+        private RectangleI? appliedScissor;
+        private bool appliedScissorEnabled;
+        private RectangleI? appliedHardwareScissor;
+        private bool maskingStatePending;
+
         private readonly FrameDrawCapture? drawCapture = FrameDrawCapture.Create();
 
         private static readonly GlobalStatistic<int>[] flush_source_statistics;
@@ -230,6 +239,9 @@ namespace osu.Framework.Graphics.Rendering
             currentActiveBatch = null;
             CurrentBlendingParameters = new BlendingParameters();
             currentMaskingInfo = default;
+            appliedMaskingInfo = default;
+            appliedMaskingActive = false;
+            invalidateAppliedScissor();
 
             foreach (var b in batchResetList)
                 b.ResetCounters();
@@ -492,8 +504,10 @@ namespace osu.Framework.Graphics.Rendering
             if (Viewport == viewport)
                 return;
 
+            FlushCurrentBatch(FlushBatchSource.SetScissor);
             SetViewportImplementation(viewport);
             Viewport = viewport;
+            invalidateAppliedScissor();
         }
 
         /// <summary>
@@ -565,17 +579,11 @@ namespace osu.Framework.Graphics.Rendering
             if (Scissor == scissor)
                 return;
 
-            // when rendering to a framebuffer on a backend which has the UV origin set to bottom-left (OpenGL),
-            // vertex positions are flipped vertically in sh_Vertex_Output.h to match that UV origin.
-            // for scissoring to continue to work correctly with that, the scissor box has to be inverted too.
-            var compensatedScissor = scissor;
-            if (!UsingBackbuffer && !IsUvOriginTopLeft)
-                compensatedScissor.Y = Viewport.Height - scissor.Bottom;
-
-            FlushCurrentBatch(FlushBatchSource.SetScissor);
-            SetScissorImplementation(compensatedScissor.Intersect(Viewport));
-            // do not expose the implementation detail of flipping the scissor box to Scissor readers.
             Scissor = scissor;
+
+            // The applied scissor is not updated here; it is applied together with masking state just before new geometry
+            // is submitted. A push/pop pair with no geometry in between therefore does not split the batch.
+            maskingStatePending = true;
         }
 
         private void setScissorState(bool enabled)
@@ -586,6 +594,10 @@ namespace osu.Framework.Graphics.Rendering
             FlushCurrentBatch(FlushBatchSource.SetScissor);
             SetScissorStateImplementation(enabled);
             ScissorState = enabled;
+
+            // disabling scissor clipping (or the framebuffer's scissor) does not change the scissor rectangle, but new
+            // geometry must still account for the state change.
+            maskingStatePending = true;
         }
 
         private void setScissorOffset(Vector2I offset)
@@ -658,11 +670,6 @@ namespace osu.Framework.Graphics.Rendering
 
         private void setMaskingInfo(MaskingInfo maskingInfo, bool isPushing, bool overwritePreviousScissor)
         {
-            if (CurrentMaskingInfo == maskingInfo)
-                return;
-
-            FlushCurrentBatch(FlushBatchSource.SetMasking);
-
             if (isPushing)
             {
                 // When drawing to a viewport that doesn't match the projection size (e.g. via framebuffers), the resultant image will be scaled
@@ -687,7 +694,66 @@ namespace osu.Framework.Graphics.Rendering
 
             // Masking is enabled for as long as any masking info is active that's not the default.
             IsMaskingActive = maskingStack.Count > 1;
+
+            // The shader parameters are only committed when geometry is next submitted, so push/pop pairs without geometry
+            // do not flush the current batch.
+            maskingStatePending = true;
+        }
+
+        /// <summary>
+        /// Applies the logical clipping state before new geometry is submitted. Push/pop transitions without geometry in
+        /// between therefore do not flush the current batch.
+        /// </summary>
+        /// <param name="batch">The batch that geometry is about to be added to, used to decide the appropriate flush source.</param>
+        internal void ApplyPendingMaskingState(IVertexBatch? batch = null)
+        {
+            if (!maskingStatePending)
+                return;
+
+            RectangleI hardwareScissor = getEffectiveScissor();
+
+            bool maskChanged = appliedMaskingActive != IsMaskingActive
+                               || !appliedMaskingInfo.HasSameShaderParameters(currentMaskingInfo);
+            bool scissorChanged = appliedScissor != Scissor || appliedScissorEnabled != ScissorState;
+
+            // The flush must happen before the applied state is updated: the geometry being flushed was submitted under the
+            // previous state, and DrawBatchVertices reads the applied state. If applied state were updated first, that
+            // geometry would be drawn with the pending mask.
+            if (maskChanged || scissorChanged)
+                FlushCurrentBatch(maskChanged ? FlushBatchSource.SetMasking : FlushBatchSource.SetScissor);
+
+            appliedMaskingInfo = currentMaskingInfo;
+            appliedMaskingActive = IsMaskingActive;
+            appliedScissor = Scissor;
+            appliedScissorEnabled = ScissorState;
+
+            if (appliedHardwareScissor != hardwareScissor)
+            {
+                SetScissorImplementation(hardwareScissor);
+                appliedHardwareScissor = hardwareScissor;
+            }
+
             globalUniformsChanged = true;
+            maskingStatePending = false;
+        }
+
+        private void invalidateAppliedScissor()
+        {
+            appliedScissor = null;
+            appliedHardwareScissor = null;
+            maskingStatePending = true;
+        }
+
+        private RectangleI getEffectiveScissor()
+        {
+            // when rendering to a framebuffer on a backend which has the UV origin set to bottom-left (OpenGL),
+            // vertex positions are flipped vertically in sh_Vertex_Output.h to match that UV origin.
+            // for scissoring to continue to work correctly with that, the scissor box has to be inverted too.
+            var scissor = Scissor;
+            if (!UsingBackbuffer && !IsUvOriginTopLeft)
+                scissor.Y = Viewport.Height - scissor.Bottom;
+
+            return scissor.Intersect(Viewport);
         }
 
         #endregion
@@ -782,6 +848,13 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="batch">The batch.</param>
         internal void SetActiveBatch(IVertexBatch batch)
         {
+            // A different batch may contain geometry submitted under different clipping state, so pending clipping state
+            // must be committed before it becomes active.
+            if (currentActiveBatch != batch)
+                maskingStatePending = true;
+
+            ApplyPendingMaskingState(batch);
+
             if (currentActiveBatch == batch)
                 return;
 
@@ -1003,6 +1076,7 @@ namespace osu.Framework.Graphics.Rendering
 
             UsingBackbuffer = frameBuffer == null;
             globalUniformsChanged = true;
+            invalidateAppliedScissor();
         }
 
         /// <summary>
@@ -1029,6 +1103,18 @@ namespace osu.Framework.Graphics.Rendering
 
         public void DrawVertices(PrimitiveTopology topology, int vertexStart, int verticesCount)
         {
+            // Commit any logical clipping change before new geometry is submitted.
+            ApplyPendingMaskingState();
+
+            DrawBatchVertices(topology, vertexStart, verticesCount);
+        }
+
+        /// <summary>
+        /// Submits vertices that were already added to a batch at an earlier point in the frame. The clipping state is
+        /// deliberately not re-applied here: buffered vertices retain the state they were submitted with.
+        /// </summary>
+        internal void DrawBatchVertices(PrimitiveTopology topology, int vertexStart, int verticesCount)
+        {
             if (Shader == null)
                 throw new InvalidOperationException("No shader bound.");
 
@@ -1041,45 +1127,45 @@ namespace osu.Framework.Graphics.Rendering
                     IsClipSpaceYInverted = IsClipSpaceYInverted,
                     IsUvOriginTopLeft = IsUvOriginTopLeft,
                     ProjMatrix = ProjectionMatrix,
-                    ToMaskingSpace = currentMaskingInfo.ToMaskingSpace,
-                    IsMasking = IsMaskingActive,
-                    CornerRadius = currentMaskingInfo.CornerRadius,
-                    CornerExponent = currentMaskingInfo.CornerExponent,
+                    ToMaskingSpace = appliedMaskingInfo.ToMaskingSpace,
+                    IsMasking = appliedMaskingActive,
+                    CornerRadius = appliedMaskingInfo.CornerRadius,
+                    CornerExponent = appliedMaskingInfo.CornerExponent,
                     MaskingRect = new Vector4(
-                        currentMaskingInfo.MaskingRect.Left,
-                        currentMaskingInfo.MaskingRect.Top,
-                        currentMaskingInfo.MaskingRect.Right,
-                        currentMaskingInfo.MaskingRect.Bottom),
-                    BorderThickness = currentMaskingInfo.BorderThickness / currentMaskingInfo.BlendRange,
-                    BorderColour = currentMaskingInfo.BorderThickness > 0
+                        appliedMaskingInfo.MaskingRect.Left,
+                        appliedMaskingInfo.MaskingRect.Top,
+                        appliedMaskingInfo.MaskingRect.Right,
+                        appliedMaskingInfo.MaskingRect.Bottom),
+                    BorderThickness = appliedMaskingInfo.BorderThickness / appliedMaskingInfo.BlendRange,
+                    BorderColour = appliedMaskingInfo.BorderThickness > 0
                         ? new Matrix4(
                             // TopLeft
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.R,
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.G,
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.B,
-                            currentMaskingInfo.BorderColour.TopLeft.SRGB.A,
+                            appliedMaskingInfo.BorderColour.TopLeft.SRGB.R,
+                            appliedMaskingInfo.BorderColour.TopLeft.SRGB.G,
+                            appliedMaskingInfo.BorderColour.TopLeft.SRGB.B,
+                            appliedMaskingInfo.BorderColour.TopLeft.SRGB.A,
                             // BottomLeft
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.R,
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.G,
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.B,
-                            currentMaskingInfo.BorderColour.BottomLeft.SRGB.A,
+                            appliedMaskingInfo.BorderColour.BottomLeft.SRGB.R,
+                            appliedMaskingInfo.BorderColour.BottomLeft.SRGB.G,
+                            appliedMaskingInfo.BorderColour.BottomLeft.SRGB.B,
+                            appliedMaskingInfo.BorderColour.BottomLeft.SRGB.A,
                             // TopRight
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.R,
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.G,
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.B,
-                            currentMaskingInfo.BorderColour.TopRight.SRGB.A,
+                            appliedMaskingInfo.BorderColour.TopRight.SRGB.R,
+                            appliedMaskingInfo.BorderColour.TopRight.SRGB.G,
+                            appliedMaskingInfo.BorderColour.TopRight.SRGB.B,
+                            appliedMaskingInfo.BorderColour.TopRight.SRGB.A,
                             // BottomRight
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.R,
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.G,
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.B,
-                            currentMaskingInfo.BorderColour.BottomRight.SRGB.A)
+                            appliedMaskingInfo.BorderColour.BottomRight.SRGB.R,
+                            appliedMaskingInfo.BorderColour.BottomRight.SRGB.G,
+                            appliedMaskingInfo.BorderColour.BottomRight.SRGB.B,
+                            appliedMaskingInfo.BorderColour.BottomRight.SRGB.A)
                         : globalUniformBuffer.Data.BorderColour,
-                    MaskingBlendRange = currentMaskingInfo.BlendRange,
-                    AlphaExponent = currentMaskingInfo.AlphaExponent,
-                    EdgeOffset = currentMaskingInfo.EdgeOffset,
-                    DiscardInner = currentMaskingInfo.Hollow,
-                    InnerCornerRadius = currentMaskingInfo.Hollow
-                        ? currentMaskingInfo.HollowCornerRadius
+                    MaskingBlendRange = appliedMaskingInfo.BlendRange,
+                    AlphaExponent = appliedMaskingInfo.AlphaExponent,
+                    EdgeOffset = appliedMaskingInfo.EdgeOffset,
+                    DiscardInner = appliedMaskingInfo.Hollow,
+                    InnerCornerRadius = appliedMaskingInfo.Hollow
+                        ? appliedMaskingInfo.HollowCornerRadius
                         : globalUniformBuffer.Data.InnerCornerRadius,
                     WrapModeS = (int)CurrentWrapModeS,
                     WrapModeT = (int)CurrentWrapModeT

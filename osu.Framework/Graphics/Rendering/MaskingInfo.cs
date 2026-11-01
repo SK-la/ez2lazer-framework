@@ -55,6 +55,24 @@ namespace osu.Framework.Graphics.Rendering
 
         public static bool operator !=(in MaskingInfo left, in MaskingInfo right) => !(left == right);
 
+        /// <summary>
+        /// Whether this masking info produces the same masking shader parameters as <paramref name="other"/>.
+        /// Unlike <see cref="Equals(MaskingInfo)"/>, CPU-only culling metadata (<see cref="ScreenSpaceAABB"/> and
+        /// <see cref="ConservativeScreenSpaceQuad"/>) is ignored, since it does not reach the shader.
+        /// </summary>
+        internal readonly bool HasSameShaderParameters(in MaskingInfo other) =>
+            MaskingRect == other.MaskingRect &&
+            ToMaskingSpace == other.ToMaskingSpace &&
+            CornerRadius == other.CornerRadius &&
+            CornerExponent == other.CornerExponent &&
+            BorderThickness == other.BorderThickness &&
+            BorderColour.Equals(other.BorderColour) &&
+            BlendRange == other.BlendRange &&
+            AlphaExponent == other.AlphaExponent &&
+            EdgeOffset == other.EdgeOffset &&
+            Hollow == other.Hollow &&
+            HollowCornerRadius == other.HollowCornerRadius;
+
         public override readonly bool Equals(object? obj) => obj is MaskingInfo other && this == other;
 
         public override readonly int GetHashCode() => 0; // Shouldn't be used; simplifying implementation here.
