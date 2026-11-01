@@ -313,10 +313,14 @@ namespace osu.Framework.Tests.Audio
 
             Assert.IsTrue(track.IsRunning);
 
-            takeEffectsAndUpdateAfter(50);
+            // Completion is signalled by a synchroniser on Bass' own thread, so poll until it fires.
+            Assert.That(() =>
+            {
+                bass.Update();
+                return track.HasCompleted;
+            }, Is.True.After(3000, 50));
 
             Assert.IsFalse(track.IsRunning);
-            Assert.IsTrue(track.HasCompleted);
         }
 
         [Test]

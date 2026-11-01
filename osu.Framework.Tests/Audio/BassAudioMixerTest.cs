@@ -237,7 +237,12 @@ namespace osu.Framework.Tests.Audio
             Thread.Sleep(50);
             bass.Update();
 
-            Assert.That(bass.Mixer.ChannelIsActive(track), Is.Not.EqualTo(PlaybackState.Playing));
+            // The channel's transition to a stopped state is performed by Bass' own thread, so poll until it takes effect.
+            Assert.That(() =>
+            {
+                bass.Update();
+                return bass.Mixer.ChannelIsActive(track);
+            }, Is.Not.EqualTo(PlaybackState.Playing).After(3000, 50));
 
             bass.RunOnAudioThread(() => track.SeekAsync(0).WaitSafely());
             bass.Update();
@@ -257,7 +262,12 @@ namespace osu.Framework.Tests.Audio
             Thread.Sleep(50);
             bass.Update();
 
-            Assert.That(bass.Mixer.ChannelIsActive(track), Is.Not.EqualTo(PlaybackState.Playing));
+            // The channel's transition to a stopped state is performed by Bass' own thread, so poll until it takes effect.
+            Assert.That(() =>
+            {
+                bass.Update();
+                return bass.Mixer.ChannelIsActive(track);
+            }, Is.Not.EqualTo(PlaybackState.Playing).After(3000, 50));
 
             var secondMixer = bass.CreateMixer();
             secondMixer.Add(track);
