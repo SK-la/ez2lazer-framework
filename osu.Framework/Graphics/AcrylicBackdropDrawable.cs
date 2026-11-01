@@ -168,8 +168,7 @@ namespace osu.Framework.Graphics
             private Vector2 frameBufferSize;
 
             // 效果缓冲容量只增不减地量化复用，避免卡片连续缩放时逐帧重建纹理。
-            // 详见 quantiseBufferSize。
-            private Vector2 allocatedBufferSize;
+            private EffectBufferSizeQuantiser bufferSizeQuantiser;
 
             private ColourInfo drawColour;
 
@@ -200,7 +199,7 @@ namespace osu.Framework.Graphics
                     screenSpaceDrawRectangle.Width * frameBufferScale.X,
                     screenSpaceDrawRectangle.Height * frameBufferScale.Y);
 
-                frameBufferSize = quantiseBufferSize(unscaledBufferSize);
+                frameBufferSize = bufferSizeQuantiser.Quantise(unscaledBufferSize);
 
                 // 屏幕空间 sigma：共用后缓冲路径直接把它当整屏模糊强度用，必须保持原值。
                 blurSigma = Source.BlurSigma;
@@ -359,36 +358,6 @@ namespace osu.Framework.Graphics
             }
 
             /// <summary>
-            /// 向上对齐缓冲尺寸到固定容量桶，并套用迟滞，让卡片连续缩放时复用同一批缓冲。
-            /// </summary>
-            /// <remarks>
-            /// 缓冲尺寸是「容量」：卡片变小不急着回收，因此只在溢出当前容量时扩容、明显偏小时才收缩。
-            /// 迟滞（<see cref="buffer_shrink_ratio"/>）用于防止尺寸停在桶边界附近时逐帧横跳，
-            /// 那会让每帧都重建纹理，正是本类要消除的开销。
-            /// </remarks>
-            private Vector2 quantiseBufferSize(Vector2 size)
-            {
-                var desired = new Vector2(
-                    MathF.Ceiling(size.X / buffer_size_quantisation) * buffer_size_quantisation,
-                    MathF.Ceiling(size.Y / buffer_size_quantisation) * buffer_size_quantisation);
-
-                // 首次分配，或任一轴溢出当前容量：立即扩容。
-                if (allocatedBufferSize.X < 1 || allocatedBufferSize.Y < 1
-                    || desired.X > allocatedBufferSize.X || desired.Y > allocatedBufferSize.Y)
-                {
-                    allocatedBufferSize = desired;
-                }
-                // 两轴都明显变小才收缩，避免边界乒乓。
-                else if (desired.X < allocatedBufferSize.X * buffer_shrink_ratio
-                         && desired.Y < allocatedBufferSize.Y * buffer_shrink_ratio)
-                {
-                    allocatedBufferSize = desired;
-                }
-
-                return allocatedBufferSize;
-            }
-
-            /// <summary>
             /// 反推 <see cref="RendererExtensions.PushOrtho"/> 所用的屏幕矩形。
             /// 投影由 <c>Matrix4.CreateOrthographicOffCenter</c> 生成，这里把裁剪空间四角变换回屏幕空间。
             /// </summary>
@@ -446,16 +415,6 @@ namespace osu.Framework.Graphics
                 renderer.PopScissor();
                 renderer.PopMaskingInfo();
             }
-
-            /// <summary>
-            /// 效果缓冲容量按此粒度向上对齐，使卡片连续缩放时复用同一批缓冲。
-            /// </summary>
-            private const float buffer_size_quantisation = 16;
-
-            /// <summary>
-            /// 容量收缩阈值：相对当前容量小于该比例才回收，防止尺寸停在桶边界附近时逐帧重建。
-            /// </summary>
-            private const float buffer_shrink_ratio = 0.9f;
 
             protected override void Dispose(bool isDisposing)
             {
