@@ -141,6 +141,8 @@ namespace osu.Framework.Graphics.Rendering
         private int lastActiveTextureUnit;
         private bool globalUniformsChanged;
 
+        private readonly FrameDrawCapture? drawCapture = FrameDrawCapture.Create();
+
         private static readonly GlobalStatistic<int>[] flush_source_statistics;
 
         static Renderer()
@@ -199,6 +201,8 @@ namespace osu.Framework.Graphics.Rendering
             Debug.Assert(defaultQuadBatch != null);
 
             FrameIndex++;
+
+            drawCapture?.Begin(FrameIndex, windowSize, GetType().Name);
 
             backBufferDepth.Reset();
 
@@ -307,6 +311,8 @@ namespace osu.Framework.Graphics.Rendering
         protected internal virtual void FinishFrame()
         {
             FlushCurrentBatch(FlushBatchSource.FinishFrame);
+
+            drawCapture?.Finish();
         }
 
         public void ScheduleExpensiveOperation(ScheduledDelegate operation)
@@ -779,8 +785,24 @@ namespace osu.Framework.Graphics.Rendering
         /// <param name="source">The source performing the flush, for profiling purposes.</param>
         protected internal void FlushCurrentBatch(FlushBatchSource? source)
         {
-            if (currentActiveBatch?.Draw() > 0 && source != null)
-                flush_source_statistics[(int)source].Value++;
+            if (drawCapture == null)
+            {
+                if (currentActiveBatch?.Draw() > 0 && source != null)
+                    flush_source_statistics[(int)source].Value++;
+                return;
+            }
+
+            drawCapture.FlushSource = source?.ToString();
+
+            try
+            {
+                if (currentActiveBatch?.Draw() > 0 && source != null)
+                    flush_source_statistics[(int)source].Value++;
+            }
+            finally
+            {
+                drawCapture.FlushSource = null;
+            }
         }
 
         private void freeUnusedVertexBuffers()
@@ -1026,6 +1048,8 @@ namespace osu.Framework.Graphics.Rendering
             }
 
             Shader.BindUniformBlock("g_GlobalUniforms", globalUniformBuffer!);
+
+            drawCapture?.Record(topology, vertexStart, verticesCount, Shader, lastBoundTexture[0], UsingBackbuffer, currentActiveBatch);
 
             DrawVerticesImplementation(topology, vertexStart, verticesCount);
 
