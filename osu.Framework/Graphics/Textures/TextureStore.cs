@@ -323,7 +323,7 @@ namespace osu.Framework.Graphics.Textures
                 return textureCache[lookupKey] = texture;
         }
 
-        public void ClearCache(bool disposeAtlas = false)
+        public virtual void ClearCache(bool disposeAtlas = false)
         {
             lock (textureCache)
             {
@@ -349,7 +349,14 @@ namespace osu.Framework.Graphics.Textures
         /// Needed by stores that keep textures alive until all consumers release them, where
         /// <see cref="ClearCache"/> cannot be used: it disposes the underlying native texture of every
         /// entry, including ones still held by outstanding consumers.
+        /// <para>
+        /// <see cref="LargeTextureStore"/> additionally purges successfully loaded entries once all
+        /// <see cref="TextureWithRefCount"/> wrappers are released; atlas stores typically rely on
+        /// <see cref="ClearCache"/> when no drawables reference cached textures.
+        /// </para>
         /// </remarks>
+        public virtual void ClearFailedCache() => ClearFailedCacheEntries();
+
         protected void ClearFailedCacheEntries()
         {
             lock (textureCache)
@@ -394,6 +401,9 @@ namespace osu.Framework.Graphics.Textures
             if (!isDisposed)
             {
                 isDisposed = true;
+
+                if (disposing)
+                    ClearCache(disposeAtlas: true);
 
                 uploadStore.Dispose();
                 lock (nestedStores) nestedStores.ForEach(s => s.Dispose());

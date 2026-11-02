@@ -92,6 +92,48 @@ namespace osu.Framework.Tests.IO
             }
         }
 
+        [Test]
+        public void TestClearFailedCacheOnEmptyStore()
+        {
+            using (var textureStore = new TextureStore(new DummyRenderer()))
+            {
+                Assert.DoesNotThrow(textureStore.ClearFailedCache);
+            }
+        }
+
+        [Test]
+        public void TestDisposeCallsClearCache()
+        {
+            var renderer = new DummyRenderer();
+
+            using (var textureStore = new DisposeTrackingTextureStore(renderer, new NamespacedResourceStore<TextureUpload>(fontResourceStore, "Roboto"), scaleAdjust: 100))
+            {
+                Assert.That(textureStore.Get("Roboto-Regular_0"), Is.Not.Null);
+            }
+
+            Assert.That(DisposeTrackingTextureStore.LastInstance!.ClearCacheCalled, Is.True);
+        }
+
+        private class DisposeTrackingTextureStore : TextureStore
+        {
+            public static DisposeTrackingTextureStore? LastInstance { get; private set; }
+
+            public bool ClearCacheCalled { get; private set; }
+
+            public DisposeTrackingTextureStore(IRenderer renderer, IResourceStore<TextureUpload> store, float scaleAdjust)
+                : base(renderer, store, scaleAdjust: scaleAdjust)
+            {
+                LastInstance = this;
+                ClearCacheCalled = false;
+            }
+
+            public override void ClearCache(bool disposeAtlas = false)
+            {
+                ClearCacheCalled = true;
+                base.ClearCache(disposeAtlas);
+            }
+        }
+
         private class LabelExposingTextureStore : TextureStore
         {
             public LabelExposingTextureStore(IRenderer renderer, string? atlasLabel)
