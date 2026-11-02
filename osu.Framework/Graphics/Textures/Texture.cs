@@ -86,6 +86,8 @@ namespace osu.Framework.Graphics.Textures
             : this(parent.NativeTexture, wrapModeS, wrapModeT)
         {
             IsAtlasTexture = parent.IsAtlasTexture;
+            ScaleAdjust = parent.ScaleAdjust;
+            AssetName = parent.AssetName;
         }
 
         /// <summary>
