@@ -240,31 +240,19 @@ namespace osu.Framework.Graphics.Containers
                     {
                         case FillDirection.Vertical:
                             if (c.RelativeAnchorPosition.Y != ourRelativeAnchor.Y)
-                            {
-                                throw new InvalidOperationException(
-                                    $"All drawables in a {nameof(FillFlowContainer)} must use the same RelativeAnchorPosition for the given {nameof(FillDirection)}({Direction}) ({ourRelativeAnchor.Y} != {c.RelativeAnchorPosition.Y}). "
-                                    + $"Consider using multiple instances of {nameof(FillFlowContainer)} if this is intentional.");
-                            }
+                                throw anchorMismatch(i, c, children[0], ourRelativeAnchor.Y, c.RelativeAnchorPosition.Y);
 
                             break;
 
                         case FillDirection.Horizontal:
                             if (c.RelativeAnchorPosition.X != ourRelativeAnchor.X)
-                            {
-                                throw new InvalidOperationException(
-                                    $"All drawables in a {nameof(FillFlowContainer)} must use the same RelativeAnchorPosition for the given {nameof(FillDirection)}({Direction}) ({ourRelativeAnchor.X} != {c.RelativeAnchorPosition.X}). "
-                                    + $"Consider using multiple instances of {nameof(FillFlowContainer)} if this is intentional.");
-                            }
+                                throw anchorMismatch(i, c, children[0], ourRelativeAnchor.X, c.RelativeAnchorPosition.X);
 
                             break;
 
                         default:
                             if (c.RelativeAnchorPosition != ourRelativeAnchor)
-                            {
-                                throw new InvalidOperationException(
-                                    $"All drawables in a {nameof(FillFlowContainer)} must use the same RelativeAnchorPosition for the given {nameof(FillDirection)}({Direction}) ({ourRelativeAnchor} != {c.RelativeAnchorPosition}). "
-                                    + $"Consider using multiple instances of {nameof(FillFlowContainer)} if this is intentional.");
-                            }
+                                throw anchorMismatch(i, c, children[0], ourRelativeAnchor.X, c.RelativeAnchorPosition.X);
 
                             break;
                     }
@@ -293,6 +281,26 @@ namespace osu.Framework.Graphics.Containers
                 ArrayPool<int>.Shared.Return(rowIndices);
             }
         }
+
+        /// <summary>
+        /// Builds the exception for a child whose anchor disagrees with the flow direction.
+        /// </summary>
+        /// <remarks>
+        /// The message names the container and both ends of the comparison, because a nested layout tree usually
+        /// contains several fills of the same direction and the stack alone does not say which one failed.
+        /// </remarks>
+        private InvalidOperationException anchorMismatch(int index, Drawable child, Drawable first, float expected, float actual)
+            => new InvalidOperationException(
+                $"All drawables in a {nameof(FillFlowContainer)} must use the same RelativeAnchorPosition for the given {nameof(FillDirection)}({Direction}) ({expected} != {actual}). "
+                + $"Consider using multiple instances of {nameof(FillFlowContainer)} if this is intentional. "
+                + $"Container: {describe(GetType(), Name)}. "
+                + $"Offending child [{index}]: {describeChild(child)}. "
+                + $"First child: {describeChild(first)}.");
+
+        private static string describeChild(Drawable d) => $"{describe(d.GetType(), d.Name)} anchor={d.Anchor} origin={d.Origin}";
+
+        private static string describe(Type type, string name)
+            => string.IsNullOrEmpty(name) ? type.FullName! : $"{type.FullName} '{name}'";
     }
 
     /// <summary>
