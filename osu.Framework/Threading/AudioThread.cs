@@ -205,16 +205,43 @@ namespace osu.Framework.Threading
             if (thread == null)
                 return;
 
-            if (notify != WasapiNotificationType.DefaultOutput || !thread.shouldTrackDefaultWasapiChanges())
-                return;
-
-            thread.Scheduler.Add(() =>
+            // see https://www.un4seen.com/doc/#basswasapi/WASAPINOTIFYPROC.html
+            switch (notify)
             {
-                if (!thread.shouldTrackDefaultWasapiChanges())
+                case WasapiNotificationType.DefaultOutput:
+                    if (!thread.shouldTrackDefaultWasapiChanges())
+                        return;
+
+                    Logger.Log("Attempting BassWasapi reinitialisation after default output change", name: "audio");
+                    break;
+
+                case WasapiNotificationType.Fail:
+                    Logger.Log("Attempting BassWasapi reinitialisation after initialisation failure", name: "audio");
+                    break;
+
+                default:
+                    return;
+            }
+
+            // to note, when a failure occurs the notify procedure callback only occurs once, so there's
+            // no chance of this getting into a runaway reinitialisation loop.
+            //
+            // the schedule safety here is to avoid a double re-init as two threads are usually involved here.
+            bool exclusive = thread.wasapiExclusiveActive;
+            thread.wasapiPendingRecoveryInit?.Cancel();
+            thread.wasapiPendingRecoveryInit = thread.Scheduler.Add(() =>
+            {
+                if (notify == WasapiNotificationType.DefaultOutput && !thread.shouldTrackDefaultWasapiChanges())
                     return;
 
                 thread.freeWasapi();
-                thread.initWasapi(device, exclusive: false, bufferMs: 0);
+
+                bool ok = exclusive
+                    ? thread.tryInitWasapiExclusiveWithBufferLadder(device)
+                    : thread.initWasapi(device, exclusive: false, bufferMs: 0);
+
+                if (ok)
+                    thread.updateAudioManagers();
             });
         };
 
@@ -235,6 +262,7 @@ namespace osu.Framework.Threading
 
         private GCHandle wasapiUserHandle;
         private readonly IntPtr wasapiUserPtr;
+        private ScheduledDelegate? wasapiPendingRecoveryInit;
         private bool wasapiExclusiveActive;
         private int wasapiExclusiveRequestedBufferMs;
         private int wasapiExclusiveAppliedBufferMs;
@@ -962,7 +990,7 @@ namespace osu.Framework.Threading
                     return false;
                 }
 
-                BassWasapi.SetNotify(shouldTrackDefaultWasapiChanges() ? wasapi_notify_procedure_static : null, shouldTrackDefaultWasapiChanges() ? wasapiUserPtr : IntPtr.Zero);
+                BassWasapi.SetNotify(wasapi_notify_procedure_static, wasapiUserPtr);
 
                 if (!BassWasapi.Start())
                 {
@@ -1007,6 +1035,9 @@ namespace osu.Framework.Threading
             // Linux/macOS the runtime searches for libbasswasapi.so and fails the startup.
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
                 return;
+
+            wasapiPendingRecoveryInit?.Cancel();
+            wasapiPendingRecoveryInit = null;
 
             int? mixerToFree = globalMixerHandle.Value;
             bool hadWasapi = wasapiExclusiveActive || mixerToFree != null;
@@ -1494,6 +1525,19 @@ namespace osu.Framework.Threading
             // Extra delay after ASIO teardown to avoid busy-driver errors when switching devices.
             if (!DebugUtils.IsNUnitRunning)
                 Thread.Sleep(300);
+        }
+
+        private void updateAudioManagers()
+        {
+            AudioManager[] currentManagers;
+
+            lock (managers)
+                currentManagers = managers.ToArray();
+
+            int currentDevice = Bass.CurrentDevice;
+
+            foreach (var manager in currentManagers)
+                manager.UpdateDevice(currentDevice);
         }
 
         #endregion
