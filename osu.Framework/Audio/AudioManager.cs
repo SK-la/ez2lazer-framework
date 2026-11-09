@@ -427,9 +427,19 @@ namespace osu.Framework.Audio
         private WindowsOutputRuntimeInfo windowsOutputRuntime;
 
         /// <summary>
+        /// Invoked after Windows output runtime facts are published from the audio thread.
+        /// Settings UI uses this to refresh status notes once device initialisation actually completes.
+        /// </summary>
+        public Action OnWindowsOutputRuntimeChanged;
+
+        /// <summary>
         /// Audio-thread update of the runtime facts used by <see cref="GetOutputDeviceStatusNote"/>.
         /// </summary>
-        internal void SetWindowsOutputRuntime(WindowsOutputRuntimeInfo info) => windowsOutputRuntime = info;
+        internal void SetWindowsOutputRuntime(WindowsOutputRuntimeInfo info)
+        {
+            windowsOutputRuntime = info;
+            OnWindowsOutputRuntimeChanged?.Invoke();
+        }
 
         /// <summary>
         /// User-facing ASIO status for settings UI: summary (output state) and capabilities (driver probe).
