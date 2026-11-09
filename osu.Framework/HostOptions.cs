@@ -52,5 +52,16 @@ namespace osu.Framework
         /// If empty, GameHost will choose a default name based on the gameName.
         /// </remarks>
         public string FriendlyGameName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Preferred main swapchain display encoding (10-bit SDR / HDR10 on Windows D3D11). Requires restart.
+        /// </summary>
+        public DisplayOutputMode DisplayOutputMode { get; set; }
+
+        /// <summary>SDR exposure for display output (1 = default). Requires restart.</summary>
+        public float DisplayOutputSdrExposure { get; set; } = 1f;
+
+        /// <summary>HDR paper white (nits); 0 = follow monitor metadata. Requires restart.</summary>
+        public float DisplayOutputHdrPaperWhiteNits { get; set; }
     }
 }

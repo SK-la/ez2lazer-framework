@@ -23,6 +23,9 @@ namespace osu.Framework.Platform
         {
             ipcPipeName = Options.IPCPipeName;
             IsPortableInstallation = Options.PortableInstallation;
+            HostStartupDisplayOutput.Mode = Options.DisplayOutputMode;
+            HostStartupDisplayOutput.SdrExposure = Options.DisplayOutputSdrExposure;
+            HostStartupDisplayOutput.HdrPaperWhiteNits = Options.DisplayOutputHdrPaperWhiteNits;
         }
 
         protected sealed override Storage GetDefaultGameStorage()

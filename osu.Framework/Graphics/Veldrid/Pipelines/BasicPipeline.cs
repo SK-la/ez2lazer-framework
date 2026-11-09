@@ -28,13 +28,13 @@ namespace osu.Framework.Graphics.Veldrid.Pipelines
         /// The platform graphics device.
         /// </summary>
         public GraphicsDevice Device
-            => device.Device;
+            => VeldridDevice.Device;
 
         /// <summary>
         /// The platform graphics resource factory.
         /// </summary>
         public ResourceFactory Factory
-            => device.Factory;
+            => VeldridDevice.Factory;
 
         /// <summary>
         /// The command list.
@@ -56,11 +56,11 @@ namespace osu.Framework.Graphics.Veldrid.Pipelines
         /// </summary>
         private readonly Queue<Fence> fencePool = new Queue<Fence>();
 
-        private readonly VeldridDevice device;
+        protected VeldridDevice VeldridDevice { get; }
 
         public BasicPipeline(VeldridDevice device)
         {
-            this.device = device;
+            VeldridDevice = device;
             Commands = device.Factory.CreateCommandList();
         }
 
@@ -86,7 +86,7 @@ namespace osu.Framework.Graphics.Veldrid.Pipelines
             pendingExecutions.Add(new ExecutionCompletionFence(fence, executionIndex));
 
             Commands.End();
-            device.Device.SubmitCommands(Commands, fence);
+            VeldridDevice.Device.SubmitCommands(Commands, fence);
         }
 
         private void updatePendingExecutions()
@@ -127,7 +127,7 @@ namespace osu.Framework.Graphics.Veldrid.Pipelines
             //
             // Except we are using a staging texture pool to avoid the alloc overhead of each staging texture.
             var staging = stagingPool.Get(width, height, texture.Format);
-            device.Device.UpdateTexture(staging, data, 0, 0, 0, (uint)width, (uint)height, 1, (uint)level, 0);
+            VeldridDevice.Device.UpdateTexture(staging, data, 0, 0, 0, (uint)width, (uint)height, 1, (uint)level, 0);
             Commands.CopyTexture(staging, 0, 0, 0, 0, 0, texture, (uint)x, (uint)y, 0, (uint)level, 0, (uint)width, (uint)height, 1, 1);
         }
 

@@ -90,19 +90,23 @@ namespace osu.Framework.Graphics.Veldrid
 
         private readonly IGraphicsSurface graphicsSurface;
         private Vector2I currentWindowSize;
+        private readonly VeldridDisplayPresent? displayPresent;
 
         /// <summary>
         /// Creates a new <see cref="VeldridDevice"/>
         /// </summary>
         /// <param name="graphicsSurface"></param>
+        /// <param name="displayOutputMode"></param>
         /// <exception cref="InvalidOperationException"></exception>
-        public VeldridDevice(IGraphicsSurface graphicsSurface)
+        public VeldridDevice(IGraphicsSurface graphicsSurface, DisplayOutputMode displayOutputMode = default)
         {
             // Veldrid must either be initialised on the main/"input" thread, or in a separate thread away from the draw thread at least.
             // Otherwise the window may not render anything on some platforms (macOS at least).
             Debug.Assert(!ThreadSafety.IsDrawThread, "Veldrid cannot be initialised on the draw thread.");
 
             this.graphicsSurface = graphicsSurface;
+
+            var swapchainDisplayMode = displayOutputMode.ToSwapchainDisplayMode(graphicsSurface.Type, logFallback: false);
 
             var options = new GraphicsDeviceOptions
             {
@@ -121,6 +125,7 @@ namespace osu.Framework.Graphics.Veldrid
                 ColorSrgb = options.SwapchainSrgbFormat,
                 DepthFormat = options.SwapchainDepthFormat,
                 SyncToVerticalBlank = options.SyncToVerticalBlank,
+                DisplayMode = swapchainDisplayMode,
             };
 
             int maxTextureSize;
@@ -217,7 +222,31 @@ namespace osu.Framework.Graphics.Veldrid
 
             Logger.Log($"{nameof(UseStructuredBuffers)}: {UseStructuredBuffers}");
 
+            if (Device.MainSwapchain.EffectiveDisplayMode is SwapchainDisplayMode.Native10BitSdr or SwapchainDisplayMode.Hdr10)
+            {
+                displayPresent = new VeldridDisplayPresent(this, Device.MainSwapchain.EffectiveDisplayMode);
+                displayPresent.Resize((uint)size.Width, (uint)size.Height);
+            }
+
+            logSwapchainDisplay(swapchain.DisplayMode);
+
             MaxTextureSize = maxTextureSize;
+        }
+
+        private void logSwapchainDisplay(SwapchainDisplayMode requested)
+        {
+            if (graphicsSurface.Type != GraphicsSurfaceType.Direct3D11)
+                return;
+
+            var swapchain = Device.MainSwapchain;
+
+            Logger.Log(
+                $"Swapchain display: requested={requested}, effective={swapchain.EffectiveDisplayMode}, surface={swapchain.SurfaceColorPixelFormat?.ToString() ?? "unknown"}");
+
+            DisplayOutputPolicy.LogMonitorCapabilities(
+                swapchain.MonitorDisplay,
+                HostStartupDisplayOutput.SdrExposure,
+                HostStartupDisplayOutput.HdrPaperWhiteNits);
         }
 
         /// <summary>
@@ -229,9 +258,18 @@ namespace osu.Framework.Graphics.Veldrid
             if (windowSize != currentWindowSize)
             {
                 Device.ResizeMainWindow((uint)windowSize.X, (uint)windowSize.Y);
+                displayPresent?.Resize((uint)windowSize.X, (uint)windowSize.Y);
                 currentWindowSize = windowSize;
             }
         }
+
+        /// <summary>
+        /// The framebuffer scene draws target. Standard is the swapchain. 10-bit and HDR composite in R16F first.
+        /// </summary>
+        public Framebuffer SceneFramebuffer => displayPresent is { IsAllocated: true } ? displayPresent.Framebuffer : Device.SwapchainFramebuffer;
+
+        public void PresentDisplayOutput(CommandList commands)
+            => displayPresent?.DrawToSwapchain(commands);
 
         /// <summary>
         /// Swaps the back buffer with the front buffer to display the new frame.
@@ -285,6 +323,9 @@ namespace osu.Framework.Graphics.Veldrid
         /// </summary>
         public unsafe Image<Rgba32> TakeScreenshot()
         {
+            if (displayPresent is { IsAllocated: true })
+                return displayPresent.TakeScreenshot();
+
             var texture = Device.SwapchainFramebuffer.ColorTargets[0].Target;
 
             switch (graphicsSurface.Type)
@@ -377,6 +418,9 @@ namespace osu.Framework.Graphics.Veldrid
             return Device.WaitForFence(fence, (ulong)(millisecondsTimeout * 1_000_000));
         }
 
+        private Texture sceneColorTarget()
+            => displayPresent is { IsAllocated: true } ? displayPresent.Color : Device.SwapchainFramebuffer.ColorTargets[0].Target;
+
         private bool canCopySwapchain
             => graphicsSurface.Type is GraphicsSurfaceType.Direct3D11 or GraphicsSurfaceType.Metal or GraphicsSurfaceType.Vulkan;
 
@@ -388,7 +432,7 @@ namespace osu.Framework.Graphics.Veldrid
             if (!canCopySwapchain)
                 return false;
 
-            var source = Device.SwapchainFramebuffer.ColorTargets[0].Target;
+            var source = sceneColorTarget();
             if (source.Width == 0 || source.Height == 0)
                 return false;
 
@@ -404,7 +448,7 @@ namespace osu.Framework.Graphics.Veldrid
             if (!canCopySwapchain)
                 return false;
 
-            var source = Device.SwapchainFramebuffer.ColorTargets[0].Target;
+            var source = sceneColorTarget();
             int texWidth = (int)source.Width;
             int texHeight = (int)source.Height;
 
@@ -468,7 +512,13 @@ namespace osu.Framework.Graphics.Veldrid
 
         private void copyBackbufferRegionToFrameBuffer(CommandList commands, IVeldridFrameBuffer destination, RectangleI screenRect)
         {
-            var source = Device.SwapchainFramebuffer.ColorTargets[0].Target;
+            if (displayPresent is { IsAllocated: true })
+            {
+                displayPresent.CopyRegion(commands, destination.Framebuffer, screenRect);
+                return;
+            }
+
+            var source = sceneColorTarget();
             var dest = destination.Framebuffer.ColorTargets[0].Target;
 
             uint width = (uint)screenRect.Width;

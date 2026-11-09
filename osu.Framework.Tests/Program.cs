@@ -14,7 +14,15 @@ namespace osu.Framework.Tests
             bool benchmark = args.Contains(@"--benchmark");
             bool portable = args.Contains(@"--portable");
 
-            using (GameHost host = Host.GetSuitableDesktopHost(@"visual-tests", new HostOptions { PortableInstallation = portable }))
+            var displayOutputMode = Enum.TryParse<DisplayOutputMode>(Environment.GetEnvironmentVariable("EZ_FRAMEWORK_DISPLAY_OUTPUT"), true, out var parsedDisplay)
+                ? parsedDisplay
+                : DisplayOutputMode.Standard;
+
+            using (GameHost host = Host.GetSuitableDesktopHost(@"visual-tests", new HostOptions
+            {
+                PortableInstallation = portable,
+                DisplayOutputMode = displayOutputMode,
+            }))
             {
                 if (benchmark)
                     host.Run(new AutomatedVisualTestGame());
