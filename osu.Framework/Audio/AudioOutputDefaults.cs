@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
+
 namespace osu.Framework.Audio
 {
     public static class AudioOutputDefaults
@@ -9,8 +11,17 @@ namespace osu.Framework.Audio
         public const int SECONDARY_SAMPLE_RATE = 44100;
         public const int DEFAULT_ASIO_BUFFER_SIZE = 128;
 
-        public const float WASAPI_EXCLUSIVE_BUFFER_SECONDS = 0.05f;
-        public const float WASAPI_EXCLUSIVE_PERIOD_SECONDS = 0.01f;
+        /// <summary>
+        /// Auto exclusive buffer: the audio thread tries a ladder from
+        /// <see cref="WASAPI_EXCLUSIVE_MIN_BUFFER_MS"/> up to <see cref="WASAPI_EXCLUSIVE_MAX_BUFFER_MS"/>.
+        /// </summary>
+        public const int WASAPI_EXCLUSIVE_AUTO = 0;
+
+        public const int WASAPI_EXCLUSIVE_MIN_BUFFER_MS = 10;
+        public const int WASAPI_EXCLUSIVE_STEP_BUFFER_MS = 20;
+        public const int WASAPI_EXCLUSIVE_MAX_BUFFER_MS = 40;
+
+        public static int WasapiExclusivePeriodMs(int bufferMs) => Math.Clamp(bufferMs / 4, 2, 10);
 
         /// <summary>
         /// Requested shared-mode latency for the default NAudio WASAPI output path (milliseconds).

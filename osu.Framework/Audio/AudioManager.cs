@@ -14,8 +14,8 @@ using ManagedBass;
 using ManagedBass.Fx;
 using ManagedBass.Mix;
 using osu.Framework.Audio.Asio;
-using osu.Framework.Audio.Host;
 using osu.Framework.Audio.EzLatency;
+using osu.Framework.Audio.Host;
 using osu.Framework.Audio.Mixing;
 using osu.Framework.Audio.Mixing.Bass;
 using osu.Framework.Audio.Sample;
@@ -92,7 +92,12 @@ namespace osu.Framework.Audio
         /// When enabled, ASIO uses external PCM: output format follows the driver control panel.
         /// When disabled, ASIO uses internal PCM: output format follows <see cref="SampleRate"/>, <see cref="AsioBitDepth"/>, and <see cref="AsioBufferSize"/>.
         /// </summary>
-        public readonly BindableBool AsioUseExternalPCM = new BindableBool(false);
+        public readonly BindableBool AsioUseExternalPCM = new BindableBool(true);
+
+        /// <summary>
+        /// WASAPI Exclusive buffer size in milliseconds. <see cref="AudioOutputDefaults.WASAPI_EXCLUSIVE_AUTO"/> means auto ladder.
+        /// </summary>
+        public readonly Bindable<int> WasapiExclusiveBufferMs = new Bindable<int>(AudioOutputDefaults.WASAPI_EXCLUSIVE_AUTO);
 
         /// <summary>
         /// The names of all available audio devices.
@@ -291,6 +296,11 @@ namespace osu.Framework.Audio
         public void SetAsioUseExternalPCM(bool enabled) => AsioUseExternalPCM.Value = enabled;
 
         /// <summary>
+        /// Sets the preferred WASAPI Exclusive buffer size in milliseconds. Use 0 for auto.
+        /// </summary>
+        public void SetWasapiExclusiveBufferMs(int bufferMs) => WasapiExclusiveBufferMs.Value = Math.Max(0, bufferMs);
+
+        /// <summary>
         /// Releases the current audio output and re-initialises from <see cref="AudioDevice"/>.
         /// For ASIO, capability metadata is re-read from the driver after re-init.
         /// </summary>
@@ -411,7 +421,8 @@ namespace osu.Framework.Audio
             int? RequestedLatencyMs = null,
             bool? LowLatencyActive = null,
             int? WasapiBufferMs = null,
-            int? WasapiPeriodMs = null);
+            int? WasapiPeriodMs = null,
+            int? WasapiRequestedBufferMs = null);
 
         private WindowsOutputRuntimeInfo windowsOutputRuntime;
 
@@ -498,11 +509,13 @@ namespace osu.Framework.Audio
 
                     case AudioOutputMode.WasapiExclusive:
                     {
-                        int bufferMs = runtime.WasapiBufferMs
-                                       ?? (int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_BUFFER_SECONDS * 1000);
-                        int periodMs = runtime.WasapiPeriodMs
-                                       ?? (int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_PERIOD_SECONDS * 1000);
-                        return $"Output: running · buffer {bufferMs}ms · period {periodMs}ms";
+                        if (!runtime.WasapiBufferMs.HasValue || !runtime.WasapiPeriodMs.HasValue)
+                            return "Output: running · auto";
+
+                        int actual = runtime.WasapiBufferMs.Value;
+                        int period = runtime.WasapiPeriodMs.Value;
+                        int requested = runtime.WasapiRequestedBufferMs ?? WasapiExclusiveBufferMs.Value;
+                        return $"Output: running · buffer {actual}ms (requested {requested}ms) · period {period}ms";
                     }
                 }
             }
@@ -511,7 +524,7 @@ namespace osu.Framework.Audio
             return mode switch
             {
                 AudioOutputMode.WasapiExclusive =>
-                    $"Output: not running · buffer {(int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_BUFFER_SECONDS * 1000)}ms · period {(int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_PERIOD_SECONDS * 1000)}ms",
+                    "Output: not running · auto",
                 AudioOutputMode.WasapiShared =>
                     "Output: not running · buffer OS-min (BassWasapi shared)",
                 AudioOutputMode.Default when RuntimeInfo.OS != RuntimeInfo.Platform.Windows =>
@@ -742,6 +755,11 @@ namespace osu.Framework.Audio
             AsioUseExternalPCM.ValueChanged += e =>
             {
                 requestAsioReinitialisation($"ASIO PCM mode changed to {(e.NewValue ? "external" : "internal")}");
+            };
+
+            WasapiExclusiveBufferMs.ValueChanged += e =>
+            {
+                requestWasapiExclusiveReinitialisation($"WASAPI Exclusive buffer changed to {(e.NewValue <= 0 ? "auto" : $"{e.NewValue}ms")}");
             };
 
             AddItem(TrackMixer = createAudioMixer(null, nameof(TrackMixer)));
@@ -1413,6 +1431,21 @@ namespace osu.Framework.Audio
                     notifyAsioOutputUnavailable();
                 }
             });
+        }
+
+        private void requestWasapiExclusiveReinitialisation(string reason)
+        {
+            if (syncingSelection)
+                return;
+
+            if (parseSelection(AudioDevice.Value).mode != AudioOutputMode.WasapiExclusive)
+            {
+                Logger.Log($"{reason}, but current device ({AudioDevice.Value}) is not WASAPI Exclusive; skipping reinitialisation.", name: "audio", level: LogLevel.Debug);
+                return;
+            }
+
+            Logger.Log($"{reason}. Reinitialising WASAPI Exclusive output.", name: "audio", level: LogLevel.Important);
+            scheduler.AddOnce(initCurrentDevice);
         }
 
         private void notifyAsioOutputUnavailable()

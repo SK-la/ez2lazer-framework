@@ -1,7 +1,6 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using osu.Framework.Statistics;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -25,6 +24,7 @@ using osu.Framework.Bindables;
 using osu.Framework.Development;
 using osu.Framework.Logging;
 using osu.Framework.Platform.Linux.Native;
+using osu.Framework.Statistics;
 
 namespace osu.Framework.Threading
 {
@@ -214,7 +214,7 @@ namespace osu.Framework.Threading
                     return;
 
                 thread.freeWasapi();
-                thread.initWasapi(device, exclusive: false);
+                thread.initWasapi(device, exclusive: false, bufferMs: 0);
             });
         };
 
@@ -236,6 +236,9 @@ namespace osu.Framework.Threading
         private GCHandle wasapiUserHandle;
         private readonly IntPtr wasapiUserPtr;
         private bool wasapiExclusiveActive;
+        private int wasapiExclusiveRequestedBufferMs;
+        private int wasapiExclusiveAppliedBufferMs;
+        private int wasapiExclusivePeriodMs;
         private AcousticLevelMath.SampleFormat wasapiPullSampleFormat = AcousticLevelMath.SampleFormat.IeeeFloat32;
         private NAudioWasapiOutput? naudioDefaultOutput;
         private int? naudioBoundBassDeviceId;
@@ -271,7 +274,7 @@ namespace osu.Framework.Threading
                     level: LogLevel.Important);
                 return (OperatingSystem.IsWindows() && isValidBassHandle(naudioDefaultOutput?.MixerHandle))
                        || isValidBassHandle(globalMixerHandle.Value)
-                       || Bass.GetDeviceInfo(deviceId, out var reInfo) && reInfo.IsInitialized;
+                       || (Bass.GetDeviceInfo(deviceId, out var reInfo) && reInfo.IsInitialized);
             }
 
             // Keep a healthy NAudio Default session instead of tearing it down on spurious re-inits
@@ -552,8 +555,9 @@ namespace osu.Framework.Threading
                     Manager.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
                         Mode: AudioOutputMode.WasapiExclusive,
                         Active: wasapiExclusiveActive && isValidBassHandle(globalMixerHandle.Value),
-                        WasapiBufferMs: (int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_BUFFER_SECONDS * 1000),
-                        WasapiPeriodMs: (int)Math.Round(AudioOutputDefaults.WASAPI_EXCLUSIVE_PERIOD_SECONDS * 1000)));
+                        WasapiBufferMs: wasapiExclusiveAppliedBufferMs > 0 ? wasapiExclusiveAppliedBufferMs : null,
+                        WasapiPeriodMs: wasapiExclusivePeriodMs > 0 ? wasapiExclusivePeriodMs : null,
+                        WasapiRequestedBufferMs: wasapiExclusiveRequestedBufferMs));
                     break;
 
                 case AudioOutputMode.Asio:
@@ -763,14 +767,13 @@ namespace osu.Framework.Threading
                             level: LogLevel.Verbose);
 
                         // In exclusive mode, the chosen (freq/chans) pair matters. If the preferred candidate fails,
-                        // we will retry other candidates below.
+                        // we will retry other candidates below. Buffer ladder stays inside each format attempt
+                        // so device reopen cost stays format-count × ladder-count, not the reverse nesting.
                         if (exclusive)
                         {
                             foreach (var candidate in orderWasapiCandidates(candidates))
                             {
-                                freeWasapi();
-
-                                if (initWasapi(candidate.index, exclusive))
+                                if (tryInitWasapiExclusiveWithBufferLadder(candidate.index))
                                     return true;
                             }
 
@@ -797,11 +800,56 @@ namespace osu.Framework.Threading
                 Logger.Log("Using default WASAPI device (-1).", name: "audio", level: LogLevel.Verbose);
 
             // To keep things in a sane state let's only keep one device initialised via wasapi.
+            if (exclusive)
+                return tryInitWasapiExclusiveWithBufferLadder(wasapiDevice);
+
             freeWasapi();
-            return initWasapi(wasapiDevice, exclusive);
+            return initWasapi(wasapiDevice, exclusive: false, bufferMs: 0);
         }
 
-        private bool initWasapi(int wasapiDevice, bool exclusive)
+        private static IEnumerable<int> wasapiExclusiveBufferLadder(int requestedMs)
+        {
+            if (requestedMs > 0)
+            {
+                yield return requestedMs;
+
+                for (int v = requestedMs * 2; v <= AudioOutputDefaults.WASAPI_EXCLUSIVE_MAX_BUFFER_MS; v *= 2)
+                    yield return v;
+            }
+            else
+            {
+                for (int v = AudioOutputDefaults.WASAPI_EXCLUSIVE_MIN_BUFFER_MS; v <= AudioOutputDefaults.WASAPI_EXCLUSIVE_MAX_BUFFER_MS; v += 10)
+                    yield return v;
+            }
+        }
+
+        private bool tryInitWasapiExclusiveWithBufferLadder(int wasapiDevice)
+        {
+            int requestedMs = Manager?.WasapiExclusiveBufferMs.Value ?? AudioOutputDefaults.WASAPI_EXCLUSIVE_AUTO;
+            int? firstAttemptMs = null;
+
+            foreach (int bufferMs in wasapiExclusiveBufferLadder(requestedMs))
+            {
+                firstAttemptMs ??= bufferMs;
+                freeWasapi();
+
+                if (!initWasapi(wasapiDevice, exclusive: true, bufferMs))
+                    continue;
+
+                if (bufferMs != firstAttemptMs.Value)
+                {
+                    Logger.Log(
+                        $"WASAPI Exclusive buffer ladder stepped up from {firstAttemptMs}ms to {bufferMs}ms (requested={(requestedMs <= 0 ? "auto" : $"{requestedMs}ms")}).",
+                        name: "audio", level: LogLevel.Important);
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool initWasapi(int wasapiDevice, bool exclusive, int bufferMs)
         {
             try
             {
@@ -853,8 +901,10 @@ namespace osu.Framework.Threading
                 // Important: in exclusive mode, the underlying implementation may not support event-driven callbacks
                 // and can fall back to polling. Using a near-zero period (float.Epsilon) can then cause a busy-loop,
                 // leading to time running far too fast (and eventual instability elsewhere).
-                float bufferSeconds = exclusive ? AudioOutputDefaults.WASAPI_EXCLUSIVE_BUFFER_SECONDS : 0f;
-                float periodSeconds = exclusive ? AudioOutputDefaults.WASAPI_EXCLUSIVE_PERIOD_SECONDS : float.Epsilon;
+                // Shared mode keeps buffer=0 (OS minimum) and period=float.Epsilon.
+                int periodMs = exclusive ? AudioOutputDefaults.WasapiExclusivePeriodMs(bufferMs) : 0;
+                float bufferSeconds = exclusive ? bufferMs / 1000f : 0f;
+                float periodSeconds = exclusive ? periodMs / 1000f : float.Epsilon;
 
                 bool initialised = BassWasapi.Init(wasapiDevice, Frequency: requestedFrequency, Channels: requestedChannels, Procedure: wasapi_procedure_static, Flags: flags, Buffer: bufferSeconds,
                     Period: periodSeconds, User: wasapiUserPtr);
@@ -867,7 +917,42 @@ namespace osu.Framework.Threading
 
                 BassWasapi.GetInfo(out var wasapiInfo);
                 wasapiPullSampleFormat = mapWasapiPullSampleFormat(wasapiInfo.Format);
-                Logger.Log($"WASAPI info: Freq={wasapiInfo.Frequency}, Chans={wasapiInfo.Channels}, Format={wasapiInfo.Format}", name: "audio", level: LogLevel.Verbose);
+
+                int bytesPerSample = wasapiInfo.Format switch
+                {
+                    WasapiFormat.Float or WasapiFormat.Bit32 => 4,
+                    WasapiFormat.Bit24 => 3,
+                    WasapiFormat.Bit16 => 2,
+                    _ => 0
+                };
+
+                int actualBufferMs = bytesPerSample > 0 && wasapiInfo.Frequency > 0 && wasapiInfo.Channels > 0 && wasapiInfo.BufferLength > 0
+                    ? (int)Math.Round(wasapiInfo.BufferLength * 1000d / (wasapiInfo.Frequency * wasapiInfo.Channels * bytesPerSample))
+                    : bufferMs;
+
+                if (exclusive)
+                {
+                    wasapiExclusiveRequestedBufferMs = bufferMs;
+                    wasapiExclusiveAppliedBufferMs = actualBufferMs;
+                    wasapiExclusivePeriodMs = periodMs;
+
+                    var level = actualBufferMs != bufferMs ? LogLevel.Important : LogLevel.Verbose;
+                    Logger.Log(
+                        $"WASAPI Exclusive info: Freq={wasapiInfo.Frequency}, Chans={wasapiInfo.Channels}, Format={wasapiInfo.Format}, requested={bufferMs}ms applied={actualBufferMs}ms period={periodMs}ms",
+                        name: "audio", level: level);
+
+                    Manager?.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
+                        Mode: AudioOutputMode.WasapiExclusive,
+                        Active: true,
+                        WasapiBufferMs: actualBufferMs,
+                        WasapiPeriodMs: periodMs,
+                        WasapiRequestedBufferMs: bufferMs));
+                }
+                else
+                {
+                    Logger.Log($"WASAPI info: Freq={wasapiInfo.Frequency}, Chans={wasapiInfo.Channels}, Format={wasapiInfo.Format}", name: "audio", level: LogLevel.Verbose);
+                }
+
                 globalMixerHandle.Value = BassMix.CreateMixerStream(wasapiInfo.Frequency, wasapiInfo.Channels, BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
 
                 if (globalMixerHandle.Value == 0)
@@ -955,6 +1040,9 @@ namespace osu.Framework.Threading
                     wasapiOrAsioWasActive = true;
 
                 wasapiExclusiveActive = false;
+                wasapiExclusiveRequestedBufferMs = 0;
+                wasapiExclusiveAppliedBufferMs = 0;
+                wasapiExclusivePeriodMs = 0;
                 globalMixerHandle.Value = null;
                 Thread.Sleep(50);
             }

@@ -61,7 +61,7 @@ namespace osu.Framework.Audio
 
                 waveformData ??= new float[ChannelAmplitudes.WAVEFORM_SIZE];
                 Array.Clear(waveformData, 0, waveformData.Length);
-                channel.Mixer.ChannelGetData(channel, waveformData, waveformData.Length * sizeof(float) | (int)DataFlags.Float);
+                channel.Mixer.ChannelGetData(channel, waveformData, (waveformData.Length * sizeof(float)) | (int)DataFlags.Float);
 
                 CurrentAmplitudes = new ChannelAmplitudes(leftChannel, rightChannel, frequencyData, waveformData);
             }
