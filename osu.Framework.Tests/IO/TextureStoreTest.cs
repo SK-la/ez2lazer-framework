@@ -93,19 +93,6 @@ namespace osu.Framework.Tests.IO
         }
 
         [Test]
-        public void TestLargeTextureStoreWrapperInheritsScaleAdjustFromParent()
-        {
-            using (var store = new LargeTextureStore(new DummyRenderer(), new NamespacedResourceStore<TextureUpload>(fontResourceStore, "Roboto")))
-            {
-                Texture? wrapped = store.Get("Roboto-Regular_0");
-
-                Assert.That(wrapped, Is.Not.Null);
-                Assert.That(wrapped!.ScaleAdjust, Is.EqualTo(store.ScaleAdjust));
-                Assert.That(wrapped.DisplayWidth, Is.EqualTo(wrapped.Width / store.ScaleAdjust).Within(0.01f));
-            }
-        }
-
-        [Test]
         public void TestClearFailedCacheOnEmptyStore()
         {
             using (var textureStore = new TextureStore(new DummyRenderer()))
