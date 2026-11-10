@@ -114,7 +114,10 @@ namespace osu.Framework.Graphics.Veldrid
         private readonly Sampler sampler;
         private readonly DeviceBuffer parameters;
         private readonly ResourceLayout layout;
-        private readonly Pipeline pipeline;
+        private readonly GraphicsPipelineDescription pipelineTemplate;
+        private readonly Pipeline presentPipeline;
+        private Pipeline? blitPipeline;
+        private OutputDescription blitOutputs;
 
         private Texture? color;
         private Texture? depth;
@@ -161,7 +164,7 @@ namespace osu.Framework.Graphics.Veldrid
                 },
             };
 
-            var pipelineDescription = new GraphicsPipelineDescription
+            pipelineTemplate = new GraphicsPipelineDescription
             {
                 BlendState = blend,
                 DepthStencilState = new DepthStencilStateDescription(depthTestEnabled: false, depthWriteEnabled: false, ComparisonKind.Always),
@@ -172,7 +175,7 @@ namespace osu.Framework.Graphics.Veldrid
                 Outputs = device.Device.SwapchainFramebuffer.OutputDescription,
             };
 
-            pipeline = device.Factory.CreateGraphicsPipeline(ref pipelineDescription);
+            presentPipeline = device.Factory.CreateGraphicsPipeline(ref pipelineTemplate);
         }
 
         public Framebuffer Framebuffer => framebuffer ?? throw new InvalidOperationException("Display present target is not allocated.");
@@ -259,7 +262,8 @@ namespace osu.Framework.Graphics.Veldrid
             framebuffer?.Dispose();
             depth?.Dispose();
             color?.Dispose();
-            pipeline.Dispose();
+            blitPipeline?.Dispose();
+            presentPipeline.Dispose();
             layout.Dispose();
             parameters.Dispose();
             sampler.Dispose();
@@ -304,9 +308,27 @@ namespace osu.Framework.Graphics.Veldrid
             commands.SetFramebuffer(target);
             commands.SetViewport(0, new Viewport(x, y, width, height, 0, 1));
             commands.SetScissorRect(0, x, y, width, height);
-            commands.SetPipeline(pipeline);
+            commands.SetPipeline(pipelineFor(target));
             commands.SetGraphicsResourceSet(0, resourceSet);
             commands.Draw(3);
+        }
+
+        private Pipeline pipelineFor(Framebuffer target)
+        {
+            var outputs = target.OutputDescription;
+
+            if (outputs.Equals(pipelineTemplate.Outputs))
+                return presentPipeline;
+
+            if (blitPipeline != null && outputs.Equals(blitOutputs))
+                return blitPipeline;
+
+            blitPipeline?.Dispose();
+            var description = pipelineTemplate;
+            description.Outputs = outputs;
+            blitPipeline = device.Factory.CreateGraphicsPipeline(ref description);
+            blitOutputs = outputs;
+            return blitPipeline;
         }
 
         [StructLayout(LayoutKind.Sequential)]
