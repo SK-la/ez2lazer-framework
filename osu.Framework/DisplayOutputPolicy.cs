@@ -29,7 +29,7 @@ namespace osu.Framework
             if (log)
             {
                 Logger.Log(
-                    "Display output Hdr10: scene composites in R16F, then presents PQ using the paper-white setting or monitor metadata.",
+                    "Display output Hdr10: scene composites in R16F, then sRGB→linear, Rec.709→BT.2020, paper white, ST.2084 PQ.",
                     LoggingTarget.Runtime,
                     LogLevel.Important);
             }
@@ -55,7 +55,7 @@ namespace osu.Framework
                        + $"Display tone: SDR exposure={sdrExposure:0.###}, HDR paper white={paperWhite:0.#} nits.");
         }
 
-        // Zero tracks full-frame luminance. SuggestedPaperWhiteNits is 10% of that, clamped to 80–400.
+        // Zero tracks full-frame luminance, then peak. Manual values are not clamped to 80–400.
         public static float ResolveHdrPaperWhiteNits(float configured, MonitorDisplayCapabilities? caps)
         {
             if (configured > 0)

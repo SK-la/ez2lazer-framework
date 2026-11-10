@@ -58,10 +58,10 @@ namespace osu.Framework
         /// </summary>
         public DisplayOutputMode DisplayOutputMode { get; set; }
 
-        /// <summary>SDR exposure for display output (1 = default). Requires restart.</summary>
+        /// <summary>SDR exposure for display output (1 = default). Applied on the present pass.</summary>
         public float DisplayOutputSdrExposure { get; set; } = 1f;
 
-        /// <summary>HDR paper white (nits); 0 = follow monitor metadata. Requires restart.</summary>
+        /// <summary>HDR paper white (nits); 0 = monitor full-frame luminance. Applied on the present pass.</summary>
         public float DisplayOutputHdrPaperWhiteNits { get; set; }
     }
 }

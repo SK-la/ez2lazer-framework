@@ -64,6 +64,21 @@ namespace osu.Framework.Graphics.Veldrid
                 float2 Uv : TEXCOORD0;
             };
 
+            float3 srgbToLinear(float3 c)
+            {
+                c = max(c, 0);
+                return lerp(pow((c + 0.055) / 1.055, 2.4), c / 12.92, step(c, 0.04045));
+            }
+
+            float3 rec709ToBt2020(float3 c)
+            {
+                const float3x3 m = float3x3(
+                    0.6274040, 0.3292820, 0.0433136,
+                    0.0690973, 0.9195404, 0.0113623,
+                    0.0163914, 0.0880133, 0.8955953);
+                return mul(m, c);
+            }
+
             float3 toPq(float3 nits)
             {
                 const float m1 = 0.1593017578125;
@@ -78,14 +93,15 @@ namespace osu.Framework.Graphics.Veldrid
             float4 main_ps(In input) : SV_Target
             {
                 float4 color = SceneTexture.Sample(SceneSampler, input.Uv);
-                color.rgb *= Exposure;
 
                 if (Hdr > 0.5)
                 {
-                    float3 sceneLinear = pow(max(color.rgb, 0), 2.2);
-                    color.rgb = toPq(sceneLinear * PaperWhiteNits);
+                    float3 sceneLinear = srgbToLinear(color.rgb) * Exposure;
+                    color.rgb = toPq(rec709ToBt2020(sceneLinear) * PaperWhiteNits);
                     color.a = 1;
                 }
+                else
+                    color.rgb *= Exposure;
 
                 return color;
             }
@@ -259,6 +275,19 @@ namespace osu.Framework.Graphics.Veldrid
             float paperWhite = DisplayOutputPolicy.ResolveHdrPaperWhiteNits(
                 HostStartupDisplayOutput.HdrPaperWhiteNits,
                 device.Device.MainSwapchain.MonitorDisplay);
+
+            if (applyPq)
+            {
+                var caps = device.Device.MainSwapchain.MonitorDisplay;
+                float peak = caps?.MaxLuminance ?? paperWhite;
+                float min = caps?.MinLuminance ?? 0;
+                float fullFrame = caps?.MaxFullFrameLuminance ?? paperWhite;
+                device.Device.MainSwapchain.SetHdr10Metadata(
+                    peak > 1 ? MathF.Max(peak, paperWhite) : paperWhite,
+                    min,
+                    paperWhite,
+                    fullFrame > 1 ? MathF.Min(fullFrame, paperWhite) : paperWhite);
+            }
 
             var data = new PresentParams
             {
