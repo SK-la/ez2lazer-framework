@@ -200,7 +200,7 @@ namespace osu.Framework.Graphics.Rendering
         private IUniformBuffer<GlobalUniformData>? globalUniformBuffer;
         private IUniformBuffer<VertexMaskTable>? vertexMaskBuffer;
         private VertexMaskTable vertexMaskTable;
-        private readonly MaskingInfo[] vertexMaskRecords = new MaskingInfo[VertexMaskTable.Capacity];
+        private readonly MaskingInfo[] vertexMaskRecords = new MaskingInfo[VertexMaskTable.CAPACITY];
         private int vertexMaskCount;
         private int lastVertexMaskIndex = -1;
         private IVertexBatch<TexturedVertex2D>? defaultQuadBatch;
@@ -1090,7 +1090,7 @@ namespace osu.Framework.Graphics.Rendering
                 return i;
             }
 
-            if (vertexMaskCount == VertexMaskTable.Capacity)
+            if (vertexMaskCount == VertexMaskTable.CAPACITY)
             {
                 FlushCurrentBatch(FlushBatchSource.SetMasking);
                 resetVertexMasks();

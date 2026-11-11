@@ -46,8 +46,8 @@ namespace osu.Framework.Graphics.Rendering
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     internal struct VertexMaskTable : IEquatable<VertexMaskTable>
     {
-        public const int Capacity = 128;
-        public const int RecordSize = 80;
+        public const int CAPACITY = 128;
+        public const int RECORD_SIZE = 80;
 
         public VertexMaskRecord M0;
         public VertexMaskRecord M1;
@@ -180,8 +180,8 @@ namespace osu.Framework.Graphics.Rendering
 
         static VertexMaskTable()
         {
-            Debug.Assert(Marshal.SizeOf<VertexMaskRecord>() == RecordSize);
-            Debug.Assert(Marshal.SizeOf<VertexMaskTable>() == Capacity * RecordSize);
+            Debug.Assert(Marshal.SizeOf<VertexMaskRecord>() == RECORD_SIZE);
+            Debug.Assert(Marshal.SizeOf<VertexMaskTable>() == CAPACITY * RECORD_SIZE);
         }
 
         public void Write(int index, in VertexMaskRecord record)
@@ -191,8 +191,8 @@ namespace osu.Framework.Graphics.Rendering
 
         public bool Equals(VertexMaskTable other)
         {
-            ReadOnlySpan<byte> left = MemoryMarshal.CreateReadOnlySpan(ref Unsafe.As<VertexMaskTable, byte>(ref this), Capacity * RecordSize);
-            ReadOnlySpan<byte> right = MemoryMarshal.CreateReadOnlySpan(ref Unsafe.As<VertexMaskTable, byte>(ref other), Capacity * RecordSize);
+            ReadOnlySpan<byte> left = MemoryMarshal.CreateReadOnlySpan(ref Unsafe.As<VertexMaskTable, byte>(ref this), CAPACITY * RECORD_SIZE);
+            ReadOnlySpan<byte> right = MemoryMarshal.CreateReadOnlySpan(ref Unsafe.As<VertexMaskTable, byte>(ref other), CAPACITY * RECORD_SIZE);
             return left.SequenceEqual(right);
         }
 

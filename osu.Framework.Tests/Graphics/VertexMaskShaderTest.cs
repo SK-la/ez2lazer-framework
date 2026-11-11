@@ -2,7 +2,6 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -49,10 +48,10 @@ namespace osu.Framework.Tests.Graphics
         {
             string code = load(resources, name, true);
             int minSet = uniform_pattern.Matches(code)
-                                         .Where(match => match.Success)
-                                         .Select(match => int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture))
-                                         .DefaultIfEmpty(0)
-                                         .Min();
+                                        .Where(match => match.Success)
+                                        .Select(match => int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture))
+                                        .DefaultIfEmpty(0)
+                                        .Min();
 
             code = uniform_pattern.Replace(code, match =>
                 $"{match.Groups[1].Value}set = {int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture) + Math.Abs(minSet)}{match.Groups[3].Value}");

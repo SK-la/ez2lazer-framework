@@ -262,8 +262,8 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(third.MaskIndex, Is.EqualTo(2));
             Assert.That(fourth.MaskIndex, Is.EqualTo(1));
             Assert.That(Marshal.SizeOf<TexturedVertex2D>(), Is.EqualTo(64));
-            Assert.That(Marshal.SizeOf<VertexMaskRecord>(), Is.EqualTo(VertexMaskRecordSize));
-            Assert.That(Marshal.SizeOf<VertexMaskTable>(), Is.EqualTo(VertexMaskTable.Capacity * VertexMaskRecordSize));
+            Assert.That(Marshal.SizeOf<VertexMaskRecord>(), Is.EqualTo(vertex_mask_record_size));
+            Assert.That(Marshal.SizeOf<VertexMaskTable>(), Is.EqualTo(VertexMaskTable.CAPACITY * vertex_mask_record_size));
         }
 
         [Test]
@@ -286,7 +286,7 @@ namespace osu.Framework.Tests.Graphics
             renderer.BeginVertexEncodedBatch(true);
             quadBatch.AddQuad();
 
-            for (int i = 0; i < VertexMaskTable.Capacity; i++)
+            for (int i = 0; i < VertexMaskTable.CAPACITY; i++)
             {
                 var mask = createMask();
                 mask.CornerRadius = i + 1;
@@ -300,7 +300,7 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(quadBatch.DrawCounts, Is.Empty);
 
             var overflowMask = createMask();
-            overflowMask.CornerRadius = VertexMaskTable.Capacity + 10;
+            overflowMask.CornerRadius = VertexMaskTable.CAPACITY + 10;
             renderer.PushMaskingInfo(overflowMask);
 
             var overflow = new TexturedVertex2D(renderer);
@@ -311,7 +311,7 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(overflow.MaskIndex, Is.EqualTo(1));
         }
 
-        private const int VertexMaskRecordSize = 80;
+        private const int vertex_mask_record_size = 80;
 
         [Test]
         public void TestDirectDrawAppliesPendingMaskAfterFlushingOldGeometry()
