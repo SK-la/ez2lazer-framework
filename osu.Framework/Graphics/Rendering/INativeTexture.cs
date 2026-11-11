@@ -30,6 +30,11 @@ namespace osu.Framework.Graphics.Rendering
         string Identifier { get; }
 
         /// <summary>
+        /// Optional diagnostic name (for example an atlas label). Used when reporting a large upload queue.
+        /// </summary>
+        string Label { get; set; }
+
+        /// <summary>
         /// Maximum texture size in any direction.
         /// </summary>
         int MaxSize { get; }

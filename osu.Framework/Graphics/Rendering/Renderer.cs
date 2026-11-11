@@ -47,6 +47,11 @@ namespace osu.Framework.Graphics.Rendering
         /// </summary>
         private static readonly long expensive_operation_budget_ticks = Stopwatch.Frequency * 2 / 1000;
 
+        /// <summary>
+        /// How long texture region uploads may run per draw frame before yielding.
+        /// </summary>
+        private static readonly long texture_upload_budget_ticks = Stopwatch.Frequency * 2 / 1000;
+
         protected internal abstract bool VerticalSync { get; set; }
         protected internal abstract bool AllowTearing { get; set; }
 
@@ -58,7 +63,51 @@ namespace osu.Framework.Graphics.Rendering
         public int MaxTextureSize { get; protected set; } = 4096; // default value is to allow roughly normal flow in cases we don't have graphics context, like headless CI.
 
         public int MaxTexturesUploadedPerFrame { get; set; } = 32;
+        public int MaxUploadsPerFrame { get; set; } = 128;
         public int MaxPixelsUploadedPerFrame { get; set; } = 1024 * 1024 * 2;
+
+        public int TextureUploadRegionsThisFrame { get; private set; }
+
+        private int uploadedPixelsThisFrame;
+        private long textureUploadBudgetEnd;
+
+        public bool HasRemainingTextureUploadBudget =>
+            TextureUploadRegionsThisFrame == 0
+            || (TextureUploadRegionsThisFrame < MaxUploadsPerFrame
+                && uploadedPixelsThisFrame < MaxPixelsUploadedPerFrame
+                && Stopwatch.GetTimestamp() < textureUploadBudgetEnd);
+
+        /// <summary>
+        /// Resets this frame's texture upload budget. Used by <see cref="BeginFrame"/> and by headless tests that cannot draw.
+        /// </summary>
+        internal void ResetTextureUploadBudget()
+        {
+            TextureUploadRegionsThisFrame = 0;
+            uploadedPixelsThisFrame = 0;
+            textureUploadBudgetEnd = Stopwatch.GetTimestamp() + texture_upload_budget_ticks;
+        }
+
+        public bool TryBeginTextureUpload(int pixelCount, bool bypassBudget)
+        {
+            int pixels = Math.Max(0, pixelCount);
+
+            if (!bypassBudget && TextureUploadRegionsThisFrame > 0)
+            {
+                if (TextureUploadRegionsThisFrame >= MaxUploadsPerFrame)
+                    return false;
+
+                if (uploadedPixelsThisFrame + pixels > MaxPixelsUploadedPerFrame)
+                    return false;
+
+                if (Stopwatch.GetTimestamp() >= textureUploadBudgetEnd)
+                    return false;
+            }
+
+            TextureUploadRegionsThisFrame++;
+            uploadedPixelsThisFrame += pixels;
+            statTextureUploadRegionsPerformed.Value = TextureUploadRegionsThisFrame;
+            return true;
+        }
 
         public abstract bool IsDepthRangeZeroToOne { get; }
         public abstract bool IsUvOriginTopLeft { get; }
@@ -109,6 +158,7 @@ namespace osu.Framework.Graphics.Rendering
         private readonly GlobalStatistic<int> statTextureUploadsQueued;
         private readonly GlobalStatistic<int> statTextureUploadsDequeued;
         private readonly GlobalStatistic<int> statTextureUploadsPerformed;
+        private readonly GlobalStatistic<int> statTextureUploadRegionsPerformed;
         private readonly GlobalStatistic<int> vboInUse;
 
         private readonly ConcurrentQueue<ScheduledDelegate> expensiveOperationQueue = new ConcurrentQueue<ScheduledDelegate>();
@@ -181,6 +231,7 @@ namespace osu.Framework.Graphics.Rendering
             statTextureUploadsPerformed = GlobalStatistics.Get<int>(GetType().Name, "Texture uploads performed");
             statTextureUploadsDequeued = GlobalStatistics.Get<int>(GetType().Name, "Texture uploads dequeued");
             statTextureUploadsQueued = GlobalStatistics.Get<int>(GetType().Name, "Texture upload queue length");
+            statTextureUploadRegionsPerformed = GlobalStatistics.Get<int>(GetType().Name, "Texture upload regions performed");
             statExpensiveOperationsQueued = GlobalStatistics.Get<int>(GetType().Name, "Expensive operation queue length");
             vboInUse = GlobalStatistics.Get<int>(GetType().Name, "VBOs in use");
 
@@ -307,6 +358,8 @@ namespace osu.Framework.Graphics.Rendering
             freeUnusedVertexBuffers();
             vboInUse.Value = vertexBuffersInUse.Count;
 
+            ResetTextureUploadBudget();
+
             // one locked snapshot serves both the queued statistic and the drain target below.
             int queuedUploadCount;
 
@@ -316,15 +369,22 @@ namespace osu.Framework.Graphics.Rendering
             statTextureUploadsQueued.Value = queuedUploadCount;
             statTextureUploadsDequeued.Value = 0;
             statTextureUploadsPerformed.Value = 0;
+            statTextureUploadRegionsPerformed.Value = 0;
 
             // increase the number of items processed with the queue length to ensure it doesn't get out of hand.
             int targetUploads = Math.Clamp(queuedUploadCount / 2, 1, MaxTexturesUploadedPerFrame);
             int uploads = 0;
-            int uploadedPixels = 0;
 
             // continue attempting to upload textures until enough uploads have been performed.
             while (tryDequeueTextureUpload(out INativeTexture? texture))
             {
+                // A partial drain re-enqueues the same atlas. Stop rather than spinning on a zero-progress Upload().
+                if (uploads > 0 && !HasRemainingTextureUploadBudget)
+                {
+                    EnqueueTextureUpload(texture);
+                    break;
+                }
+
                 statTextureUploadsDequeued.Value++;
 
                 if (!texture.Upload())
@@ -335,7 +395,7 @@ namespace osu.Framework.Graphics.Rendering
                 if (++uploads >= targetUploads)
                     break;
 
-                if ((uploadedPixels += texture.Width * texture.Height) > MaxPixelsUploadedPerFrame)
+                if (!HasRemainingTextureUploadBudget)
                     break;
             }
 

@@ -32,11 +32,13 @@ namespace osu.Framework.Graphics.Textures
 
             private static readonly Color4 initialisation_colour = default;
 
-            public BackingAtlasTexture(IRenderer renderer, int width, int height, bool manualMipmaps, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, int padding = 0)
+            public BackingAtlasTexture(IRenderer renderer, int width, int height, bool manualMipmaps, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, int padding = 0,
+                                       string? label = null)
                 : this(renderer.CreateTexture(width, height, manualMipmaps, filteringMode, initialisationColour: initialisation_colour))
             {
                 this.padding = padding;
                 atlasBounds = new RectangleI(0, 0, Width, Height);
+                NativeTexture.Label = label ?? string.Empty;
             }
 
             private BackingAtlasTexture(Texture parent)
@@ -48,147 +50,180 @@ namespace osu.Framework.Graphics.Textures
 
             internal override void SetData(ITextureUpload upload, WrapMode wrapModeS, WrapMode wrapModeT, Opacity? opacity)
             {
-                // Can only perform padding when the bounds are a sub-part of the texture
                 RectangleI middleBounds = upload.Bounds;
 
                 if (middleBounds.IsEmpty || middleBounds.Width * middleBounds.Height > upload.Data.Length)
                 {
-                    // For a texture atlas, we don't care about opacity, so we avoid
-                    // any computations related to it by assuming it to be mixed.
                     base.SetData(upload, wrapModeS, wrapModeT, Opacity.Mixed);
                     return;
                 }
 
                 int actualPadding = padding / (1 << upload.Level);
 
+                if (actualPadding <= 0)
+                {
+                    base.SetData(upload, wrapModeS, wrapModeT, Opacity.Mixed);
+                    return;
+                }
+
                 var data = upload.Data;
+                bool wrapS = wrapModeS != WrapMode.None;
+                bool wrapT = wrapModeT != WrapMode.None;
 
-                uploadCornerPadding(data, middleBounds, actualPadding, wrapModeS != WrapMode.None && wrapModeT != WrapMode.None);
-                uploadHorizontalPadding(data, middleBounds, actualPadding, wrapModeS != WrapMode.None);
-                uploadVerticalPadding(data, middleBounds, actualPadding, wrapModeT != WrapMode.None);
+                if (!paddingWouldUpload(data, middleBounds))
+                {
+                    base.SetData(upload, wrapModeS, wrapModeT, Opacity.Mixed);
+                    return;
+                }
 
-                // Upload the middle part of the texture
-                // For a texture atlas, we don't care about opacity, so we avoid
-                // any computations related to it by assuming it to be mixed.
-                base.SetData(upload, wrapModeS, wrapModeT, Opacity.Mixed);
+                var expanded = new RectangleI(
+                    middleBounds.X - actualPadding,
+                    middleBounds.Y - actualPadding,
+                    middleBounds.Width + actualPadding * 2,
+                    middleBounds.Height + actualPadding * 2).Intersect(atlasBounds);
+
+                var combined = new MemoryAllocatorTextureUpload(expanded.Width, expanded.Height)
+                {
+                    Bounds = expanded,
+                    Level = upload.Level
+                };
+
+                var dest = combined.RawData;
+                dest.Clear();
+
+                copyMiddle(data, middleBounds, dest, expanded);
+                writeVerticalPadding(dest, expanded, data, middleBounds, actualPadding, wrapT);
+                writeHorizontalPadding(dest, expanded, data, middleBounds, actualPadding, wrapS);
+                writeCornerPadding(dest, expanded, data, middleBounds, actualPadding, wrapS && wrapT);
+
+                upload.Dispose();
+                base.SetData(combined, wrapModeS, wrapModeT, Opacity.Mixed);
             }
 
-            private void uploadVerticalPadding(ReadOnlySpan<Rgba32> upload, RectangleI middleBounds, int actualPadding, bool fillOpaque)
+            private static void copyMiddle(ReadOnlySpan<Rgba32> source, RectangleI middleBounds, Span<Rgba32> dest, RectangleI expanded)
+            {
+                int srcW = middleBounds.Width;
+                int destW = expanded.Width;
+                int offsetX = middleBounds.X - expanded.X;
+                int offsetY = middleBounds.Y - expanded.Y;
+
+                for (int y = 0; y < middleBounds.Height; y++)
+                    source.Slice(y * srcW, srcW).CopyTo(dest.Slice((offsetY + y) * destW + offsetX, srcW));
+            }
+
+            private bool paddingWouldUpload(ReadOnlySpan<Rgba32> upload, RectangleI middleBounds)
+            {
+                int width = middleBounds.Width;
+                int height = middleBounds.Height;
+
+                if (width == 0 || height == 0)
+                    return false;
+
+                for (int x = 0; x < width; x++)
+                {
+                    if (!checkEdgeRGB(upload[x]) || !checkEdgeRGB(upload[(height - 1) * width + x]))
+                        return true;
+                }
+
+                for (int y = 1; y < height - 1; y++)
+                {
+                    if (!checkEdgeRGB(upload[y * width]) || !checkEdgeRGB(upload[y * width + width - 1]))
+                        return true;
+                }
+
+                return false;
+            }
+
+            private void writeVerticalPadding(Span<Rgba32> dest, RectangleI expanded, ReadOnlySpan<Rgba32> upload, RectangleI middleBounds, int actualPadding, bool fillOpaque)
             {
                 RectangleI[] sideBoundsArray =
                 {
-                    new RectangleI(middleBounds.X, middleBounds.Y - actualPadding, middleBounds.Width, actualPadding).Intersect(atlasBounds), // Top
-                    new RectangleI(middleBounds.X, middleBounds.Y + middleBounds.Height, middleBounds.Width, actualPadding).Intersect(atlasBounds), // Bottom
+                    new RectangleI(middleBounds.X, middleBounds.Y - actualPadding, middleBounds.Width, actualPadding).Intersect(atlasBounds),
+                    new RectangleI(middleBounds.X, middleBounds.Y + middleBounds.Height, middleBounds.Width, actualPadding).Intersect(atlasBounds),
                 };
 
                 int[] sideIndices =
                 {
-                    0, // Top
-                    (middleBounds.Height - 1) * middleBounds.Width, // Bottom
+                    0,
+                    (middleBounds.Height - 1) * middleBounds.Width,
                 };
+
+                int destW = expanded.Width;
 
                 for (int i = 0; i < 2; ++i)
                 {
                     RectangleI sideBounds = sideBoundsArray[i];
 
-                    if (!sideBounds.IsEmpty)
+                    if (sideBounds.IsEmpty)
+                        continue;
+
+                    int index = sideIndices[i];
+
+                    for (int y = 0; y < sideBounds.Height; ++y)
                     {
-                        bool allTransparent = true;
-                        int index = sideIndices[i];
+                        int destRow = (sideBounds.Y - expanded.Y + y) * destW + (sideBounds.X - expanded.X);
 
-                        var sideUpload = new MemoryAllocatorTextureUpload(sideBounds.Width, sideBounds.Height) { Bounds = sideBounds };
-                        var data = sideUpload.RawData;
-
-                        for (int y = 0; y < sideBounds.Height; ++y)
-                        {
-                            for (int x = 0; x < sideBounds.Width; ++x)
-                            {
-                                Rgba32 pixel = upload[index + x];
-                                allTransparent &= checkEdgeRGB(pixel);
-
-                                transferBorderPixel(ref data[y * sideBounds.Width + x], pixel, fillOpaque);
-                            }
-                        }
-
-                        // Only upload padding if the border isn't completely transparent.
-                        if (!allTransparent)
-                        {
-                            // For a texture atlas, we don't care about opacity, so we avoid
-                            // any computations related to it by assuming it to be mixed.
-                            base.SetData(sideUpload, WrapMode.None, WrapMode.None, Opacity.Mixed);
-                        }
+                        for (int x = 0; x < sideBounds.Width; ++x)
+                            transferBorderPixel(ref dest[destRow + x], upload[index + x], fillOpaque);
                     }
                 }
             }
 
-            private void uploadHorizontalPadding(ReadOnlySpan<Rgba32> upload, RectangleI middleBounds, int actualPadding, bool fillOpaque)
+            private void writeHorizontalPadding(Span<Rgba32> dest, RectangleI expanded, ReadOnlySpan<Rgba32> upload, RectangleI middleBounds, int actualPadding, bool fillOpaque)
             {
                 RectangleI[] sideBoundsArray =
                 {
-                    new RectangleI(middleBounds.X - actualPadding, middleBounds.Y, actualPadding, middleBounds.Height).Intersect(atlasBounds), // Left
-                    new RectangleI(middleBounds.X + middleBounds.Width, middleBounds.Y, actualPadding, middleBounds.Height).Intersect(atlasBounds), // Right
+                    new RectangleI(middleBounds.X - actualPadding, middleBounds.Y, actualPadding, middleBounds.Height).Intersect(atlasBounds),
+                    new RectangleI(middleBounds.X + middleBounds.Width, middleBounds.Y, actualPadding, middleBounds.Height).Intersect(atlasBounds),
                 };
 
                 int[] sideIndices =
                 {
-                    0, // Left
-                    middleBounds.Width - 1, // Right
+                    0,
+                    middleBounds.Width - 1,
                 };
+
+                int destW = expanded.Width;
+                int stride = middleBounds.Width;
 
                 for (int i = 0; i < 2; ++i)
                 {
                     RectangleI sideBounds = sideBoundsArray[i];
 
-                    if (!sideBounds.IsEmpty)
+                    if (sideBounds.IsEmpty)
+                        continue;
+
+                    int index = sideIndices[i];
+
+                    for (int y = 0; y < sideBounds.Height; ++y)
                     {
-                        bool allTransparent = true;
-                        int index = sideIndices[i];
+                        int destRow = (sideBounds.Y - expanded.Y + y) * destW + (sideBounds.X - expanded.X);
 
-                        var sideUpload = new MemoryAllocatorTextureUpload(sideBounds.Width, sideBounds.Height) { Bounds = sideBounds };
-                        var data = sideUpload.RawData;
-
-                        int stride = middleBounds.Width;
-
-                        for (int y = 0; y < sideBounds.Height; ++y)
-                        {
-                            for (int x = 0; x < sideBounds.Width; ++x)
-                            {
-                                Rgba32 pixel = upload[index + y * stride];
-
-                                allTransparent &= checkEdgeRGB(pixel);
-
-                                transferBorderPixel(ref data[y * sideBounds.Width + x], pixel, fillOpaque);
-                            }
-                        }
-
-                        // Only upload padding if the border isn't completely transparent.
-                        if (!allTransparent)
-                        {
-                            // For a texture atlas, we don't care about opacity, so we avoid
-                            // any computations related to it by assuming it to be mixed.
-                            base.SetData(sideUpload, WrapMode.None, WrapMode.None, Opacity.Mixed);
-                        }
+                        for (int x = 0; x < sideBounds.Width; ++x)
+                            transferBorderPixel(ref dest[destRow + x], upload[index + y * stride], fillOpaque);
                     }
                 }
             }
 
-            private void uploadCornerPadding(ReadOnlySpan<Rgba32> upload, RectangleI middleBounds, int actualPadding, bool fillOpaque)
+            private void writeCornerPadding(Span<Rgba32> dest, RectangleI expanded, ReadOnlySpan<Rgba32> upload, RectangleI middleBounds, int actualPadding, bool fillOpaque)
             {
                 RectangleI[] cornerBoundsArray =
                 {
-                    new RectangleI(middleBounds.X - actualPadding, middleBounds.Y - actualPadding, actualPadding, actualPadding).Intersect(atlasBounds), // TopLeft
-                    new RectangleI(middleBounds.X + middleBounds.Width, middleBounds.Y - actualPadding, actualPadding, actualPadding).Intersect(atlasBounds), // TopRight
-                    new RectangleI(middleBounds.X - actualPadding, middleBounds.Y + middleBounds.Height, actualPadding, actualPadding).Intersect(atlasBounds), // BottomLeft
-                    new RectangleI(middleBounds.X + middleBounds.Width, middleBounds.Y + middleBounds.Height, actualPadding, actualPadding).Intersect(atlasBounds), // BottomRight
+                    new RectangleI(middleBounds.X - actualPadding, middleBounds.Y - actualPadding, actualPadding, actualPadding).Intersect(atlasBounds),
+                    new RectangleI(middleBounds.X + middleBounds.Width, middleBounds.Y - actualPadding, actualPadding, actualPadding).Intersect(atlasBounds),
+                    new RectangleI(middleBounds.X - actualPadding, middleBounds.Y + middleBounds.Height, actualPadding, actualPadding).Intersect(atlasBounds),
+                    new RectangleI(middleBounds.X + middleBounds.Width, middleBounds.Y + middleBounds.Height, actualPadding, actualPadding).Intersect(atlasBounds),
                 };
 
                 int[] cornerIndices =
                 {
-                    0, // TopLeft
-                    middleBounds.Width - 1, // TopRight
-                    (middleBounds.Height - 1) * middleBounds.Width, // BottomLeft
-                    (middleBounds.Height - 1) * middleBounds.Width + middleBounds.Width - 1, // BottomRight
+                    0,
+                    middleBounds.Width - 1,
+                    (middleBounds.Height - 1) * middleBounds.Width,
+                    (middleBounds.Height - 1) * middleBounds.Width + middleBounds.Width - 1,
                 };
+
+                int destW = expanded.Width;
 
                 for (int i = 0; i < 4; ++i)
                 {
@@ -196,18 +231,15 @@ namespace osu.Framework.Graphics.Textures
                     int nCornerPixels = cornerBounds.Width * cornerBounds.Height;
                     Rgba32 pixel = upload[cornerIndices[i]];
 
-                    // Only upload if we have a non-zero size and if the colour isn't already transparent white
-                    if (nCornerPixels > 0 && !checkEdgeRGB(pixel))
+                    if (nCornerPixels == 0 || checkEdgeRGB(pixel))
+                        continue;
+
+                    for (int y = 0; y < cornerBounds.Height; ++y)
                     {
-                        var cornerUpload = new MemoryAllocatorTextureUpload(cornerBounds.Width, cornerBounds.Height) { Bounds = cornerBounds };
-                        var data = cornerUpload.RawData;
+                        int destRow = (cornerBounds.Y - expanded.Y + y) * destW + (cornerBounds.X - expanded.X);
 
-                        for (int j = 0; j < nCornerPixels; ++j)
-                            transferBorderPixel(ref data[j], pixel, fillOpaque);
-
-                        // For a texture atlas, we don't care about opacity, so we avoid
-                        // any computations related to it by assuming it to be mixed.
-                        base.SetData(cornerUpload, WrapMode.None, WrapMode.None, Opacity.Mixed);
+                        for (int x = 0; x < cornerBounds.Width; ++x)
+                            transferBorderPixel(ref dest[destRow + x], pixel, fillOpaque);
                     }
                 }
             }

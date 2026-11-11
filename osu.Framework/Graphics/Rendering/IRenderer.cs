@@ -2,16 +2,16 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using osu.Framework.Graphics.Textures;
-using osuTK;
-using osu.Framework.Graphics.Shaders;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering.Vertices;
+using osu.Framework.Graphics.Shaders;
+using osu.Framework.Graphics.Textures;
 using osu.Framework.Platform;
 using osu.Framework.Threading;
+using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Graphics.Rendering
 {
@@ -73,16 +73,43 @@ namespace osu.Framework.Graphics.Rendering
         int MaxTextureSize { get; }
 
         /// <summary>
-        /// The maximum number of texture uploads to dequeue and upload per frame.
-        /// Defaults to 32.
+        /// The maximum number of textures to dequeue from the global upload queue per frame.
+        /// Defaults to 32. Each dequeued texture still has its own region queue, limited by
+        /// <see cref="MaxUploadsPerFrame"/> / <see cref="MaxPixelsUploadedPerFrame"/>.
         /// </summary>
         int MaxTexturesUploadedPerFrame { get; set; }
 
         /// <summary>
+        /// The maximum number of texture region uploads (<see cref="ITextureUpload"/> items) to perform per frame.
+        /// Defaults to 128. Prevents a single atlas from dumping thousands of pending glyphs in one draw call.
+        /// </summary>
+        int MaxUploadsPerFrame { get; set; }
+
+        /// <summary>
         /// The maximum number of pixels to upload per frame.
-        /// Defaults to 2 megapixels (8mb alloc).
+        /// Defaults to 2 megapixels (8mb alloc). Counted from each upload's bounds, not the backing texture size.
         /// </summary>
         int MaxPixelsUploadedPerFrame { get; set; }
+
+        /// <summary>
+        /// Attempts to consume one region from this frame's texture upload budget.
+        /// Always succeeds for the first region of a frame so progress cannot stall.
+        /// </summary>
+        /// <param name="pixelCount">The pixel count of the pending upload (typically bounds width × height).</param>
+        /// <param name="bypassBudget">When true, the region is counted but never rejected (every-frame uploads).</param>
+        /// <returns>Whether the caller may perform this upload now.</returns>
+        internal bool TryBeginTextureUpload(int pixelCount, bool bypassBudget);
+
+        /// <summary>
+        /// Whether another region may be uploaded this frame under the current budget.
+        /// The first region of a frame is always allowed.
+        /// </summary>
+        internal bool HasRemainingTextureUploadBudget { get; }
+
+        /// <summary>
+        /// Region uploads performed so far this draw frame. Reset in <c>BeginFrame</c>.
+        /// </summary>
+        internal int TextureUploadRegionsThisFrame { get; }
 
         /// <summary>
         /// Whether the depth is in the range [0, 1] (i.e. Reversed-Z). If <c>false</c>, depth is in the range [-1, 1].

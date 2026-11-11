@@ -199,6 +199,8 @@ namespace osu.Framework.Graphics.Rendering.Deferred
             string INativeTexture.Identifier
                 => string.Empty;
 
+            string INativeTexture.Label { get; set; } = string.Empty;
+
             int INativeTexture.MaxSize
                 => deferredFrameBuffer.renderer.MaxTextureSize;
 
