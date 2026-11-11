@@ -148,6 +148,18 @@ namespace osu.Framework.Tests.Visual.Performance
                 return false;
             });
 
+            AddAssert("padding did not multiply into 200 uploads", () =>
+            {
+                foreach (string message in logMessages)
+                {
+                    if (message.Contains("BurstAtlas", StringComparison.Ordinal)
+                        && message.Contains("large (200)", StringComparison.Ordinal))
+                        return false;
+                }
+
+                return true;
+            });
+
             AddStep("stop listening", () =>
             {
                 Logger.NewEntry -= onLog;
