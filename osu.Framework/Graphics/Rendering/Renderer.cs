@@ -198,6 +198,11 @@ namespace osu.Framework.Graphics.Rendering
         private readonly LockedWeakList<Texture> allTextures = new LockedWeakList<Texture>();
 
         private IUniformBuffer<GlobalUniformData>? globalUniformBuffer;
+        private IUniformBuffer<VertexMaskTable>? vertexMaskBuffer;
+        private VertexMaskTable vertexMaskTable;
+        private readonly MaskingInfo[] vertexMaskRecords = new MaskingInfo[VertexMaskTable.Capacity];
+        private int vertexMaskCount;
+        private int lastVertexMaskIndex = -1;
         private IVertexBatch<TexturedVertex2D>? defaultQuadBatch;
         private IVertexBatch? currentActiveBatch;
         private MaskingInfo currentMaskingInfo;
@@ -281,12 +286,20 @@ namespace osu.Framework.Graphics.Rendering
 
             globalUniformBuffer ??= ((IRenderer)this).CreateUniformBuffer<GlobalUniformData>();
 
+            if (vertexMaskBuffer == null)
+            {
+                vertexMaskBuffer = ((IRenderer)this).CreateUniformBuffer<VertexMaskTable>();
+                // The vertex stage reads record 0 on every draw. The GPU buffer must be zeroed before the first one.
+                vertexMaskBuffer.Data = default;
+            }
+
             Debug.Assert(defaultQuadBatch != null);
 
             FrameIndex++;
             nextVerticesEncodeMask = false;
             encodedBatchOpen = false;
             encodedScissorUnionValid = false;
+            resetVertexMasks();
 
             drawCapture?.Begin(FrameIndex, windowSize, GetType().Name);
 
@@ -963,20 +976,11 @@ namespace osu.Framework.Graphics.Rendering
         {
             if (!nextVerticesEncodeMask || !IsMaskingActive)
             {
-                vertex.UseVertexMask = 0;
+                vertex.MaskIndex = 0;
                 return;
             }
 
-            MaskingInfo info = CurrentMaskingInfo;
-            Matrix3 matrix = info.ToMaskingSpace;
-            RectangleF rect = info.MaskingRect;
-
-            vertex.UseVertexMask = 1;
-            vertex.MaskColumn0 = matrix.Row0;
-            vertex.MaskColumn1 = matrix.Row1;
-            vertex.MaskColumn2 = matrix.Row2;
-            vertex.MaskingRect = new Vector4(rect.Left, rect.Top, rect.Right, rect.Bottom);
-            vertex.MaskParameters = new Vector4(info.CornerRadius, info.CornerExponent, info.BlendRange, info.AlphaExponent);
+            vertex.MaskIndex = indexVertexMask(CurrentMaskingInfo) + 1;
         }
 
         internal bool IsVertexMaskEncodable =>
@@ -1055,14 +1059,49 @@ namespace osu.Framework.Graphics.Rendering
                 }
             }
 
-            // Vertices already submitted carried their own mask. The uniform block still describes the last mask,
-            // so the next uniform-dependent draw must upload again.
+            // Vertices already submitted carried their own mask index. The uniform block still describes the last mask,
+            // so the next uniform-dependent draw must upload again. Indices are only meaningful for the batch just drawn.
             if (encodedBatchOpen)
             {
                 encodedBatchOpen = false;
                 encodedScissorUnionValid = false;
                 globalUniformsChanged = true;
+                resetVertexMasks();
             }
+        }
+
+        private void resetVertexMasks()
+        {
+            vertexMaskCount = 0;
+            lastVertexMaskIndex = -1;
+        }
+
+        private int indexVertexMask(in MaskingInfo info)
+        {
+            if ((uint)lastVertexMaskIndex < (uint)vertexMaskCount && vertexMaskRecords[lastVertexMaskIndex].HasSameShaderParameters(info))
+                return lastVertexMaskIndex;
+
+            for (int i = 0; i < vertexMaskCount; i++)
+            {
+                if (!vertexMaskRecords[i].HasSameShaderParameters(info))
+                    continue;
+
+                lastVertexMaskIndex = i;
+                return i;
+            }
+
+            if (vertexMaskCount == VertexMaskTable.Capacity)
+            {
+                FlushCurrentBatch(FlushBatchSource.SetMasking);
+                resetVertexMasks();
+            }
+
+            int index = vertexMaskCount;
+            vertexMaskRecords[index] = info;
+            vertexMaskTable.Write(index, VertexMaskRecord.FromMaskingInfo(info));
+            vertexMaskCount++;
+            lastVertexMaskIndex = index;
+            return index;
         }
 
         private void freeUnusedVertexBuffers()
@@ -1292,9 +1331,12 @@ namespace osu.Framework.Graphics.Rendering
             if (Shader == null)
                 throw new InvalidOperationException("No shader bound.");
 
-            // An encoded batch may contain several masks plus unmasked quads. Those quads read the uniform only when
-            // UseVertexMask is 0, which we only leave for the unmasked case, so the uniform mask must be off here.
+            // An encoded batch may contain several masks. Those quads read the uniform only when MaskIndex is 0,
+            // which we only leave for the unmasked case, so the uniform mask must be off here.
             bool drawEncodedBatch = encodedBatchOpen;
+
+            if (drawEncodedBatch)
+                vertexMaskBuffer!.Data = vertexMaskTable;
 
             if (globalUniformsChanged || drawEncodedBatch)
             {
@@ -1359,6 +1401,7 @@ namespace osu.Framework.Graphics.Rendering
             }
 
             Shader.BindUniformBlock("g_GlobalUniforms", globalUniformBuffer!);
+            Shader.BindUniformBlock("g_VertexMasks", vertexMaskBuffer!);
 
             drawCapture?.Record(topology, vertexStart, verticesCount, Shader, lastBoundTexture[0], UsingBackbuffer, currentActiveBatch);
 
@@ -1641,6 +1684,13 @@ namespace osu.Framework.Graphics.Rendering
                 if (field.FieldType == typeof(UniformVector2))
                     checkAlignment(field, offset, 8);
 
+                // A pack-1 struct of uniform fields is one std140 record. Its start and stride stay 16-byte aligned.
+                if (!isAllowedUniformType(field.FieldType))
+                {
+                    if (offset % 16 != 0 || Marshal.SizeOf(field.FieldType) % 16 != 0)
+                        throw new ArgumentException($"{typeof(TData).ReadableName()} alignment requires \"{field.Name}\" to start and end on a 16-byte boundary.");
+                }
+
                 offset += Marshal.SizeOf(field.FieldType);
             }
 
@@ -1651,24 +1701,35 @@ namespace osu.Framework.Graphics.Rendering
             validUboTypes.Add(typeof(TData));
             return;
 
+            static bool isAllowedUniformType(Type type) =>
+                type == typeof(UniformBool)
+                || type == typeof(UniformFloat)
+                || type == typeof(UniformInt)
+                || type == typeof(UniformMatrix3)
+                || type == typeof(UniformMatrix4)
+                || type == typeof(UniformPadding4)
+                || type == typeof(UniformPadding8)
+                || type == typeof(UniformPadding12)
+                || type == typeof(UniformVector2)
+                || type == typeof(UniformVector3)
+                || type == typeof(UniformVector4);
+
             static void checkValidType(FieldInfo field)
             {
-                if (field.FieldType == typeof(UniformBool)
-                    || field.FieldType == typeof(UniformFloat)
-                    || field.FieldType == typeof(UniformInt)
-                    || field.FieldType == typeof(UniformMatrix3)
-                    || field.FieldType == typeof(UniformMatrix4)
-                    || field.FieldType == typeof(UniformPadding4)
-                    || field.FieldType == typeof(UniformPadding8)
-                    || field.FieldType == typeof(UniformPadding12)
-                    || field.FieldType == typeof(UniformVector2)
-                    || field.FieldType == typeof(UniformVector3)
-                    || field.FieldType == typeof(UniformVector4))
-                {
+                if (isAllowedUniformType(field.FieldType))
                     return;
+
+                if (field.FieldType.IsValueType && field.FieldType.StructLayoutAttribute?.Pack == 1)
+                {
+                    FieldInfo[] nested = field.FieldType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+                    if (nested.Length > 0 && nested.All(isAllowedUniformField))
+                        return;
                 }
 
                 throw new ArgumentException($"{typeof(TData).ReadableName()} has an unsupported type of {field.FieldType} for field \"{field.Name}\".");
+
+                static bool isAllowedUniformField(FieldInfo nested) => isAllowedUniformType(nested.FieldType);
             }
 
             static void checkAlignment(FieldInfo field, int offset, int expectedAlignment)

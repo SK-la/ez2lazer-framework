@@ -41,4 +41,27 @@ layout(std140, set = -1, binding = 0) uniform g_GlobalUniforms
     int g_WrapModeT;
 };
 
+// Masks for borderless rounded quads. Vertices carry a 1-based index; 0 keeps g_ToMaskingSpace.
+// Capacity is VertexMaskTable.Capacity. 128 * 80 bytes stays under the 16KB uniform-block minimum.
+struct VertexMaskRecord
+{
+    vec4 Column0;
+    vec4 Column1;
+    vec4 Column2;
+    vec4 Rect;
+    vec4 Parameters;
+};
+
+layout(std140, set = -2, binding = 0) uniform g_VertexMasks
+{
+    VertexMaskRecord g_VertexMaskRecords[128];
+};
+
+// Referenced from every vertex stage so the block survives dead-code elimination.
+// A real masking rect is in screen pixels and cannot reach this magnitude, so the result stays 0.
+float vertexMaskTableAnchor()
+{
+    return g_VertexMaskRecords[0].Rect.x > 1.0e16 ? g_VertexMaskRecords[0].Rect.x : 0.0;
+}
+
 #endif

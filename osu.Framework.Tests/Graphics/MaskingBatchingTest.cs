@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using NUnit.Framework;
 using osu.Framework.Development;
 using osu.Framework.Graphics.Primitives;
@@ -235,6 +236,84 @@ namespace osu.Framework.Tests.Graphics
         }
 
         [Test]
+        public void TestVertexMaskIndexReusesOneSlotPerDistinctMask()
+        {
+            var mask = createMask();
+            renderer.PushMaskingInfo(mask);
+            renderer.BeginVertexEncodedBatch(true);
+
+            var first = new TexturedVertex2D(renderer);
+            var second = new TexturedVertex2D(renderer);
+            renderer.ApplyVertexMask(ref first);
+            renderer.ApplyVertexMask(ref second);
+
+            mask.CornerRadius = 17;
+            renderer.PushMaskingInfo(mask);
+            var third = new TexturedVertex2D(renderer);
+            renderer.ApplyVertexMask(ref third);
+
+            renderer.PopMaskingInfo();
+            var fourth = new TexturedVertex2D(renderer);
+            renderer.ApplyVertexMask(ref fourth);
+            renderer.EndVertexEncodedBatch();
+
+            Assert.That(first.MaskIndex, Is.EqualTo(1));
+            Assert.That(second.MaskIndex, Is.EqualTo(1));
+            Assert.That(third.MaskIndex, Is.EqualTo(2));
+            Assert.That(fourth.MaskIndex, Is.EqualTo(1));
+            Assert.That(Marshal.SizeOf<TexturedVertex2D>(), Is.EqualTo(64));
+            Assert.That(Marshal.SizeOf<VertexMaskRecord>(), Is.EqualTo(VertexMaskRecordSize));
+            Assert.That(Marshal.SizeOf<VertexMaskTable>(), Is.EqualTo(VertexMaskTable.Capacity * VertexMaskRecordSize));
+        }
+
+        [Test]
+        public void TestUnencodedVerticesDoNotTakeAMaskSlot()
+        {
+            renderer.PushMaskingInfo(createMask());
+            renderer.BeginVertexEncodedBatch(false);
+
+            var vertex = new TexturedVertex2D(renderer);
+            renderer.ApplyVertexMask(ref vertex);
+            renderer.EndVertexEncodedBatch();
+
+            Assert.That(vertex.MaskIndex, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void TestFullMaskTableFlushesBeforeTheNextDistinctMask()
+        {
+            var quadBatch = new RecordingQuadBatch(renderer);
+            renderer.BeginVertexEncodedBatch(true);
+            quadBatch.AddQuad();
+
+            for (int i = 0; i < VertexMaskTable.Capacity; i++)
+            {
+                var mask = createMask();
+                mask.CornerRadius = i + 1;
+                renderer.PushMaskingInfo(mask);
+
+                var vertex = new TexturedVertex2D(renderer);
+                renderer.ApplyVertexMask(ref vertex);
+                Assert.That(vertex.MaskIndex, Is.EqualTo(i + 1));
+            }
+
+            Assert.That(quadBatch.DrawCounts, Is.Empty);
+
+            var overflowMask = createMask();
+            overflowMask.CornerRadius = VertexMaskTable.Capacity + 10;
+            renderer.PushMaskingInfo(overflowMask);
+
+            var overflow = new TexturedVertex2D(renderer);
+            renderer.ApplyVertexMask(ref overflow);
+            renderer.EndVertexEncodedBatch();
+
+            Assert.That(quadBatch.DrawCounts, Is.EqualTo(new[] { 4 }));
+            Assert.That(overflow.MaskIndex, Is.EqualTo(1));
+        }
+
+        private const int VertexMaskRecordSize = 80;
+
+        [Test]
         public void TestDirectDrawAppliesPendingMaskAfterFlushingOldGeometry()
         {
             renderer.PushMaskingInfo(createMask());
@@ -344,7 +423,10 @@ namespace osu.Framework.Tests.Graphics
             public void Dispose() { }
 
             public void BindUniformBlock(string blockName, IUniformBuffer buffer)
-                => Draws.Add(((IUniformBuffer<GlobalUniformData>)buffer).Data);
+            {
+                if (buffer is IUniformBuffer<GlobalUniformData> global)
+                    Draws.Add(global.Data);
+            }
         }
 
         private sealed class TestSurface : IGraphicsSurface
