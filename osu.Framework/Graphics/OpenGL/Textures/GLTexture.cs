@@ -277,6 +277,7 @@ namespace osu.Framework.Graphics.OpenGL.Textures
                 uploadedRegions.Add(upload.Bounds);
             }
 
+            // ReSharper disable once InconsistentlySynchronizedField (Drain locks internally around peek/dequeue).
             TextureUploadDrainer.Drain(uploadQueue, Renderer, BypassTextureUploadQueueing, performUpload);
 
             if (!BypassTextureUploadQueueing && !UploadComplete)

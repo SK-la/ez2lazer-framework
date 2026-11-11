@@ -222,6 +222,7 @@ namespace osu.Framework.Graphics.Veldrid.Textures
 
             uploadedRegions.Clear();
 
+            // ReSharper disable once InconsistentlySynchronizedField (Drain locks internally around peek/dequeue).
             TextureUploadDrainer.Drain(uploadQueue, Renderer, BypassTextureUploadQueueing, upload =>
             {
                 DoUpload(upload);

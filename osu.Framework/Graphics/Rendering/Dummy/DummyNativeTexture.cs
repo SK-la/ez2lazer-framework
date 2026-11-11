@@ -61,6 +61,7 @@ namespace osu.Framework.Graphics.Rendering.Dummy
 
         public bool Upload()
         {
+            // ReSharper disable once InconsistentlySynchronizedField (Drain locks internally around peek/dequeue).
             int uploaded = TextureUploadDrainer.Drain(uploadQueue, Renderer, BypassTextureUploadQueueing, _ => { });
 
             if (!BypassTextureUploadQueueing && !UploadComplete)
