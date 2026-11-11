@@ -159,7 +159,7 @@ namespace osu.Framework.Graphics.Veldrid
 
         protected override void Initialise(IGraphicsSurface graphicsSurface)
         {
-            veldridDevice = new VeldridDevice(graphicsSurface);
+            veldridDevice = new VeldridDevice(graphicsSurface, HostStartupDisplayOutput.Mode);
             graphicsPipeline = new GraphicsPipeline(veldridDevice);
             bufferUpdatePipeline = new BasicPipeline(veldridDevice);
             textureUploadPipeline = new BasicPipeline(veldridDevice);
@@ -189,6 +189,7 @@ namespace osu.Framework.Graphics.Veldrid
             flushTextureUploadPipeline();
 
             bufferUpdatePipeline.End();
+            veldridDevice.PresentDisplayOutput(graphicsPipeline.Commands);
             graphicsPipeline.End();
         }
 

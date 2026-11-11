@@ -128,7 +128,7 @@ namespace osu.Framework.Graphics.Veldrid.Pipelines
         public GraphicsPipeline(VeldridDevice device)
             : base(device)
         {
-            pipelineDesc.Outputs = Device.SwapchainFramebuffer.OutputDescription;
+            pipelineDesc.Outputs = VeldridDevice.SceneFramebuffer.OutputDescription;
         }
 
         public override void Begin()
@@ -144,6 +144,9 @@ namespace osu.Framework.Graphics.Veldrid.Pipelines
             currentVertexBuffer = null;
             viewportDefined = false;
             scissorDefined = false;
+
+            Commands.SetFramebuffer(VeldridDevice.SceneFramebuffer);
+            pipelineDesc.Outputs = VeldridDevice.SceneFramebuffer.OutputDescription;
         }
 
         /// <summary>
@@ -154,7 +157,7 @@ namespace osu.Framework.Graphics.Veldrid.Pipelines
         {
             Commands.ClearColorTarget(0, clearInfo.Colour.ToRgbaFloat());
 
-            var framebuffer = currentFrameBuffer?.Framebuffer ?? Device.SwapchainFramebuffer;
+            var framebuffer = currentFrameBuffer?.Framebuffer ?? VeldridDevice.SceneFramebuffer;
             if (framebuffer.DepthTarget != null)
                 Commands.ClearDepthStencil((float)clearInfo.Depth, (byte)clearInfo.Stencil);
         }
@@ -256,7 +259,7 @@ namespace osu.Framework.Graphics.Veldrid.Pipelines
         {
             currentFrameBuffer = frameBuffer;
 
-            Framebuffer fb = frameBuffer?.Framebuffer ?? Device.SwapchainFramebuffer;
+            Framebuffer fb = frameBuffer?.Framebuffer ?? VeldridDevice.SceneFramebuffer;
 
             Commands.SetFramebuffer(fb);
             pipelineDesc.Outputs = fb.OutputDescription;

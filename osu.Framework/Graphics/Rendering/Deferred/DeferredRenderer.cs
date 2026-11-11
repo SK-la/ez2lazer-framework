@@ -35,7 +35,7 @@ namespace osu.Framework.Graphics.Rendering.Deferred
 
         protected override void Initialise(IGraphicsSurface graphicsSurface)
         {
-            VeldridDevice = new VeldridDevice(graphicsSurface);
+            VeldridDevice = new VeldridDevice(graphicsSurface, HostStartupDisplayOutput.Mode);
             Graphics = new GraphicsPipeline(VeldridDevice);
             texturePool = new VeldridStagingTexturePool(Graphics);
             Context = new DeferredContext(this);
@@ -63,6 +63,7 @@ namespace osu.Framework.Graphics.Rendering.Deferred
             base.FinishFrame();
 
             new EventProcessor(Context).ProcessEvents();
+            VeldridDevice.PresentDisplayOutput(Graphics.Commands);
             Graphics.End();
         }
 
