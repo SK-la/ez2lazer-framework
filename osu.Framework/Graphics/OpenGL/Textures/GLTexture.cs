@@ -269,7 +269,7 @@ namespace osu.Framework.Graphics.OpenGL.Textures
             // We should never run raw OGL calls on another thread than the main thread due to race conditions.
             ThreadSafety.EnsureDrawThread();
 
-            unsafe void performUpload(ITextureUpload upload)
+            void performUpload(ITextureUpload upload)
             {
                 fixed (Rgba32* ptr = upload.Data)
                     DoUpload(upload, (IntPtr)ptr);

@@ -78,6 +78,15 @@ namespace osu.Framework.Graphics.Rendering.Dummy
             }
         }
 
+        internal int PendingUploadCount
+        {
+            get
+            {
+                lock (uploadQueue)
+                    return uploadQueue.Count;
+            }
+        }
+
         public bool Bind(int unit) => true;
 
         public int GetByteSize() => 0;

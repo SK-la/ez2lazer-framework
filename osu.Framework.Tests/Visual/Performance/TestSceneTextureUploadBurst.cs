@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using NUnit.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics.Primitives;
@@ -32,6 +33,9 @@ namespace osu.Framework.Tests.Visual.Performance
 
         private int peakRegions;
         private int drainFrames;
+        private double peakFrameMs;
+        private double drainMs;
+        private long drainStartTimestamp;
         private Texture? burstTexture;
         private readonly List<string> logMessages = new List<string>();
 
@@ -50,6 +54,9 @@ namespace osu.Framework.Tests.Visual.Performance
             {
                 peakRegions = 0;
                 drainFrames = 0;
+                peakFrameMs = 0;
+                drainMs = 0;
+                drainStartTimestamp = Stopwatch.GetTimestamp();
 
                 burstTexture = renderer.CreateTexture(atlas_size, atlas_size, manualMipmaps: true, initialisationColour: Color4.Black);
                 burstTexture.NativeTexture.Label = "BurstFixture";
@@ -63,7 +70,7 @@ namespace osu.Framework.Tests.Visual.Performance
                 var pixels = new Rgba32[region_size * region_size];
                 Array.Fill(pixels, new Rgba32(255, 255, 255, 255));
 
-                int columns = atlas_size / region_size;
+                const int columns = atlas_size / region_size;
 
                 for (int i = 0; i < burst_count; i++)
                 {
@@ -91,6 +98,14 @@ namespace osu.Framework.Tests.Visual.Performance
 
             AddAssert("did not dump the whole burst in one frame", () =>
                 peakRegions > 0 && peakRegions < burst_count);
+
+            AddAssert("drain did not hitch a frame or run long", () =>
+            {
+                drainMs = Stopwatch.GetElapsedTime(drainStartTimestamp).TotalMilliseconds;
+                TestContext.Out.WriteLine(
+                    $"TextureUploadBurst visual: drainMs={drainMs:F2} frames={drainFrames} peakFrameMs={peakFrameMs:F3} peakRegions={peakRegions}");
+                return peakFrameMs < 8 && drainMs < 5000;
+            });
         }
 
         private void pumpDummyDrain()
@@ -99,7 +114,9 @@ namespace osu.Framework.Tests.Visual.Performance
                 return;
 
             dummy.ResetTextureUploadBudget();
+            long frameStart = Stopwatch.GetTimestamp();
             burstTexture.NativeTexture.Upload();
+            peakFrameMs = Math.Max(peakFrameMs, Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds);
             peakRegions = Math.Max(peakRegions, dummy.TextureUploadRegionsThisFrame);
             drainFrames++;
         }
