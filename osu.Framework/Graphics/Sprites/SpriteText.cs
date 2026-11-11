@@ -78,6 +78,23 @@ namespace osu.Framework.Graphics.Sprites
             }
         }
 
+        private int glyphsBuiltAtGeneration = -1;
+
+        public override bool UpdateSubTree()
+        {
+            // Glyphs looked up before an outline face finishes loading are recorded as missing.
+            // Rebuild once that face is ready, including while this text is still at alpha 0.
+            if (store != null
+                && glyphsBuiltAtGeneration >= 0
+                && charactersCache.IsValid
+                && store.LoadGeneration != glyphsBuiltAtGeneration)
+            {
+                invalidate(true, true);
+            }
+
+            return base.UpdateSubTree();
+        }
+
         protected override void LoadComplete()
         {
             base.LoadComplete();
@@ -497,6 +514,9 @@ namespace osu.Framework.Graphics.Sprites
                 base.Width = Math.Min(base.Width, MaxWidth);
 
                 charactersCache.Validate();
+
+                if (store != null)
+                    glyphsBuiltAtGeneration = store.LoadGeneration;
             }
         }
 
