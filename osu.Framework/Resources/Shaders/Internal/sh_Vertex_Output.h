@@ -17,8 +17,6 @@ void main()
 
     if (g_IsClipSpaceYInverted || requiresFramebufferInvert)
         gl_Position.y = -gl_Position.y;
-
-    gl_Position.x += vertexMaskTableAnchor();
 }
 
 #endif

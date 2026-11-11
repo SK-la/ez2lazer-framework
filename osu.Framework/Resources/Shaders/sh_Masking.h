@@ -11,9 +11,9 @@ layout(location = 1) in lowp vec4 v_Colour;
 #endif
 
 layout(location = 4) in mediump vec2 v_BlendRange;
-layout(location = 5) flat in mediump float v_UseVertexMask;
-layout(location = 6) flat in highp vec4 v_MaskingRect;
-layout(location = 7) flat in highp vec4 v_MaskParameters;
+layout(location = 5) in mediump float v_UseVertexMask;
+layout(location = 6) in highp vec4 v_MaskingRect;
+layout(location = 7) in highp vec4 v_MaskParameters;
 
 bool useVertexMask()
 {

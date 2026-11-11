@@ -41,41 +41,4 @@ layout(std140, set = -1, binding = 0) uniform g_GlobalUniforms
     int g_WrapModeT;
 };
 
-// Masks for borderless rounded quads. Vertices carry a 1-based index; 0 keeps g_ToMaskingSpace.
-// Stored as a flat vec4 array (128 records * 5 vec4). D3D11 can dynamically index a vector array.
-// An array of structs cannot: the compiler picks one element for the whole draw, so later panels
-// are clipped by the first mask and text is cut in half.
-struct VertexMaskRecord
-{
-    vec4 Column0;
-    vec4 Column1;
-    vec4 Column2;
-    vec4 Rect;
-    vec4 Parameters;
-};
-
-layout(std140, set = -2, binding = 0) uniform g_VertexMasks
-{
-    vec4 g_VertexMaskData[640];
-};
-
-VertexMaskRecord loadVertexMask(int index)
-{
-    int baseIndex = index * 5;
-    VertexMaskRecord record;
-    record.Column0 = g_VertexMaskData[baseIndex];
-    record.Column1 = g_VertexMaskData[baseIndex + 1];
-    record.Column2 = g_VertexMaskData[baseIndex + 2];
-    record.Rect = g_VertexMaskData[baseIndex + 3];
-    record.Parameters = g_VertexMaskData[baseIndex + 4];
-    return record;
-}
-
-// Referenced from every vertex stage so the block survives dead-code elimination.
-// Both branches are 0, so the read cannot move a pixel.
-float vertexMaskTableAnchor()
-{
-    return g_VertexMaskData[0].x > 1.0e16 ? 0.0 : 0.0;
-}
-
 #endif
