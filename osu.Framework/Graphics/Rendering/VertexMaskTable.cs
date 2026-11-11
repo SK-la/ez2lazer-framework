@@ -41,7 +41,7 @@ namespace osu.Framework.Graphics.Rendering
 
     /// <summary>
     /// Masks for one encoded batch. A vertex stores a 1-based index into this table.
-    /// 128 records stay under the 16KB uniform-block minimum. Field order matches <c>g_VertexMaskRecords</c>.
+    /// 128 records stay under the 16KB uniform-block minimum. The shader reads them as <c>g_VertexMaskData</c>, five vec4s each.
     /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     internal struct VertexMaskTable : IEquatable<VertexMaskTable>

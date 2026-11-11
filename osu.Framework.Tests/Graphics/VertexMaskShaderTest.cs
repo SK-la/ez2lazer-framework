@@ -39,8 +39,16 @@ namespace osu.Framework.Tests.Graphics
             VertexFragmentCompilationResult linked = SpirvCompilation.CompileVertexFragment(vertexSpirv, fragmentSpirv, CrossCompileTarget.HLSL, new CrossCompileOptions());
 
             Assert.That(linked.Reflection.ResourceLayouts.SelectMany(layout => layout.Elements).Select(element => element.Name), Does.Contain("g_VertexMasks"));
-            Assert.That(linked.VertexShader, Does.Contain("g_VertexMaskRecords"));
-            Assert.That(linked.VertexShader, Does.Contain("128"));
+            Assert.That(linked.VertexShader, Does.Contain("g_VertexMaskData"));
+            Assert.That(linked.VertexShader, Does.Contain("[640]"));
+            Assert.That(linked.VertexShader, Does.Contain(" * 5"));
+
+            if (fragmentText.Contains("getRoundedColor", StringComparison.Ordinal))
+            {
+                Assert.That(linked.FragmentShader, Does.Contain("nointerpolation float4 v_MaskingRect"));
+                Assert.That(linked.FragmentShader, Does.Contain("nointerpolation float4 v_MaskParameters"));
+            }
+
             Assert.That(fragmentText, Does.Not.Contain("{{ "));
         }
 

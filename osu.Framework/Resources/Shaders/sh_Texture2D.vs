@@ -16,21 +16,33 @@ layout(location = 1) out lowp vec4 v_Colour;
 layout(location = 2) out highp vec2 v_TexCoord;
 layout(location = 3) out highp vec4 v_TexRect;
 layout(location = 4) out mediump vec2 v_BlendRange;
-layout(location = 5) out mediump float v_MaskIndex;
+layout(location = 5) flat out mediump float v_UseVertexMask;
+layout(location = 6) flat out highp vec4 v_MaskingRect;
+layout(location = 7) flat out highp vec4 v_MaskParameters;
 
 void main(void)
 {
-    // m_MaskIndex > 0 selects this quad's mask from g_VertexMaskRecords so consecutive rounded rects share a batch.
+    // m_MaskIndex > 0 selects this quad's mask so consecutive rounded rects share a batch.
+    // The rect and parameters are written as flat varyings. The fragment shader then matches the
+    // per-vertex path and does not index the uniform block per pixel.
     // 0 keeps the uniform matrix (paths, borders, and any vertex that left the index at 0).
     highp vec3 maskingPos;
 
     if (m_MaskIndex > 0.5)
     {
-        VertexMaskRecord record = g_VertexMaskRecords[int(m_MaskIndex + 0.5) - 1];
+        VertexMaskRecord record = loadVertexMask(int(m_MaskIndex + 0.5) - 1);
         maskingPos = mat3(record.Column0.xyz, record.Column1.xyz, record.Column2.xyz) * vec3(m_Position, 1.0);
+        v_MaskingRect = record.Rect;
+        v_MaskParameters = record.Parameters;
+        v_UseVertexMask = 1.0;
     }
     else
+    {
         maskingPos = g_ToMaskingSpace * vec3(m_Position, 1.0);
+        v_MaskingRect = g_MaskingRect;
+        v_MaskParameters = vec4(g_CornerRadius, g_CornerExponent, g_MaskingBlendRange, g_AlphaExponent);
+        v_UseVertexMask = 0.0;
+    }
 
     v_MaskingPosition = maskingPos.xy / maskingPos.z;
 
@@ -38,7 +50,6 @@ void main(void)
     v_TexCoord = m_TexCoord;
     v_TexRect = m_TexRect;
     v_BlendRange = m_BlendRange;
-    v_MaskIndex = m_MaskIndex;
 
     gl_Position = g_ProjMatrix * vec4(m_Position, 1.0, 1.0);
 

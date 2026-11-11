@@ -311,6 +311,38 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(overflow.MaskIndex, Is.EqualTo(1));
         }
 
+        [Test]
+        public void TestFullMaskTableFlushesBeforeTheNextQuadStarts()
+        {
+            var quadBatch = new RecordingQuadBatch(renderer);
+            renderer.BeginVertexEncodedBatch(true);
+            quadBatch.AddQuad();
+
+            for (int i = 0; i < VertexMaskTable.CAPACITY; i++)
+            {
+                var mask = createMask();
+                mask.CornerRadius = i + 1;
+                renderer.PushMaskingInfo(mask);
+
+                var vertex = new TexturedVertex2D(renderer);
+                renderer.ApplyVertexMask(ref vertex);
+            }
+
+            var overflowMask = createMask();
+            overflowMask.CornerRadius = VertexMaskTable.CAPACITY + 10;
+            renderer.PushMaskingInfo(overflowMask);
+            renderer.BeginVertexEncodedBatch(true);
+
+            Assert.That(quadBatch.DrawCounts, Is.EqualTo(new[] { 4 }));
+
+            var overflow = new TexturedVertex2D(renderer);
+            renderer.ApplyVertexMask(ref overflow);
+            renderer.EndVertexEncodedBatch();
+
+            Assert.That(overflow.MaskIndex, Is.EqualTo(1));
+            Assert.That(quadBatch.DrawCounts, Is.EqualTo(new[] { 4 }));
+        }
+
         private const int vertex_mask_record_size = 80;
 
         [Test]

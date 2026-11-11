@@ -42,7 +42,9 @@ layout(std140, set = -1, binding = 0) uniform g_GlobalUniforms
 };
 
 // Masks for borderless rounded quads. Vertices carry a 1-based index; 0 keeps g_ToMaskingSpace.
-// Capacity is VertexMaskTable.Capacity. 128 * 80 bytes stays under the 16KB uniform-block minimum.
+// Stored as a flat vec4 array (128 records * 5 vec4). D3D11 can dynamically index a vector array.
+// An array of structs cannot: the compiler picks one element for the whole draw, so later panels
+// are clipped by the first mask and text is cut in half.
 struct VertexMaskRecord
 {
     vec4 Column0;
@@ -54,14 +56,26 @@ struct VertexMaskRecord
 
 layout(std140, set = -2, binding = 0) uniform g_VertexMasks
 {
-    VertexMaskRecord g_VertexMaskRecords[128];
+    vec4 g_VertexMaskData[640];
 };
 
+VertexMaskRecord loadVertexMask(int index)
+{
+    int baseIndex = index * 5;
+    VertexMaskRecord record;
+    record.Column0 = g_VertexMaskData[baseIndex];
+    record.Column1 = g_VertexMaskData[baseIndex + 1];
+    record.Column2 = g_VertexMaskData[baseIndex + 2];
+    record.Rect = g_VertexMaskData[baseIndex + 3];
+    record.Parameters = g_VertexMaskData[baseIndex + 4];
+    return record;
+}
+
 // Referenced from every vertex stage so the block survives dead-code elimination.
-// A real masking rect is in screen pixels and cannot reach this magnitude, so the result stays 0.
+// Both branches are 0, so the read cannot move a pixel.
 float vertexMaskTableAnchor()
 {
-    return g_VertexMaskRecords[0].Rect.x > 1.0e16 ? g_VertexMaskRecords[0].Rect.x : 0.0;
+    return g_VertexMaskData[0].x > 1.0e16 ? 0.0 : 0.0;
 }
 
 #endif

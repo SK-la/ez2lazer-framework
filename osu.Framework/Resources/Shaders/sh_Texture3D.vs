@@ -12,7 +12,9 @@ layout(location = 1) out lowp vec4 v_Colour;
 layout(location = 2) out highp vec2 v_TexCoord;
 layout(location = 3) out highp vec4 v_TexRect;
 layout(location = 4) out mediump vec2 v_BlendRange;
-layout(location = 5) out mediump float v_MaskIndex;
+layout(location = 5) flat out mediump float v_UseVertexMask;
+layout(location = 6) flat out highp vec4 v_MaskingRect;
+layout(location = 7) flat out highp vec4 v_MaskParameters;
 
 void main(void)
 {
@@ -22,7 +24,9 @@ void main(void)
 
     v_TexRect = vec4(0.0);
     v_BlendRange = vec2(0.0);
-    v_MaskIndex = 0.0;
+    v_UseVertexMask = 0.0;
+    v_MaskingRect = g_MaskingRect;
+    v_MaskParameters = vec4(g_CornerRadius, g_CornerExponent, g_MaskingBlendRange, g_AlphaExponent);
 
     v_Colour = m_Colour;
     v_TexCoord = m_TexCoord;

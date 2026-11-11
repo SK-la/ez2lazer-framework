@@ -968,7 +968,30 @@ namespace osu.Framework.Graphics.Rendering
         /// Marks the vertices about to be submitted. Encoded quads store the current mask in the vertex, so a later
         /// mask change does not have to flush them. Border, hollow, and hand-written vertices pass <c>false</c>.
         /// </summary>
-        internal void BeginVertexEncodedBatch(bool encode) => nextVerticesEncodeMask = encode;
+        internal void BeginVertexEncodedBatch(bool encode)
+        {
+            nextVerticesEncodeMask = encode;
+
+            // A new mask has to fit before the quad starts. Flushing inside ApplyVertexMask would split the quad.
+            if (!encode || !IsMaskingActive || vertexMaskCount < VertexMaskTable.CAPACITY)
+                return;
+
+            if (containsVertexMask(CurrentMaskingInfo))
+                return;
+
+            FlushCurrentBatch(FlushBatchSource.SetMasking);
+        }
+
+        private bool containsVertexMask(in MaskingInfo info)
+        {
+            for (int i = 0; i < vertexMaskCount; i++)
+            {
+                if (vertexMaskRecords[i].HasSameShaderParameters(info))
+                    return true;
+            }
+
+            return false;
+        }
 
         internal void EndVertexEncodedBatch() => nextVerticesEncodeMask = false;
 

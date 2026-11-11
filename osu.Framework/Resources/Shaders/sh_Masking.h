@@ -11,41 +11,38 @@ layout(location = 1) in lowp vec4 v_Colour;
 #endif
 
 layout(location = 4) in mediump vec2 v_BlendRange;
-layout(location = 5) in mediump float v_MaskIndex;
+layout(location = 5) flat in mediump float v_UseVertexMask;
+layout(location = 6) flat in highp vec4 v_MaskingRect;
+layout(location = 7) flat in highp vec4 v_MaskParameters;
 
 bool useVertexMask()
 {
-	return v_MaskIndex > 0.5;
-}
-
-VertexMaskRecord activeVertexMask()
-{
-	return g_VertexMaskRecords[int(v_MaskIndex + 0.5) - 1];
+	return v_UseVertexMask > 0.5;
 }
 
 highp vec4 activeMaskingRect()
 {
-	return useVertexMask() ? activeVertexMask().Rect : g_MaskingRect;
+	return useVertexMask() ? v_MaskingRect : g_MaskingRect;
 }
 
 highp float activeCornerRadius()
 {
-	return useVertexMask() ? activeVertexMask().Parameters.x : g_CornerRadius;
+	return useVertexMask() ? v_MaskParameters.x : g_CornerRadius;
 }
 
 highp float activeCornerExponent()
 {
-	return useVertexMask() ? activeVertexMask().Parameters.y : g_CornerExponent;
+	return useVertexMask() ? v_MaskParameters.y : g_CornerExponent;
 }
 
 mediump float activeMaskingBlendRange()
 {
-	return useVertexMask() ? activeVertexMask().Parameters.z : g_MaskingBlendRange;
+	return useVertexMask() ? v_MaskParameters.z : g_MaskingBlendRange;
 }
 
 lowp float activeAlphaExponent()
 {
-	return useVertexMask() ? activeVertexMask().Parameters.w : g_AlphaExponent;
+	return useVertexMask() ? v_MaskParameters.w : g_AlphaExponent;
 }
 
 highp float distanceFromRoundedRect(highp vec2 offset, highp float radius, highp vec4 rect, highp float exponent)
@@ -100,9 +97,6 @@ lowp vec4 getBorderColour()
 
 lowp vec4 getRoundedColor(lowp vec4 texel, mediump vec2 texCoord)
 {
-	// Keeps g_VertexMasks in fragment shaders that mask. The anchor is 0 for every rect this table stores.
-	texel.a += vertexMaskTableAnchor();
-
 	// Vertex masks are only written for non-hollow, borderless quads. Hollow / border draws keep the uniform path.
 	bool vertexMask = useVertexMask();
 
@@ -118,11 +112,6 @@ lowp vec4 getRoundedColor(lowp vec4 texel, mediump vec2 texCoord)
 	lowp float alphaExponent = activeAlphaExponent();
 
 	highp float dist = distanceFromRoundedRect(vec2(0.0), radius, rect, exponent);
-
-	// Inside the corner inset the fade has not started. Panel fills take this path and skip the rest of the SDF.
-	if (vertexMask && dist <= 0.0 && v_BlendRange == vec2(0.0))
-		return v_Colour * texel;
-
 	lowp float alphaFactor = 1.0;
 
 	// Discard inner pixels. Never taken for vertex-masked quads (those are not hollow).
