@@ -11,14 +11,47 @@ layout(location = 1) in lowp vec4 v_Colour;
 #endif
 
 layout(location = 4) in mediump vec2 v_BlendRange;
+layout(location = 5) in mediump float v_UseVertexMask;
+layout(location = 6) in highp vec4 v_MaskingRect;
+layout(location = 7) in highp vec4 v_MaskParameters;
 
-highp float distanceFromRoundedRect(highp vec2 offset, highp float radius)
+bool useVertexMask()
+{
+	return v_UseVertexMask > 0.5;
+}
+
+highp vec4 activeMaskingRect()
+{
+	return useVertexMask() ? v_MaskingRect : g_MaskingRect;
+}
+
+highp float activeCornerRadius()
+{
+	return useVertexMask() ? v_MaskParameters.x : g_CornerRadius;
+}
+
+highp float activeCornerExponent()
+{
+	return useVertexMask() ? v_MaskParameters.y : g_CornerExponent;
+}
+
+mediump float activeMaskingBlendRange()
+{
+	return useVertexMask() ? v_MaskParameters.z : g_MaskingBlendRange;
+}
+
+lowp float activeAlphaExponent()
+{
+	return useVertexMask() ? v_MaskParameters.w : g_AlphaExponent;
+}
+
+highp float distanceFromRoundedRect(highp vec2 offset, highp float radius, highp vec4 rect, highp float exponent)
 {
 	highp vec2 maskingPosition = v_MaskingPosition + offset;
 
 	// Compute offset distance from masking rect in masking space.
-	highp vec2 topLeftOffset = g_MaskingRect.xy - maskingPosition;
-	highp vec2 bottomRightOffset = maskingPosition - g_MaskingRect.zw;
+	highp vec2 topLeftOffset = rect.xy - maskingPosition;
+	highp vec2 bottomRightOffset = maskingPosition - rect.zw;
 
 	highp vec2 distanceFromShrunkRect = max(
 		bottomRightOffset + vec2(radius),
@@ -33,7 +66,7 @@ highp float distanceFromRoundedRect(highp vec2 offset, highp float radius)
 	else
 	{
 		distanceFromShrunkRect = max(vec2(0.0), distanceFromShrunkRect);
-		return pow(pow(distanceFromShrunkRect.x, g_CornerExponent) + pow(distanceFromShrunkRect.y, g_CornerExponent), 1.0 / g_CornerExponent);
+		return pow(pow(distanceFromShrunkRect.x, exponent) + pow(distanceFromShrunkRect.y, exponent), 1.0 / exponent);
 	}
 }
 
@@ -55,7 +88,8 @@ highp float distanceFromDrawingRect(mediump vec2 texCoord)
 
 lowp vec4 getBorderColour()
 {
-    highp vec2 relativeTexCoord = v_MaskingPosition / (g_MaskingRect.zw - g_MaskingRect.xy);
+    highp vec4 rect = activeMaskingRect();
+    highp vec2 relativeTexCoord = v_MaskingPosition / (rect.zw - rect.xy);
     lowp vec4 top = mix(g_BorderColour[0], g_BorderColour[2], relativeTexCoord.x);
     lowp vec4 bottom = mix(g_BorderColour[1], g_BorderColour[3], relativeTexCoord.x);
     return mix(top, bottom, relativeTexCoord.y);
@@ -63,19 +97,28 @@ lowp vec4 getBorderColour()
 
 lowp vec4 getRoundedColor(lowp vec4 texel, mediump vec2 texCoord)
 {
-	if (!g_IsMasking && v_BlendRange == vec2(0.0))
+	// Vertex masks are only written for non-hollow, borderless quads. Hollow / border draws keep the uniform path.
+	bool vertexMask = useVertexMask();
+
+	if (!vertexMask && !g_IsMasking && v_BlendRange == vec2(0.0))
 	{
 		return v_Colour * texel;
 	}
 
-	highp float dist = distanceFromRoundedRect(vec2(0.0), g_CornerRadius);
+	highp vec4 rect = activeMaskingRect();
+	highp float radius = activeCornerRadius();
+	highp float exponent = activeCornerExponent();
+	mediump float blendRange = activeMaskingBlendRange();
+	lowp float alphaExponent = activeAlphaExponent();
+
+	highp float dist = distanceFromRoundedRect(vec2(0.0), radius, rect, exponent);
 	lowp float alphaFactor = 1.0;
 
-	// Discard inner pixels
-	if (g_DiscardInner)
+	// Discard inner pixels. Never taken for vertex-masked quads (those are not hollow).
+	if (!vertexMask && g_DiscardInner)
 	{
 		highp float innerDist = (g_EdgeOffset == vec2(0.0) && g_InnerCornerRadius == g_CornerRadius) ?
-			dist : distanceFromRoundedRect(g_EdgeOffset, g_InnerCornerRadius);
+			dist : distanceFromRoundedRect(g_EdgeOffset, g_InnerCornerRadius, g_MaskingRect, g_CornerExponent);
 
 		// v_BlendRange is set from outside in a hacky way to tell us the g_MaskingBlendRange used for the rounded
 		// corners of the edge effect container itself. We can then derive the alpha factor for smooth inner edge
@@ -87,14 +130,14 @@ lowp vec4 getRoundedColor(lowp vec4 texel, mediump vec2 texCoord)
 		}
 
 		// We exponentiate our factor to exactly counteract the later exponentiation by g_AlphaExponent for a smoother inner border.
-		alphaFactor = pow(min(1.0 - innerBlendFactor, 1.0), 1.0 / g_AlphaExponent);
+		alphaFactor = pow(min(1.0 - innerBlendFactor, 1.0), 1.0 / alphaExponent);
 	}
 
-	dist /= g_MaskingBlendRange;
+	dist /= blendRange;
 
 	// This correction is needed to avoid fading of the alpha value for radii below 1px.
-	highp float radiusCorrection = g_CornerRadius <= 0.0 ? g_MaskingBlendRange : max(0.0, g_MaskingBlendRange - g_CornerRadius);
-	highp float fadeStart = (g_CornerRadius + radiusCorrection) / g_MaskingBlendRange;
+	highp float radiusCorrection = radius <= 0.0 ? blendRange : max(0.0, blendRange - radius);
+	highp float fadeStart = (radius + radiusCorrection) / blendRange;
 	alphaFactor *= min(fadeStart - dist, 1.0);
 
 	if (v_BlendRange.x > 0.0 || v_BlendRange.y > 0.0)
@@ -108,12 +151,15 @@ lowp vec4 getRoundedColor(lowp vec4 texel, mediump vec2 texCoord)
 	}
 
 	// This ends up softening glow without negatively affecting edge smoothness much.
-	alphaFactor = pow(alphaFactor, g_AlphaExponent);
+	alphaFactor = pow(alphaFactor, alphaExponent);
+
+	lowp vec4 contentColour = v_Colour * texel;
+
+	if (vertexMask)
+		return vec4(contentColour.rgb, contentColour.a * alphaFactor);
 
 	highp float borderStart = 1.0 + fadeStart - g_BorderThickness;
 	lowp float colourWeight = min(borderStart - dist, 1.0);
-
-	lowp vec4 contentColour = v_Colour * texel;
 
 	if (colourWeight == 1.0)
 		return vec4(contentColour.rgb, contentColour.a * alphaFactor);

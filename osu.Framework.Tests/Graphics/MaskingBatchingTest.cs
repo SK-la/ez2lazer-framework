@@ -8,6 +8,7 @@ using osu.Framework.Development;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Rendering.Dummy;
+using osu.Framework.Graphics.Rendering.Vertices;
 using osu.Framework.Graphics.Shaders;
 using osu.Framework.Platform;
 using osuTK;
@@ -80,6 +81,58 @@ namespace osu.Framework.Tests.Graphics
             batch.AddQuad();
             renderer.FlushCurrentBatch(null);
             Assert.That(batch.DrawCounts, Is.EqualTo(new[] { 8 }));
+        }
+
+        [Test]
+        public void TestEncodableMasksOnTexturedQuadsStayInOneBatch()
+        {
+            var quadBatch = new RecordingQuadBatch(renderer);
+            renderer.BeginVertexEncodedBatch(true);
+
+            var mask = createMask();
+            renderer.PushMaskingInfo(mask);
+            quadBatch.AddQuad();
+            renderer.PopMaskingInfo();
+
+            mask.CornerRadius = 17;
+            mask.ScreenSpaceAABB = new RectangleI(30, 30, 40, 40);
+            mask.MaskingRect = new RectangleF(30, 30, 40, 40);
+            renderer.PushMaskingInfo(mask);
+            quadBatch.AddQuad();
+            renderer.PopMaskingInfo();
+
+            renderer.EndVertexEncodedBatch();
+            renderer.FlushCurrentBatch(null);
+
+            Assert.That(quadBatch.DrawCounts, Is.EqualTo(new[] { 8 }));
+            Assert.That(shader.Draws, Has.Count.EqualTo(1));
+            Assert.That(shader.Draws[0].IsMasking.Value, Is.False);
+        }
+
+        [Test]
+        public void TestBorderedMaskStillSplitsTexturedQuads()
+        {
+            var quadBatch = new RecordingQuadBatch(renderer);
+
+            var mask = createMask();
+            renderer.BeginVertexEncodedBatch(renderer.IsVertexMaskEncodable);
+            renderer.PushMaskingInfo(mask);
+            quadBatch.AddQuad();
+            renderer.PopMaskingInfo();
+            renderer.EndVertexEncodedBatch();
+
+            mask.BorderThickness = 2;
+            renderer.BeginVertexEncodedBatch(false);
+            renderer.PushMaskingInfo(mask);
+            quadBatch.AddQuad();
+            renderer.PopMaskingInfo();
+            renderer.EndVertexEncodedBatch();
+
+            renderer.FlushCurrentBatch(null);
+
+            Assert.That(quadBatch.DrawCounts, Is.EqualTo(new[] { 4, 4 }));
+            Assert.That(shader.Draws[1].IsMasking.Value, Is.True);
+            Assert.That(shader.Draws[1].BorderThickness.Value, Is.GreaterThan(0));
         }
 
         [Test]
@@ -204,6 +257,45 @@ namespace osu.Framework.Tests.Graphics
             BlendRange = 1,
             AlphaExponent = 1,
         };
+
+        private sealed class RecordingQuadBatch : IVertexBatch<TexturedVertex2D>
+        {
+            private readonly Renderer renderer;
+            private int pendingVertices;
+
+            public RecordingQuadBatch(Renderer renderer)
+            {
+                this.renderer = renderer;
+            }
+
+            public int Size => 1000;
+            public List<int> DrawCounts { get; } = new List<int>();
+            public Action<TexturedVertex2D> AddAction => _ => AddQuad();
+            public void Add(TexturedVertex2D vertex) => AddQuad();
+
+            public void AddQuad()
+            {
+                renderer.SetActiveBatch(this);
+                pendingVertices += 4;
+            }
+
+            public int Draw()
+            {
+                int count = pendingVertices;
+                pendingVertices = 0;
+
+                if (count > 0)
+                {
+                    renderer.DrawBatchVertices(PrimitiveTopology.Triangles, 0, count);
+                    DrawCounts.Add(count);
+                }
+
+                return count;
+            }
+
+            void IVertexBatch.ResetCounters() => pendingVertices = 0;
+            public void Dispose() { }
+        }
 
         private sealed class RecordingBatch : IVertexBatch
         {
