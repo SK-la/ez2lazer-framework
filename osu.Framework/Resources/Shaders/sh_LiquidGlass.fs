@@ -53,10 +53,10 @@ lowp vec3 applyTint(lowp vec3 colour)
 	return mix(colour, lg_Tint.rgb, clamp(lg_Tint.a * lg_TintStrength, 0.0, 1.0));
 }
 
-// 折射带以内与未开 masking 的 getRoundedColor 相同：v_Colour * 染色后的一次采样。
+// 折射带以内不做折射，但仍走 getRoundedColor：父级可能是圆裁剪（主菜单 logo）。
 lowp vec4 interiorColour(highp vec2 minCoord, highp vec2 maxCoord)
 {
-	return v_Colour * vec4(applyTint(sampleGlass(v_TexCoord, minCoord, maxCoord).rgb), 1.0);
+	return getRoundedColor(vec4(applyTint(sampleGlass(v_TexCoord, minCoord, maxCoord).rgb), 1.0), v_TexCoord);
 }
 
 void main(void)
@@ -75,7 +75,7 @@ void main(void)
 	highp vec2 minCoord = vec2(0.0);
 	highp vec2 maxCoord = vec2(1.0);
 
-	// 内缩 AABB 一定在折射带以内，无需 SDF / masking。
+	// 内缩 AABB 一定在折射带以内，无需玻璃 SDF；masking 仍由 interiorColour 处理。
 	highp vec2 inner = halfSize - vec2(radius + band);
 
 	if (inner.x > 0.0 && inner.y > 0.0 && abs(centered.x) < inner.x && abs(centered.y) < inner.y)
