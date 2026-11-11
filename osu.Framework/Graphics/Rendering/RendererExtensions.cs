@@ -64,38 +64,54 @@ namespace osu.Framework.Graphics.Rendering
             SRGBColour topColour = (drawColour.TopLeft + drawColour.TopRight) / 2;
             SRGBColour bottomColour = (drawColour.BottomLeft + drawColour.BottomRight) / 2;
 
-            vertexAction(new TexturedVertex2D(renderer)
+            Renderer? concrete = renderer as Renderer;
+            concrete?.BeginVertexEncodedBatch(concrete.IsVertexMaskEncodable);
+
+            try
             {
-                Position = vertexTriangle.P0,
-                TexturePosition = new Vector2((inflatedCoordRect.Left + inflatedCoordRect.Right) / 2, inflatedCoordRect.Top),
-                TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
-                BlendRange = inflationAmount,
-                Colour = topColour.SRGB,
-            });
-            vertexAction(new TexturedVertex2D(renderer)
+                submit(new TexturedVertex2D(renderer)
+                {
+                    Position = vertexTriangle.P0,
+                    TexturePosition = new Vector2((inflatedCoordRect.Left + inflatedCoordRect.Right) / 2, inflatedCoordRect.Top),
+                    TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
+                    BlendRange = inflationAmount,
+                    Colour = topColour.SRGB,
+                });
+                submit(new TexturedVertex2D(renderer)
+                {
+                    Position = vertexTriangle.P1,
+                    TexturePosition = new Vector2(inflatedCoordRect.Left, inflatedCoordRect.Bottom),
+                    TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
+                    BlendRange = inflationAmount,
+                    Colour = drawColour.BottomLeft.SRGB,
+                });
+                submit(new TexturedVertex2D(renderer)
+                {
+                    Position = (vertexTriangle.P1 + vertexTriangle.P2) / 2,
+                    TexturePosition = new Vector2((inflatedCoordRect.Left + inflatedCoordRect.Right) / 2, inflatedCoordRect.Bottom),
+                    TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
+                    BlendRange = inflationAmount,
+                    Colour = bottomColour.SRGB,
+                });
+                submit(new TexturedVertex2D(renderer)
+                {
+                    Position = vertexTriangle.P2,
+                    TexturePosition = new Vector2(inflatedCoordRect.Right, inflatedCoordRect.Bottom),
+                    TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
+                    BlendRange = inflationAmount,
+                    Colour = drawColour.BottomRight.SRGB,
+                });
+            }
+            finally
             {
-                Position = vertexTriangle.P1,
-                TexturePosition = new Vector2(inflatedCoordRect.Left, inflatedCoordRect.Bottom),
-                TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
-                BlendRange = inflationAmount,
-                Colour = drawColour.BottomLeft.SRGB,
-            });
-            vertexAction(new TexturedVertex2D(renderer)
+                concrete?.EndVertexEncodedBatch();
+            }
+
+            void submit(TexturedVertex2D vertex)
             {
-                Position = (vertexTriangle.P1 + vertexTriangle.P2) / 2,
-                TexturePosition = new Vector2((inflatedCoordRect.Left + inflatedCoordRect.Right) / 2, inflatedCoordRect.Bottom),
-                TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
-                BlendRange = inflationAmount,
-                Colour = bottomColour.SRGB,
-            });
-            vertexAction(new TexturedVertex2D(renderer)
-            {
-                Position = vertexTriangle.P2,
-                TexturePosition = new Vector2(inflatedCoordRect.Right, inflatedCoordRect.Bottom),
-                TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
-                BlendRange = inflationAmount,
-                Colour = drawColour.BottomRight.SRGB,
-            });
+                concrete?.ApplyVertexMask(ref vertex);
+                vertexAction(vertex);
+            }
 
             long area = (long)vertexTriangle.Area;
 
@@ -148,38 +164,54 @@ namespace osu.Framework.Graphics.Rendering
 
             vertexAction ??= renderer.DefaultQuadBatch.AddAction;
 
-            vertexAction(new TexturedVertex2D(renderer)
+            Renderer? concrete = renderer as Renderer;
+            concrete?.BeginVertexEncodedBatch(concrete.IsVertexMaskEncodable);
+
+            try
             {
-                Position = vertexQuad.BottomLeft,
-                TexturePosition = new Vector2(inflatedCoordRect.Left, inflatedCoordRect.Bottom),
-                TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
-                BlendRange = blendRange,
-                Colour = drawColour.BottomLeft.SRGB,
-            });
-            vertexAction(new TexturedVertex2D(renderer)
+                submit(new TexturedVertex2D(renderer)
+                {
+                    Position = vertexQuad.BottomLeft,
+                    TexturePosition = new Vector2(inflatedCoordRect.Left, inflatedCoordRect.Bottom),
+                    TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
+                    BlendRange = blendRange,
+                    Colour = drawColour.BottomLeft.SRGB,
+                });
+                submit(new TexturedVertex2D(renderer)
+                {
+                    Position = vertexQuad.BottomRight,
+                    TexturePosition = new Vector2(inflatedCoordRect.Right, inflatedCoordRect.Bottom),
+                    TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
+                    BlendRange = blendRange,
+                    Colour = drawColour.BottomRight.SRGB,
+                });
+                submit(new TexturedVertex2D(renderer)
+                {
+                    Position = vertexQuad.TopRight,
+                    TexturePosition = new Vector2(inflatedCoordRect.Right, inflatedCoordRect.Top),
+                    TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
+                    BlendRange = blendRange,
+                    Colour = drawColour.TopRight.SRGB,
+                });
+                submit(new TexturedVertex2D(renderer)
+                {
+                    Position = vertexQuad.TopLeft,
+                    TexturePosition = new Vector2(inflatedCoordRect.Left, inflatedCoordRect.Top),
+                    TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
+                    BlendRange = blendRange,
+                    Colour = drawColour.TopLeft.SRGB,
+                });
+            }
+            finally
             {
-                Position = vertexQuad.BottomRight,
-                TexturePosition = new Vector2(inflatedCoordRect.Right, inflatedCoordRect.Bottom),
-                TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
-                BlendRange = blendRange,
-                Colour = drawColour.BottomRight.SRGB,
-            });
-            vertexAction(new TexturedVertex2D(renderer)
+                concrete?.EndVertexEncodedBatch();
+            }
+
+            void submit(TexturedVertex2D vertex)
             {
-                Position = vertexQuad.TopRight,
-                TexturePosition = new Vector2(inflatedCoordRect.Right, inflatedCoordRect.Top),
-                TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
-                BlendRange = blendRange,
-                Colour = drawColour.TopRight.SRGB,
-            });
-            vertexAction(new TexturedVertex2D(renderer)
-            {
-                Position = vertexQuad.TopLeft,
-                TexturePosition = new Vector2(inflatedCoordRect.Left, inflatedCoordRect.Top),
-                TextureRect = new Vector4(texRect.Left, texRect.Top, texRect.Right, texRect.Bottom),
-                BlendRange = blendRange,
-                Colour = drawColour.TopLeft.SRGB,
-            });
+                concrete?.ApplyVertexMask(ref vertex);
+                vertexAction(vertex);
+            }
 
             long area = (long)vertexQuad.Area;
 
