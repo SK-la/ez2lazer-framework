@@ -48,6 +48,11 @@ lowp vec4 sampleGlass(highp vec2 coord, highp vec2 minCoord, highp vec2 maxCoord
 	return texture(sampler2D(m_Texture, m_Sampler), clamp(coord, minCoord, maxCoord));
 }
 
+lowp vec3 applyTint(lowp vec3 colour)
+{
+	return mix(colour, lg_Tint.rgb, clamp(lg_Tint.a * lg_TintStrength, 0.0, 1.0));
+}
+
 void main(void)
 {
 	highp vec2 uvSize = max(lg_CardUvRect.zw, vec2(0.000001));
@@ -59,6 +64,20 @@ void main(void)
 	// 正值表示在圆角矩形内部的距离。
 	highp float inside = -sdRoundedRect(centered, halfSize, lg_CornerRadius);
 
+	// 0 = 边界，1 = 折射带内侧。
+	highp float band = max(lg_RefractionDepth, 0.001);
+
+	// 只允许在采样纹理的有效范围内取像素，避免外扩捕获区之外变成钳制涂抹。
+	highp vec2 minCoord = vec2(0.0);
+	highp vec2 maxCoord = vec2(1.0);
+
+	// 折射带以内 lens 已是 0：位移、色散、高光都不生效，三次采样也是同一 UV。
+	if (inside >= band)
+	{
+		o_Colour = getRoundedColor(vec4(applyTint(sampleGlass(v_TexCoord, minCoord, maxCoord).rgb), 1.0), v_TexCoord);
+		return;
+	}
+
 	// 有限差分求梯度；梯度指向外侧。
 	highp float epsilon = max(min(lg_CardSize.x, lg_CardSize.y) * 0.002, 0.5);
 	highp vec2 gradient = vec2(
@@ -67,8 +86,6 @@ void main(void)
 
 	highp vec2 outward = length(gradient) > 0.000001 ? normalize(gradient) : vec2(0.0);
 
-	// 0 = 边界，1 = 折射带内侧。
-	highp float band = max(lg_RefractionDepth, 0.001);
 	highp float edge = clamp(inside / band, 0.0, 1.0);
 	highp float rim = 1.0 - edge;
 	highp float rim2 = rim * rim;
@@ -79,10 +96,6 @@ void main(void)
 
 	highp vec2 offset = outward * (lens * lg_RefractionStrength) * lg_UvPerPixel;
 	highp float chroma = lens * lg_ChromaticStrength;
-
-	// 只允许在采样纹理的有效范围内取像素，避免外扩捕获区之外变成钳制涂抹。
-	highp vec2 minCoord = vec2(0.0);
-	highp vec2 maxCoord = vec2(1.0);
 
 	lowp vec3 colour = vec3(0.0);
 	colour.r = sampleGlass(v_TexCoord + offset * (1.0 + chroma), minCoord, maxCoord).r;
@@ -105,7 +118,7 @@ void main(void)
 	highp float luma = dot(colour, vec3(0.2126, 0.7152, 0.0722));
 	colour = mix(vec3(luma), colour, 1.0 + rim2 * lg_EdgeSaturation);
 
-	colour = mix(colour, lg_Tint.rgb, clamp(lg_Tint.a * lg_TintStrength, 0.0, 1.0));
+	colour = applyTint(colour);
 
 	o_Colour = getRoundedColor(vec4(colour, 1.0), v_TexCoord);
 }
