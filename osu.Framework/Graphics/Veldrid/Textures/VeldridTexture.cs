@@ -11,7 +11,6 @@ using osu.Framework.Extensions.ImageExtensions;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Textures;
-using osu.Framework.Logging;
 using osu.Framework.Platform;
 using osuTK.Graphics;
 using SixLabors.ImageSharp;
@@ -40,6 +39,8 @@ namespace osu.Framework.Graphics.Veldrid.Textures
                 return resources.Texture.Name;
             }
         }
+
+        public string Label { get; set; } = string.Empty;
 
         public int MaxSize => Renderer.MaxTextureSize;
 
@@ -201,8 +202,7 @@ namespace osu.Framework.Graphics.Veldrid.Textures
         {
             lock (uploadQueue)
             {
-                if (uploadQueue.Count >= 100 && uploadQueue.Count % 100 == 0)
-                    Logger.Log($"Texture {Identifier}'s upload queue is large ({uploadQueue.Count})");
+                TextureUploadDrainer.LogIfQueueLarge(this, uploadQueue.Count + 1);
 
                 bool requireUpload = uploadQueue.Count == 0;
                 uploadQueue.Enqueue(upload);
@@ -222,15 +222,14 @@ namespace osu.Framework.Graphics.Veldrid.Textures
 
             uploadedRegions.Clear();
 
-            while (tryGetNextUpload(out ITextureUpload? upload))
+            TextureUploadDrainer.Drain(uploadQueue, Renderer, BypassTextureUploadQueueing, upload =>
             {
-                using (upload)
-                {
-                    DoUpload(upload);
+                DoUpload(upload);
+                uploadedRegions.Add(upload.Bounds);
+            });
 
-                    uploadedRegions.Add(upload.Bounds);
-                }
-            }
+            if (!BypassTextureUploadQueueing && !UploadComplete)
+                Renderer.EnqueueTextureUpload(this);
 
             #region Custom mipmap generation (disabled)
 
@@ -377,7 +376,7 @@ namespace osu.Framework.Graphics.Veldrid.Textures
 
             #region Veldrid-provided mipmap generation
 
-            if (uploadedRegions.Count != 0 && !manualMipmaps)
+            if (uploadedRegions.Count != 0 && !manualMipmaps && UploadComplete)
             {
                 Debug.Assert(resources != null);
                 Renderer.GenerateMipmaps(this);

@@ -63,7 +63,7 @@ namespace osu.Framework.IO.Stores
 
         internal FontStore(IRenderer renderer, IResourceStore<TextureUpload> store = null, float scaleAdjust = 100, bool useAtlas = false, Storage cacheStorage = null,
                            TextureFilteringMode filteringMode = TextureFilteringMode.Linear)
-            : base(renderer, store, useAtlas, filteringMode, false, scaleAdjust, glyph_atlas_size, null)
+            : base(renderer, store, useAtlas, filteringMode, false, scaleAdjust, glyph_atlas_size, nameof(FontStore))
         {
             this.cacheStorage = cacheStorage;
         }

@@ -32,11 +32,13 @@ namespace osu.Framework.Graphics.Textures
 
             private static readonly Color4 initialisation_colour = default;
 
-            public BackingAtlasTexture(IRenderer renderer, int width, int height, bool manualMipmaps, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, int padding = 0)
+            public BackingAtlasTexture(IRenderer renderer, int width, int height, bool manualMipmaps, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, int padding = 0,
+                                       string? label = null)
                 : this(renderer.CreateTexture(width, height, manualMipmaps, filteringMode, initialisationColour: initialisation_colour))
             {
                 this.padding = padding;
                 atlasBounds = new RectangleI(0, 0, Width, Height);
+                NativeTexture.Label = label ?? string.Empty;
             }
 
             private BackingAtlasTexture(Texture parent)

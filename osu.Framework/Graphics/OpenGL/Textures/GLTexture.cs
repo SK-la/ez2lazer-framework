@@ -12,7 +12,6 @@ using osu.Framework.Extensions.ImageExtensions;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Textures;
-using osu.Framework.Logging;
 using osu.Framework.Platform;
 using osuTK.Graphics;
 using osuTK.Graphics.ES30;
@@ -40,6 +39,8 @@ namespace osu.Framework.Graphics.OpenGL.Textures
                 return textureId.ToString();
             }
         }
+
+        public string Label { get; set; } = string.Empty;
 
         public int MaxSize => Renderer.MaxTextureSize;
 
@@ -248,8 +249,7 @@ namespace osu.Framework.Graphics.OpenGL.Textures
         {
             lock (uploadQueue)
             {
-                if (uploadQueue.Count >= 100 && uploadQueue.Count % 100 == 0)
-                    Logger.Log($"Texture {Identifier}'s upload queue is large ({uploadQueue.Count})");
+                TextureUploadDrainer.LogIfQueueLarge(this, uploadQueue.Count + 1);
 
                 bool requireUpload = uploadQueue.Count == 0;
                 uploadQueue.Enqueue(upload);
@@ -269,16 +269,18 @@ namespace osu.Framework.Graphics.OpenGL.Textures
             // We should never run raw OGL calls on another thread than the main thread due to race conditions.
             ThreadSafety.EnsureDrawThread();
 
-            while (tryGetNextUpload(out ITextureUpload upload))
+            unsafe void performUpload(ITextureUpload upload)
             {
-                using (upload)
-                {
-                    fixed (Rgba32* ptr = upload.Data)
-                        DoUpload(upload, (IntPtr)ptr);
+                fixed (Rgba32* ptr = upload.Data)
+                    DoUpload(upload, (IntPtr)ptr);
 
-                    uploadedRegions.Add(upload.Bounds);
-                }
+                uploadedRegions.Add(upload.Bounds);
             }
+
+            TextureUploadDrainer.Drain(uploadQueue, Renderer, BypassTextureUploadQueueing, performUpload);
+
+            if (!BypassTextureUploadQueueing && !UploadComplete)
+                Renderer.EnqueueTextureUpload(this);
 
             #region Custom mipmap generation (disabled)
 
@@ -415,7 +417,7 @@ namespace osu.Framework.Graphics.OpenGL.Textures
 
             #region GL-provided mipmap generation
 
-            if (uploadedRegions.Count != 0 && !manualMipmaps)
+            if (uploadedRegions.Count != 0 && !manualMipmaps && UploadComplete)
             {
                 GL.Hint(HintTarget.GenerateMipmapHint, HintMode.Nicest);
                 GL.GenerateMipmap(TextureTarget.Texture2D);
