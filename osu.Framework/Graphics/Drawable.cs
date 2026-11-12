@@ -3,20 +3,6 @@
 
 #nullable disable
 
-using osuTK;
-using osuTK.Graphics;
-using osu.Framework.Allocation;
-using osu.Framework.Extensions.TypeExtensions;
-using osu.Framework.Graphics.Colour;
-using osu.Framework.Graphics.Containers;
-using osu.Framework.Graphics.Effects;
-using osu.Framework.Graphics.Primitives;
-using osu.Framework.Graphics.Transforms;
-using osu.Framework.Input;
-using osu.Framework.Logging;
-using osu.Framework.Statistics;
-using osu.Framework.Threading;
-using osu.Framework.Timing;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -27,14 +13,28 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using JetBrains.Annotations;
+using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Development;
 using osu.Framework.Extensions.EnumExtensions;
+using osu.Framework.Extensions.TypeExtensions;
+using osu.Framework.Graphics.Colour;
+using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Effects;
+using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
+using osu.Framework.Graphics.Transforms;
+using osu.Framework.Input;
 using osu.Framework.Input.Events;
 using osu.Framework.Input.States;
 using osu.Framework.Layout;
+using osu.Framework.Logging;
+using osu.Framework.Statistics;
+using osu.Framework.Threading;
+using osu.Framework.Timing;
 using osu.Framework.Utils;
+using osuTK;
+using osuTK.Graphics;
 using osuTK.Input;
 using Container = osu.Framework.Graphics.Containers.Container;
 
@@ -63,6 +63,11 @@ namespace osu.Framework.Graphics
         {
             total_count.Value++;
 
+#if DEBUG
+            if (TrackConstructionByType)
+                ConstructionCountsByType.AddOrUpdate(GetType(), 1, static (_, count) => count + 1);
+#endif
+
             AddLayout(drawInfoBacking);
             AddLayout(drawSizeBacking);
             AddLayout(screenSpaceDrawQuadBacking);
@@ -72,6 +77,15 @@ namespace osu.Framework.Graphics
         }
 
         private static readonly GlobalStatistic<int> total_count = GlobalStatistics.Get<int>(nameof(Drawable), "Total constructed");
+
+#if DEBUG
+        /// <summary>
+        /// Whether <see cref="ConstructionCountsByType"/> is being fed. Only enabled while the global statistics window is open.
+        /// </summary>
+        internal static bool TrackConstructionByType;
+
+        internal static readonly System.Collections.Concurrent.ConcurrentDictionary<System.Type, int> ConstructionCountsByType = new System.Collections.Concurrent.ConcurrentDictionary<System.Type, int>();
+#endif
 
         /// <summary>
         /// Disposes this drawable.

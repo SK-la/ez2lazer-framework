@@ -68,6 +68,24 @@ namespace osu.Framework.Statistics
 
         private const string group_name = "Update (Top CPU consumers)";
 
+        private const int reported_slot_count = 5;
+
+        // Reused across reports so the statistics display does not rebuild items every second.
+        private static GlobalStatistic<string>[]? reportSlots;
+
+        private static GlobalStatistic<string>[] getReportSlots()
+        {
+            if (reportSlots != null)
+                return reportSlots;
+
+            reportSlots = new GlobalStatistic<string>[reported_slot_count];
+
+            for (int i = 0; i < reportSlots.Length; i++)
+                reportSlots[i] = GlobalStatistics.Get<string>(group_name, $"Top {i + 1}");
+
+            return reportSlots;
+        }
+
         public static void NewFrame()
         {
             if (Active != active)
@@ -78,6 +96,7 @@ namespace osu.Framework.Statistics
                 framesSinceLastReport = 0;
 
                 GlobalStatistics.Clear(group_name);
+                reportSlots = null;
                 collected_times.Clear();
             }
 
@@ -90,17 +109,19 @@ namespace osu.Framework.Statistics
 
             if (framesSinceLastReport > 0 && clock.CurrentTime - lastReport > 1000)
             {
-                GlobalStatistics.Clear(group_name);
-
                 int i = 0;
 
-                foreach (var t in collected_times.OrderByDescending(t => t.Value.TotalMilliseconds).Take(5))
+                foreach (var t in collected_times.OrderByDescending(t => t.Value.TotalMilliseconds).Take(reported_slot_count))
                 {
                     string runCount = t.Value.Count / framesSinceLastReport > 1 ? $" ({t.Value.Count / framesSinceLastReport} instances)" : string.Empty;
 
-                    GlobalStatistics.Get<string>(group_name, $"{++i}. {t.Key.Name}{runCount}").Value =
-                        $"{t.Value.TotalMilliseconds / framesSinceLastReport:N1}ms";
+                    getReportSlots()[i++].Value = $"{t.Key.Name}{runCount} {t.Value.TotalMilliseconds / framesSinceLastReport:N1}ms";
                 }
+
+                var slots = getReportSlots();
+
+                for (; i < slots.Length; i++)
+                    slots[i].Value = string.Empty;
 
                 collected_times.Clear();
                 framesSinceLastReport = 0;

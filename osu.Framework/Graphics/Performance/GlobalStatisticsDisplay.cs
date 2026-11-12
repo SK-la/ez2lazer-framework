@@ -70,11 +70,50 @@ namespace osu.Framework.Graphics.Performance
             add(GlobalStatistics.GetStatistics());
 
             State.BindValueChanged(visibilityChanged, true);
+
+#if DEBUG
+            Scheduler.AddDelayed(logConstructionDeltas, 2000, true);
+#endif
         }
+
+#if DEBUG
+        private Dictionary<System.Type, int> lastConstructionCounts = new Dictionary<System.Type, int>();
+
+        private void logConstructionDeltas()
+        {
+            if (!Drawable.TrackConstructionByType)
+                return;
+
+            var deltas = new List<(System.Type Type, int Delta)>();
+
+            foreach (var pair in Drawable.ConstructionCountsByType)
+            {
+                lastConstructionCounts.TryGetValue(pair.Key, out int previous);
+
+                if (pair.Value > previous)
+                    deltas.Add((pair.Key, pair.Value - previous));
+            }
+
+            lastConstructionCounts = new Dictionary<System.Type, int>(Drawable.ConstructionCountsByType);
+
+            if (deltas.Count == 0)
+                return;
+
+            deltas.Sort((a, b) => b.Delta.CompareTo(a.Delta));
+
+            string line = string.Join(", ", deltas.Take(12).Select(d => $"{d.Type.FullName} +{d.Delta}"));
+
+            osu.Framework.Logging.Logger.Log($"[drawable-construct] {line}", osu.Framework.Logging.LoggingTarget.Performance, osu.Framework.Logging.LogLevel.Important);
+        }
+#endif
 
         private void visibilityChanged(ValueChangedEvent<Visibility> state)
         {
             performanceLogging.Value = state.NewValue == Visibility.Visible;
+
+#if DEBUG
+            Drawable.TrackConstructionByType = state.NewValue == Visibility.Visible;
+#endif
 
             if (state.NewValue == Visibility.Visible)
             {
