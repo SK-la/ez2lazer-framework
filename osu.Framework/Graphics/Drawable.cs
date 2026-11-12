@@ -65,7 +65,7 @@ namespace osu.Framework.Graphics
 
 #if DEBUG
             if (TrackConstructionByType)
-                ConstructionCountsByType.AddOrUpdate(GetType(), 1, static (_, count) => count + 1);
+                CONSTRUCTION_COUNTS_BY_TYPE.AddOrUpdate(GetType(), 1, static (_, count) => count + 1);
 #endif
 
             AddLayout(drawInfoBacking);
@@ -80,11 +80,11 @@ namespace osu.Framework.Graphics
 
 #if DEBUG
         /// <summary>
-        /// Whether <see cref="ConstructionCountsByType"/> is being fed. Only enabled while the global statistics window is open.
+        /// Whether <see cref="CONSTRUCTION_COUNTS_BY_TYPE"/> is being fed. Only enabled while the global statistics window is open.
         /// </summary>
         internal static bool TrackConstructionByType;
 
-        internal static readonly System.Collections.Concurrent.ConcurrentDictionary<System.Type, int> ConstructionCountsByType = new System.Collections.Concurrent.ConcurrentDictionary<System.Type, int>();
+        internal static readonly ConcurrentDictionary<Type, int> CONSTRUCTION_COUNTS_BY_TYPE = new ConcurrentDictionary<Type, int>();
 #endif
 
         /// <summary>
