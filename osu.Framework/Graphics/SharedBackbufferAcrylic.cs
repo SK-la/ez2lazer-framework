@@ -37,6 +37,7 @@ namespace osu.Framework.Graphics
         private Vector2 sourceHalfSize;
 
         private readonly Dictionary<int, Bucket> buckets = new Dictionary<int, Bucket>();
+        private IUniformBuffer<BlurParameters>? blurParametersBuffer;
 
         public SharedBackbufferAcrylic(Renderer renderer, Capture capture)
         {
@@ -159,12 +160,18 @@ namespace osu.Framework.Graphics
 
             sourceHalfSize = size;
 
-            drawInto(sourceHalf, () =>
+            BlendingParameters previousBlend = pushOffscreen(sourceHalf);
+
+            try
             {
                 textureShader.Bind();
                 renderer.DrawFrameBuffer(fullSnapshot, new RectangleF(0, 0, size.X, size.Y), ColourInfo.SingleColour(Color4.White));
                 textureShader.Unbind();
-            });
+            }
+            finally
+            {
+                popOffscreen(sourceHalf, previousBlend);
+            }
 
             sourceHalfReady = true;
             return true;
@@ -199,29 +206,33 @@ namespace osu.Framework.Graphics
 
         private void drawBlurPass(IFrameBuffer current, IFrameBuffer target, int radius, float sigma, float rotation, IShader blurShader)
         {
-            drawInto(target, () =>
+            BlendingParameters previousBlend = pushOffscreen(target);
+
+            try
             {
                 float radians = float.DegreesToRadians(rotation);
 
-                using (var parameters = ((IRenderer)renderer).CreateUniformBuffer<BlurParameters>())
+                blurParametersBuffer ??= ((IRenderer)renderer).CreateUniformBuffer<BlurParameters>();
+                blurParametersBuffer.Data = new BlurParameters
                 {
-                    parameters.Data = new BlurParameters
-                    {
-                        TexSize = current.Size,
-                        Radius = radius,
-                        Sigma = sigma,
-                        Direction = new Vector2(MathF.Cos(radians), MathF.Sin(radians)),
-                    };
+                    TexSize = current.Size,
+                    Radius = radius,
+                    Sigma = sigma,
+                    Direction = new Vector2(MathF.Cos(radians), MathF.Sin(radians)),
+                };
 
-                    blurShader.BindUniformBlock("m_BlurParameters", parameters);
-                    blurShader.Bind();
-                    renderer.DrawFrameBuffer(current, new RectangleF(0, 0, current.Texture.Width, current.Texture.Height), ColourInfo.SingleColour(Color4.White));
-                    blurShader.Unbind();
-                }
-            });
+                blurShader.BindUniformBlock("m_BlurParameters", blurParametersBuffer);
+                blurShader.Bind();
+                renderer.DrawFrameBuffer(current, new RectangleF(0, 0, current.Texture.Width, current.Texture.Height), ColourInfo.SingleColour(Color4.White));
+                blurShader.Unbind();
+            }
+            finally
+            {
+                popOffscreen(target, previousBlend);
+            }
         }
 
-        private void drawInto(IFrameBuffer target, Action draw)
+        private BlendingParameters pushOffscreen(IFrameBuffer target)
         {
             var rect = new RectangleF(0, 0, target.Size.X, target.Size.Y);
             var rectI = new RectangleI(0, 0, (int)target.Size.X, (int)target.Size.Y);
@@ -241,14 +252,16 @@ namespace osu.Framework.Graphics
             target.Bind();
             renderer.Clear(new ClearInfo(new Color4(0, 0, 0, 0)));
 
-            // 离屏 setup 期间关混合，但必须还原：调用方可能正要靠混合参数画回后缓冲。
+            // 离屏期间关混合，结束时必须还原：调用方可能正要靠混合参数画回后缓冲。
             BlendingParameters previousBlend = renderer.CurrentBlendingParameters;
             renderer.SetBlend(BlendingParameters.None);
-            draw();
+            return previousBlend;
+        }
+
+        private void popOffscreen(IFrameBuffer target, BlendingParameters previousBlend)
+        {
             renderer.SetBlend(previousBlend);
-
             target.Unbind();
-
             renderer.PopOrtho();
             renderer.PopViewport();
             renderer.PopMaskingInfo();
