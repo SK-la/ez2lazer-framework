@@ -43,9 +43,9 @@
     <AnalysisModeUsage>Default</AnalysisModeUsage>
   </PropertyGroup>
   <PropertyGroup Label="Source Generation">
-    <!-- 发布工作流打包时用 /p: 覆盖为 ez2lazer.Framework.SourceGeneration 与 tag 版本。 -->
-    <Ez2LazerSourceGenerationPackageId Condition="'$(Ez2LazerSourceGenerationPackageId)' == ''">ppy.osu.Framework.SourceGeneration</Ez2LazerSourceGenerationPackageId>
-    <Ez2LazerSourceGenerationVersion Condition="'$(Ez2LazerSourceGenerationVersion)' == ''">2025.1121.1</Ez2LazerSourceGenerationVersion>
+    <!-- 发布工作流打包时用 /p: 覆盖为与发布版本一致的生成器包。 -->
+    <Ez2LazerSourceGenerationPackageId Condition="'$(Ez2LazerSourceGenerationPackageId)' == ''">ez2lazer.Framework.SourceGeneration</Ez2LazerSourceGenerationPackageId>
+    <Ez2LazerSourceGenerationVersion Condition="'$(Ez2LazerSourceGenerationVersion)' == ''">2026.1113.0-sourcegen</Ez2LazerSourceGenerationVersion>
   </PropertyGroup>
   <PropertyGroup Label="NuGet">
     <Authors>SK-la</Authors>

@@ -54,10 +54,13 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            value="${{ inputs.version }}"
           else
-            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+            value="${GITHUB_REF#refs/tags/}"
           fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+          # NuGet 版本去掉 Ez 标记，发布为稳定版；tag 名保持不变。
+          echo "package=${value%-ez2lazer}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-dotnet@v5
         with:
@@ -66,13 +69,13 @@ jobs:
       - name: Pack source generator
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          $version = '${{ steps.version.outputs.value }}'
+          $version = '${{ steps.version.outputs.package }}'
           dotnet pack -c Release osu.Framework.SourceGeneration /p:Version=$version -o artifacts
 
       - name: Pack framework
         if: ${{ !inputs.sourcegen_only }}
         run: |
-          $version = '${{ steps.version.outputs.value }}'
+          $version = '${{ steps.version.outputs.package }}'
           dotnet pack -c Release osu.Framework `
             /p:Version=$version `
             /p:Ez2LazerSourceGenerationPackageId=ez2lazer.Framework.SourceGeneration `
@@ -100,7 +103,7 @@ jobs:
       - name: Publish packages to nuget.org
         id: nuget_publish
         run: |
-          $version = '${{ steps.version.outputs.value }}'
+          $version = '${{ steps.version.outputs.package }}'
           $apiKey = '${{ steps.nuget_login.outputs.NUGET_API_KEY }}'
           $log = Join-Path $env:RUNNER_TEMP 'nuget-push.log'
           $failed = $false
