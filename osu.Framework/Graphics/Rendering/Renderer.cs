@@ -260,7 +260,11 @@ namespace osu.Framework.Graphics.Rendering
             }
 
             Initialise(graphicsSurface);
+            CompleteInitialisation();
+        }
 
+        protected void CompleteInitialisation()
+        {
             defaultQuadBatch = CreateQuadBatch<TexturedVertex2D>(100, 1000);
             resetScheduler.AddDelayed(disposalQueue.CheckPendingDisposals, 0, true);
 
@@ -435,6 +439,8 @@ namespace osu.Framework.Graphics.Rendering
             else
                 disposalAction.Invoke(target);
         }
+
+        protected void DrainDisposalsAfterGpuIdle() => disposalQueue.Drain();
 
         /// <summary>
         /// Returns an image containing the current content of the backbuffer, i.e. takes a screenshot.

@@ -186,6 +186,19 @@ namespace osu.Framework.Graphics.Veldrid.Pipelines
                 Commands.GenerateMipmaps(resources[i].Texture);
         }
 
+        public virtual void DisposeAfterGpuIdle()
+        {
+            Commands.Dispose();
+
+            foreach (var execution in pendingExecutions)
+                execution.Fence.Dispose();
+
+            pendingExecutions.Clear();
+
+            while (fencePool.TryDequeue(out var fence))
+                fence.Dispose();
+        }
+
         private readonly record struct ExecutionCompletionFence(Fence Fence, ulong Index);
     }
 }

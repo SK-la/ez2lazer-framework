@@ -131,6 +131,19 @@ namespace osu.Framework.Graphics.Veldrid.Pipelines
             pipelineDesc.Outputs = VeldridDevice.SceneFramebuffer.OutputDescription;
         }
 
+        public override void DisposeAfterGpuIdle()
+        {
+            base.DisposeAfterGpuIdle();
+
+            foreach (var pipeline in pipelineCache.Values)
+                pipeline.Dispose();
+
+            pipelineCache.Clear();
+            attachedTextures.Clear();
+            attachedUniformBuffers.Clear();
+            uniformBufferOffsets.Clear();
+        }
+
         public override void Begin()
         {
             base.Begin();

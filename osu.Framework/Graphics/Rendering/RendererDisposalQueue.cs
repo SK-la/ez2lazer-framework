@@ -75,6 +75,27 @@ namespace osu.Framework.Graphics.Rendering
             pendingDisposals.RemoveRange(0, lastExecutedDisposal + 1);
         }
 
+        public void Drain()
+        {
+            while (true)
+            {
+                lock (newDisposals)
+                {
+                    pendingDisposals.AddRange(newDisposals);
+                    newDisposals.Clear();
+                }
+
+                if (pendingDisposals.Count == 0)
+                    return;
+
+                var batch = pendingDisposals.ToArray();
+                pendingDisposals.Clear();
+
+                foreach (var disposal in batch)
+                    disposal.Run();
+            }
+        }
+
         private class PendingDisposal<T> : IPendingDisposal
         {
             public int RemainingFrameDelay { get; set; }

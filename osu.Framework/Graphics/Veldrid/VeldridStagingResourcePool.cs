@@ -116,6 +116,22 @@ namespace osu.Framework.Graphics.Veldrid
             updateStats();
         }
 
+        public void DisposeAfterGpuIdle()
+        {
+            Pipeline.ExecutionStarted -= executionStarted;
+            Pipeline.ExecutionFinished -= executionFinished;
+
+            foreach (var item in available)
+                item.Resource.Dispose();
+
+            foreach (var item in used)
+                item.Resource.Dispose();
+
+            available.Clear();
+            used.Clear();
+            updateStats();
+        }
+
         private void updateStats()
         {
             usageStat.Value.CountAvailable = available.Count;

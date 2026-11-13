@@ -495,20 +495,21 @@ namespace osu.Framework.Platform
 
         protected virtual void DrawFrame()
         {
-            Debug.Assert(Window != null);
-
             if (Root == null)
                 return;
 
             if (ExecutionState != ExecutionState.Running)
                 return;
 
-            if (Window.WindowState == WindowState.Minimised)
+            if (Window?.WindowState == WindowState.Minimised)
                 return;
 
             // VRR must not tear, so the host can pace the refresh cycle. Borderless still allows tearing when VRR is off.
             bool isVrr = frameSyncMode.Value == FrameSync.VSyncVRR;
-            Renderer.AllowTearing = !isVrr && windowMode.Value is WindowMode.Fullscreen or WindowMode.Borderless;
+
+            // Presentation settings apply to the window's swapchain; offscreen renderers have none.
+            if (Window != null)
+                Renderer.AllowTearing = !isVrr && windowMode.Value is WindowMode.Fullscreen or WindowMode.Borderless;
 
             TripleBuffer<DrawNode>.Buffer buffer;
 
@@ -518,7 +519,8 @@ namespace osu.Framework.Platform
                 // Without this, the wait handle, internally used in the Veldrid-side implementation of `WaitUntilNextFrameReady()`,
                 // will potentially be in a bad state and take the timeout value (1 second) to recover.
                 // Furthermore, don't wait when in VRR mode as we want to be the ones in control of pacing the monitor's refresh cycle.
-                if (didRenderFrame && !isVrr)
+                // There is no swapchain to wait on without a window.
+                if (didRenderFrame && !isVrr && Window != null)
                     Renderer.WaitUntilNextFrameReady();
 
                 didRenderFrame = false;
@@ -533,7 +535,7 @@ namespace osu.Framework.Platform
             try
             {
                 using (drawMonitor.BeginCollecting(PerformanceCollectionType.DrawReset))
-                    Renderer.BeginFrame(new Vector2(Window.ClientSize.Width, Window.ClientSize.Height));
+                    Renderer.BeginFrame(BackbufferSize);
 
                 if (!bypassFrontToBackPass.Value)
                 {
@@ -567,7 +569,7 @@ namespace osu.Framework.Platform
                 using (drawMonitor.BeginCollecting(PerformanceCollectionType.SwapBuffer))
                     Swap();
 
-                Window.OnDraw();
+                Window?.OnDraw();
                 didRenderFrame = true;
             }
             finally
@@ -577,13 +579,18 @@ namespace osu.Framework.Platform
         }
 
         /// <summary>
+        /// The size of the backbuffer drawn each frame.
+        /// </summary>
+        protected virtual Vector2 BackbufferSize => new Vector2(Window.ClientSize.Width, Window.ClientSize.Height);
+
+        /// <summary>
         /// Swap the buffers.
         /// </summary>
         protected virtual void Swap()
         {
             Renderer.SwapBuffers();
 
-            if (Window.GraphicsSurface.Type == GraphicsSurfaceType.OpenGL && Renderer.VerticalSync && RuntimeInfo.OS != RuntimeInfo.Platform.Android)
+            if (Window?.GraphicsSurface.Type == GraphicsSurfaceType.OpenGL && Renderer.VerticalSync && RuntimeInfo.OS != RuntimeInfo.Platform.Android)
                 // without waiting (i.e. glFinish), vsync is basically unplayable due to the extra latency introduced.
                 // we will likely want to give the user control over this in the future as an advanced setting.
                 Renderer.WaitUntilIdle();

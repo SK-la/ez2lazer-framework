@@ -39,7 +39,12 @@ namespace osu.Framework.Graphics.Veldrid
         /// The graphics surface type.
         /// </summary>
         public GraphicsSurfaceType SurfaceType
-            => graphicsSurface.Type;
+            => graphicsSurface?.Type ?? Device.BackendType switch
+            {
+                GraphicsBackend.Vulkan => GraphicsSurfaceType.Vulkan,
+                GraphicsBackend.Metal => GraphicsSurfaceType.Metal,
+                _ => GraphicsSurfaceType.Direct3D11,
+            };
 
         /// <summary>
         /// Enables or disables vertical sync.
@@ -88,9 +93,89 @@ namespace osu.Framework.Graphics.Veldrid
         /// </summary>
         public int MaxTextureSize { get; }
 
-        private readonly IGraphicsSurface graphicsSurface;
+        private readonly IGraphicsSurface? graphicsSurface;
+        private readonly Framebuffer? offlineFramebuffer;
         private Vector2I currentWindowSize;
         private readonly VeldridDisplayPresent? displayPresent;
+
+        internal Framebuffer DefaultFramebuffer => offlineFramebuffer ?? Device.SwapchainFramebuffer;
+
+        internal VeldridDevice(uint width, uint height, bool depth = false)
+        {
+            var options = new GraphicsDeviceOptions
+            {
+                HasMainSwapchain = false,
+                ResourceBindingModel = ResourceBindingModel.Improved,
+            };
+
+            Device = OperatingSystem.IsLinux() ? GraphicsDevice.CreateVulkan(options)
+                : OperatingSystem.IsWindows() ? GraphicsDevice.CreateD3D11(options)
+                : OperatingSystem.IsMacOS() ? GraphicsDevice.CreateMetal(options)
+                : throw new PlatformNotSupportedException(@"No offline graphics backend is available.");
+
+            Texture? colour = null;
+            Texture? depthTarget = null;
+
+            try
+            {
+                colour = Factory.CreateTexture(TextureDescription.Texture2D(width, height, 1, 1,
+                    PixelFormat.R8G8B8A8UNorm, TextureUsage.RenderTarget | TextureUsage.Sampled));
+                if (depth)
+                    depthTarget = Factory.CreateTexture(TextureDescription.Texture2D(width, height, 1, 1, PixelFormat.R16UNorm, TextureUsage.DepthStencil));
+                offlineFramebuffer = Factory.CreateFramebuffer(new FramebufferDescription(depthTarget, colour));
+            }
+            catch
+            {
+                colour?.Dispose();
+                depthTarget?.Dispose();
+                Device.Dispose();
+                throw;
+            }
+
+            MaxTextureSize = 16384;
+            currentWindowSize = new Vector2I((int)width, (int)height);
+        }
+
+        internal void DisposeOffline()
+        {
+            if (offlineFramebuffer == null)
+                throw new InvalidOperationException("Not an offline device.");
+
+            Device.WaitForIdle();
+            gpuWaitStaging?.Dispose();
+            gpuWaitCommands?.Dispose();
+            gpuWaitFence?.Dispose();
+
+            var colour = offlineFramebuffer.ColorTargets[0].Target;
+            var depthTarget = offlineFramebuffer.DepthTarget?.Target;
+            offlineFramebuffer.Dispose();
+            colour.Dispose();
+            depthTarget?.Dispose();
+            Device.Dispose();
+        }
+
+        private Texture? gpuWaitStaging;
+        private CommandList? gpuWaitCommands;
+        private Fence? gpuWaitFence;
+
+        internal void WaitForGpu()
+        {
+            var colour = DefaultFramebuffer.ColorTargets[0].Target;
+
+            gpuWaitStaging ??= Factory.CreateTexture(TextureDescription.Texture2D(1, 1, 1, 1, colour.Format, TextureUsage.Staging));
+            gpuWaitCommands ??= Factory.CreateCommandList();
+            gpuWaitFence ??= Factory.CreateFence(false);
+
+            gpuWaitCommands.Begin();
+            gpuWaitCommands.CopyTexture(colour, 0, 0, 0, 0, 0, gpuWaitStaging, 0, 0, 0, 0, 0, 1, 1, 1, 1);
+            gpuWaitCommands.End();
+            Device.SubmitCommands(gpuWaitCommands, gpuWaitFence);
+
+            Device.WaitForFence(gpuWaitFence);
+            Device.ResetFence(gpuWaitFence);
+            Device.Map(gpuWaitStaging, MapMode.Read);
+            Device.Unmap(gpuWaitStaging);
+        }
 
         /// <summary>
         /// Creates a new <see cref="VeldridDevice"/>
@@ -235,7 +320,7 @@ namespace osu.Framework.Graphics.Veldrid
 
         private void logSwapchainDisplay(SwapchainDisplayMode requested)
         {
-            if (graphicsSurface.Type != GraphicsSurfaceType.Direct3D11)
+            if (graphicsSurface?.Type != GraphicsSurfaceType.Direct3D11)
                 return;
 
             var swapchain = Device.MainSwapchain;
@@ -255,6 +340,9 @@ namespace osu.Framework.Graphics.Veldrid
         /// <param name="windowSize">The window size.</param>
         public void Resize(Vector2I windowSize)
         {
+            if (offlineFramebuffer != null)
+                return;
+
             if (windowSize != currentWindowSize)
             {
                 Device.ResizeMainWindow((uint)windowSize.X, (uint)windowSize.Y);
@@ -266,7 +354,7 @@ namespace osu.Framework.Graphics.Veldrid
         /// <summary>
         /// The framebuffer scene draws target. Standard is the swapchain. 10-bit and HDR composite in R16F first.
         /// </summary>
-        public Framebuffer SceneFramebuffer => displayPresent is { IsAllocated: true } ? displayPresent.Framebuffer : Device.SwapchainFramebuffer;
+        public Framebuffer SceneFramebuffer => displayPresent is { IsAllocated: true } ? displayPresent.Framebuffer : DefaultFramebuffer;
 
         public void PresentDisplayOutput(CommandList commands)
             => displayPresent?.DrawToSwapchain(commands);
@@ -275,7 +363,12 @@ namespace osu.Framework.Graphics.Veldrid
         /// Swaps the back buffer with the front buffer to display the new frame.
         /// </summary>
         public void SwapBuffers()
-            => Device.SwapBuffers();
+        {
+            if (offlineFramebuffer != null)
+                return;
+
+            Device.SwapBuffers();
+        }
 
         /// <summary>
         /// Waits until all renderer commands have been fully executed GPU-side, as signaled by the graphics backend.
@@ -290,7 +383,12 @@ namespace osu.Framework.Graphics.Veldrid
         /// Waits until the GPU signals that the next frame is ready to be rendered.
         /// </summary>
         public void WaitUntilNextFrameReady()
-            => Device.WaitForNextFrameReady();
+        {
+            if (offlineFramebuffer != null)
+                return;
+
+            Device.WaitForNextFrameReady();
+        }
 
         /// <summary>
         /// Invoked when the rendering thread is active and commands will be enqueued.
@@ -298,7 +396,7 @@ namespace osu.Framework.Graphics.Veldrid
         /// </summary>
         public void MakeCurrent()
         {
-            if (graphicsSurface.Type == GraphicsSurfaceType.OpenGL)
+            if (graphicsSurface?.Type == GraphicsSurfaceType.OpenGL)
             {
                 var openGLGraphics = (IOpenGLGraphicsSurface)graphicsSurface;
                 openGLGraphics.MakeCurrent(openGLGraphics.WindowContext);
@@ -311,7 +409,7 @@ namespace osu.Framework.Graphics.Veldrid
         /// </summary>
         public void ClearCurrent()
         {
-            if (graphicsSurface.Type == GraphicsSurfaceType.OpenGL)
+            if (graphicsSurface?.Type == GraphicsSurfaceType.OpenGL)
             {
                 var openGLGraphics = (IOpenGLGraphicsSurface)graphicsSurface;
                 openGLGraphics.ClearCurrent();
@@ -326,9 +424,9 @@ namespace osu.Framework.Graphics.Veldrid
             if (displayPresent is { IsAllocated: true })
                 return displayPresent.TakeScreenshot();
 
-            var texture = Device.SwapchainFramebuffer.ColorTargets[0].Target;
+            var texture = DefaultFramebuffer.ColorTargets[0].Target;
 
-            switch (graphicsSurface.Type)
+            switch (SurfaceType)
             {
                 // Veldrid doesn't support copying content from a swapchain framebuffer texture on OpenGL.
                 // OpenGL already provides a method for reading pixels directly from the active framebuffer, so let's just use that for now.
@@ -350,7 +448,9 @@ namespace osu.Framework.Graphics.Veldrid
                 }
 
                 default:
-                    return ExtractTexture<Bgra32>(texture, flipVertical: !Device.IsUvOriginTopLeft);
+                    return texture.Format == PixelFormat.R8G8B8A8UNorm
+                        ? ExtractTexture<Rgba32>(texture, flipVertical: !Device.IsUvOriginTopLeft)
+                        : ExtractTexture<Bgra32>(texture, flipVertical: !Device.IsUvOriginTopLeft);
             }
         }
 
@@ -405,7 +505,7 @@ namespace osu.Framework.Graphics.Veldrid
         {
             // todo: Metal doesn't support WaitForFence due to lack of implementation and bugs with supporting MTLSharedEvent.notifyListener,
             // until that is fixed in some way or another, poll on the signal state.
-            if (graphicsSurface.Type == GraphicsSurfaceType.Metal)
+            if (SurfaceType == GraphicsSurfaceType.Metal)
             {
                 const int sleep_time = 10;
 
@@ -419,10 +519,10 @@ namespace osu.Framework.Graphics.Veldrid
         }
 
         private Texture sceneColorTarget()
-            => displayPresent is { IsAllocated: true } ? displayPresent.Color : Device.SwapchainFramebuffer.ColorTargets[0].Target;
+            => displayPresent is { IsAllocated: true } ? displayPresent.Color : DefaultFramebuffer.ColorTargets[0].Target;
 
         private bool canCopySwapchain
-            => graphicsSurface.Type is GraphicsSurfaceType.Direct3D11 or GraphicsSurfaceType.Metal or GraphicsSurfaceType.Vulkan;
+            => graphicsSurface?.Type is GraphicsSurfaceType.Direct3D11 or GraphicsSurfaceType.Metal or GraphicsSurfaceType.Vulkan;
 
         internal bool TryGetBackbufferPixelSize(out Vector2I size, out PixelFormat format)
         {
@@ -476,7 +576,7 @@ namespace osu.Framework.Graphics.Veldrid
         /// </summary>
         public void CopyBackbufferRegionToFrameBufferSynchronously(IVeldridFrameBuffer destination, RectangleI screenRect)
         {
-            if (graphicsSurface.Type != GraphicsSurfaceType.Direct3D11)
+            if (graphicsSurface?.Type != GraphicsSurfaceType.Direct3D11)
                 return;
 
             if (!ClampBackbufferCopyRegion(screenRect, out screenRect))

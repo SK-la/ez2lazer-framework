@@ -159,7 +159,34 @@ namespace osu.Framework.Graphics.Veldrid
 
         protected override void Initialise(IGraphicsSurface graphicsSurface)
         {
-            veldridDevice = new VeldridDevice(graphicsSurface, HostStartupDisplayOutput.Mode);
+            initialiseDevice(new VeldridDevice(graphicsSurface, HostStartupDisplayOutput.Mode));
+        }
+
+        internal void InitialiseOffline(uint width, uint height, bool depth = false)
+        {
+            initialiseDevice(new VeldridDevice(width, height, depth));
+            CompleteInitialisation();
+        }
+
+        internal void WaitForGpu() => veldridDevice.WaitForGpu();
+
+        internal void DisposeOffline()
+        {
+            WaitForGpu();
+            WaitUntilIdle();
+            linearIndexBuffer?.Dispose();
+            quadIndexBuffer?.Dispose();
+            DrainDisposalsAfterGpuIdle();
+            graphicsPipeline.DisposeAfterGpuIdle();
+            bufferUpdatePipeline.DisposeAfterGpuIdle();
+            textureUploadPipeline.DisposeAfterGpuIdle();
+            stagingTexturePool.DisposeAfterGpuIdle();
+            veldridDevice.DisposeOffline();
+        }
+
+        private void initialiseDevice(VeldridDevice device)
+        {
+            veldridDevice = device;
             graphicsPipeline = new GraphicsPipeline(veldridDevice);
             bufferUpdatePipeline = new BasicPipeline(veldridDevice);
             textureUploadPipeline = new BasicPipeline(veldridDevice);
