@@ -11,6 +11,11 @@ on:
         description: 'NuGet 包版本（与已存在的 tag 一致，例如 2026.524.4-ez2lazer）'
         required: true
         type: string
+      sourcegen_only:
+        description: '只发布源生成器包（不打包/发布框架包，不建 Release）'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write # GitHub Release
@@ -58,11 +63,16 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Pack
+      - name: Pack source generator
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           $version = '${{ steps.version.outputs.value }}'
           dotnet pack -c Release osu.Framework.SourceGeneration /p:Version=$version -o artifacts
+
+      - name: Pack framework
+        if: ${{ !inputs.sourcegen_only }}
+        run: |
+          $version = '${{ steps.version.outputs.value }}'
           dotnet pack -c Release osu.Framework `
             /p:Version=$version `
             /p:Ez2LazerSourceGenerationPackageId=ez2lazer.Framework.SourceGeneration `
@@ -94,10 +104,20 @@ jobs:
           $apiKey = '${{ steps.nuget_login.outputs.NUGET_API_KEY }}'
           $log = Join-Path $env:RUNNER_TEMP 'nuget-push.log'
           $failed = $false
-          # 生成器包必须先推，框架包以它为依赖。
-          $packages = @(Get-ChildItem artifacts -Filter 'ez2lazer.framework.sourcegeneration*.nupkg')
-          $packages += @(Get-ChildItem artifacts -Filter *.nupkg | Where-Object { $_.Name -notlike 'ez2lazer.framework.sourcegeneration*' })
-          $packages | ForEach-Object {
+          # 生成器包先推，框架包以它为依赖。该版本若已单独发布过，跳过即可。
+          $generator = @(Get-ChildItem artifacts -Filter 'ez2lazer.framework.sourcegeneration*.nupkg')
+          $others = @(Get-ChildItem artifacts -Filter *.nupkg | Where-Object { $_.Name -notlike 'ez2lazer.framework.sourcegeneration*' })
+          $generator | ForEach-Object {
+            dotnet nuget push $_.FullName `
+              --api-key $apiKey `
+              --source https://api.nuget.org/v3/index.json `
+              2>&1 | Tee-Object -FilePath $log -Append
+            if ($LASTEXITCODE -ne 0) {
+              if ((Get-Content $log -Raw) -match 'already exists') { Write-Host "Generator $($_.Name) already published, skip." }
+              else { $failed = $true }
+            }
+          }
+          $others | ForEach-Object {
             dotnet nuget push $_.FullName `
               --api-key $apiKey `
               --source https://api.nuget.org/v3/index.json `
@@ -114,6 +134,7 @@ jobs:
           Write-Host "Published (Trusted Publishing): https://www.nuget.org/packages/ez2lazer.Framework/$version"
 
       - name: Create GitHub Release
+        if: ${{ !inputs.sourcegen_only }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
