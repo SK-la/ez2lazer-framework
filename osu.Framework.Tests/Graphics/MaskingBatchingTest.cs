@@ -84,7 +84,7 @@ namespace osu.Framework.Tests.Graphics
         }
 
         [Test]
-        public void TestEncodableMasksOnTexturedQuadsStayInOneBatch()
+        public void TestDifferentEncodableMasksSplitAndKeepUniformMask()
         {
             var quadBatch = new RecordingQuadBatch(renderer);
             renderer.BeginVertexEncodedBatch(true);
@@ -104,9 +104,12 @@ namespace osu.Framework.Tests.Graphics
             renderer.EndVertexEncodedBatch();
             renderer.FlushCurrentBatch(null);
 
-            Assert.That(quadBatch.DrawCounts, Is.EqualTo(new[] { 8 }));
-            Assert.That(shader.Draws, Has.Count.EqualTo(1));
-            Assert.That(shader.Draws[0].IsMasking.Value, Is.False);
+            Assert.That(quadBatch.DrawCounts, Is.EqualTo(new[] { 4, 4 }));
+            Assert.That(shader.Draws, Has.Count.EqualTo(2));
+            Assert.That(shader.Draws[0].IsMasking.Value, Is.True);
+            Assert.That(shader.Draws[0].CornerRadius.Value, Is.EqualTo(4));
+            Assert.That(shader.Draws[1].IsMasking.Value, Is.True);
+            Assert.That(shader.Draws[1].CornerRadius.Value, Is.EqualTo(17));
         }
 
         [Test]

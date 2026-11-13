@@ -213,15 +213,12 @@ namespace osu.Framework.Graphics.Rendering
         private RectangleI? appliedHardwareScissor;
         private bool maskingStatePending;
 
-        // DrawQuad / DrawTriangle set this while submitting a borderless, non-hollow quad so its mask travels
-        // with the vertex. Manual TexturedVertex2D writers leave it false and keep the uniform mask.
+        // DrawQuad / DrawTriangle set this while submitting a borderless, non-hollow quad. Mask changes still flush;
+        // the uniform mask clips the batch. Manual TexturedVertex2D writers leave it false.
         private bool nextVerticesEncodeMask;
 
         // True once the active batch holds any vertex written with nextVerticesEncodeMask.
         private bool encodedBatchOpen;
-
-        private RectangleI encodedScissorUnion;
-        private bool encodedScissorUnionValid;
 
         private readonly FrameDrawCapture? drawCapture = FrameDrawCapture.Create();
 
@@ -286,7 +283,6 @@ namespace osu.Framework.Graphics.Rendering
             FrameIndex++;
             nextVerticesEncodeMask = false;
             encodedBatchOpen = false;
-            encodedScissorUnionValid = false;
 
             drawCapture?.Begin(FrameIndex, windowSize, GetType().Name);
 
@@ -790,8 +786,7 @@ namespace osu.Framework.Graphics.Rendering
         /// Applies the logical clipping state before new geometry is submitted. Push/pop transitions without geometry in
         /// between therefore do not flush the current batch.
         /// </summary>
-        /// <param name="batch">The batch that geometry is about to be added to, used to decide the appropriate flush source.</param>
-        internal void ApplyPendingMaskingState(IVertexBatch? batch = null)
+        internal void ApplyPendingMaskingState()
         {
             if (!maskingStatePending)
                 return;
@@ -801,33 +796,6 @@ namespace osu.Framework.Graphics.Rendering
             bool maskChanged = appliedMaskingActive != IsMaskingActive
                                || !appliedMaskingInfo.HasSameShaderParameters(currentMaskingInfo);
             bool scissorChanged = appliedScissor != Scissor || appliedScissorEnabled != ScissorState;
-
-            // Rounded quads already stored this mask in their vertices. Keep them in the batch and widen the hardware
-            // scissor to the union; the shader discards pixels outside each quad's own rect. A flush here is what shows
-            // up as SetMasking on song-select carousels.
-            bool coalesceEncoded = nextVerticesEncodeMask
-                                   && encodedBatchOpen
-                                   && batch is IVertexBatch<TexturedVertex2D>
-                                   && (maskChanged || scissorChanged);
-
-            if (coalesceEncoded)
-            {
-                encodedScissorUnion = encodedScissorUnionValid ? unionScissor(encodedScissorUnion, hardwareScissor) : hardwareScissor;
-                encodedScissorUnionValid = true;
-
-                if (appliedHardwareScissor != encodedScissorUnion)
-                {
-                    SetScissorImplementation(encodedScissorUnion);
-                    appliedHardwareScissor = encodedScissorUnion;
-                }
-
-                appliedMaskingInfo = currentMaskingInfo;
-                appliedMaskingActive = IsMaskingActive;
-                appliedScissor = Scissor;
-                appliedScissorEnabled = ScissorState;
-                maskingStatePending = false;
-                return;
-            }
 
             // The flush must happen before the applied state is updated: the geometry being flushed was submitted under the
             // previous state, and DrawBatchVertices reads the applied state. If applied state were updated first, that
@@ -952,32 +920,14 @@ namespace osu.Framework.Graphics.Rendering
         internal void RegisterVertexBufferUse(IVertexBuffer buffer) => vertexBuffersInUse.Add(buffer);
 
         /// <summary>
-        /// Marks the vertices about to be submitted. Encoded quads store the current mask in the vertex, so a later
-        /// mask change does not have to flush them. Border, hollow, and hand-written vertices pass <c>false</c>.
+        /// Marks the vertices about to be submitted. Border, hollow, and hand-written vertices pass <c>false</c>.
+        /// A mask change still flushes; clipping uses the uniform mask and the current scissor.
         /// </summary>
         internal void BeginVertexEncodedBatch(bool encode) => nextVerticesEncodeMask = encode;
 
         internal void EndVertexEncodedBatch() => nextVerticesEncodeMask = false;
 
-        internal void ApplyVertexMask(ref TexturedVertex2D vertex)
-        {
-            if (!nextVerticesEncodeMask || !IsMaskingActive)
-            {
-                vertex.UseVertexMask = 0;
-                return;
-            }
-
-            MaskingInfo info = CurrentMaskingInfo;
-            Matrix3 matrix = info.ToMaskingSpace;
-            RectangleF rect = info.MaskingRect;
-
-            vertex.UseVertexMask = 1;
-            vertex.MaskColumn0 = matrix.Row0;
-            vertex.MaskColumn1 = matrix.Row1;
-            vertex.MaskColumn2 = matrix.Row2;
-            vertex.MaskingRect = new Vector4(rect.Left, rect.Top, rect.Right, rect.Bottom);
-            vertex.MaskParameters = new Vector4(info.CornerRadius, info.CornerExponent, info.BlendRange, info.AlphaExponent);
-        }
+        internal void ApplyVertexMask(ref TexturedVertex2D vertex) => vertex.UseVertexMask = 0;
 
         internal bool IsVertexMaskEncodable =>
             !IsMaskingActive || (!CurrentMaskingInfo.Hollow && CurrentMaskingInfo.BorderThickness <= 0);
@@ -994,18 +944,10 @@ namespace osu.Framework.Graphics.Rendering
             if (encodedBatchOpen && !nextVerticesEncodeMask)
                 FlushCurrentBatch(FlushBatchSource.SetMasking);
 
-            ApplyPendingMaskingState(batch);
+            ApplyPendingMaskingState();
 
             if (nextVerticesEncodeMask && batch is IVertexBatch<TexturedVertex2D>)
-            {
-                if (!encodedScissorUnionValid && appliedHardwareScissor.HasValue)
-                {
-                    encodedScissorUnion = appliedHardwareScissor.Value;
-                    encodedScissorUnionValid = true;
-                }
-
                 encodedBatchOpen = true;
-            }
 
             if (currentActiveBatch == batch)
                 return;
@@ -1018,15 +960,6 @@ namespace osu.Framework.Graphics.Rendering
 
             if (nextVerticesEncodeMask && batch is IVertexBatch<TexturedVertex2D>)
                 encodedBatchOpen = true;
-        }
-
-        private static RectangleI unionScissor(RectangleI left, RectangleI right)
-        {
-            int x1 = Math.Min(left.Left, right.Left);
-            int y1 = Math.Min(left.Top, right.Top);
-            int x2 = Math.Max(left.Right, right.Right);
-            int y2 = Math.Max(left.Bottom, right.Bottom);
-            return new RectangleI(x1, y1, Math.Max(0, x2 - x1), Math.Max(0, y2 - y1));
         }
 
         /// <summary>
@@ -1060,7 +993,6 @@ namespace osu.Framework.Graphics.Rendering
             if (encodedBatchOpen)
             {
                 encodedBatchOpen = false;
-                encodedScissorUnionValid = false;
                 globalUniformsChanged = true;
             }
         }
@@ -1292,11 +1224,7 @@ namespace osu.Framework.Graphics.Rendering
             if (Shader == null)
                 throw new InvalidOperationException("No shader bound.");
 
-            // An encoded batch may contain several masks plus unmasked quads. Those quads read the uniform only when
-            // UseVertexMask is 0, which we only leave for the unmasked case, so the uniform mask must be off here.
-            bool drawEncodedBatch = encodedBatchOpen;
-
-            if (globalUniformsChanged || drawEncodedBatch)
+            if (globalUniformsChanged)
             {
                 float maskBlendRange = appliedMaskingInfo.BlendRange;
                 globalUniformBuffer!.Data = new GlobalUniformData
@@ -1306,18 +1234,16 @@ namespace osu.Framework.Graphics.Rendering
                     IsClipSpaceYInverted = IsClipSpaceYInverted,
                     IsUvOriginTopLeft = IsUvOriginTopLeft,
                     ProjMatrix = ProjectionMatrix,
-                    ToMaskingSpace = drawEncodedBatch ? Matrix3.Identity : appliedMaskingInfo.ToMaskingSpace,
-                    IsMasking = !drawEncodedBatch && appliedMaskingActive,
-                    CornerRadius = drawEncodedBatch ? 0 : appliedMaskingInfo.CornerRadius,
-                    CornerExponent = drawEncodedBatch ? 2 : appliedMaskingInfo.CornerExponent,
-                    MaskingRect = drawEncodedBatch
-                        ? new Vector4(0, 0, Math.Max(Viewport.Width, 1), Math.Max(Viewport.Height, 1))
-                        : new Vector4(
-                            appliedMaskingInfo.MaskingRect.Left,
-                            appliedMaskingInfo.MaskingRect.Top,
-                            appliedMaskingInfo.MaskingRect.Right,
-                            appliedMaskingInfo.MaskingRect.Bottom),
-                    BorderThickness = drawEncodedBatch || maskBlendRange == 0
+                    ToMaskingSpace = appliedMaskingInfo.ToMaskingSpace,
+                    IsMasking = appliedMaskingActive,
+                    CornerRadius = appliedMaskingInfo.CornerRadius,
+                    CornerExponent = appliedMaskingInfo.CornerExponent,
+                    MaskingRect = new Vector4(
+                        appliedMaskingInfo.MaskingRect.Left,
+                        appliedMaskingInfo.MaskingRect.Top,
+                        appliedMaskingInfo.MaskingRect.Right,
+                        appliedMaskingInfo.MaskingRect.Bottom),
+                    BorderThickness = maskBlendRange == 0
                         ? 0
                         : appliedMaskingInfo.BorderThickness / maskBlendRange,
                     BorderColour = appliedMaskingInfo.BorderThickness > 0
@@ -1343,10 +1269,10 @@ namespace osu.Framework.Graphics.Rendering
                             appliedMaskingInfo.BorderColour.BottomRight.SRGB.B,
                             appliedMaskingInfo.BorderColour.BottomRight.SRGB.A)
                         : globalUniformBuffer.Data.BorderColour,
-                    MaskingBlendRange = drawEncodedBatch ? 1 : appliedMaskingInfo.BlendRange,
-                    AlphaExponent = drawEncodedBatch ? 1 : appliedMaskingInfo.AlphaExponent,
-                    EdgeOffset = drawEncodedBatch ? Vector2.Zero : appliedMaskingInfo.EdgeOffset,
-                    DiscardInner = !drawEncodedBatch && appliedMaskingInfo.Hollow,
+                    MaskingBlendRange = appliedMaskingInfo.BlendRange,
+                    AlphaExponent = appliedMaskingInfo.AlphaExponent,
+                    EdgeOffset = appliedMaskingInfo.EdgeOffset,
+                    DiscardInner = appliedMaskingInfo.Hollow,
                     InnerCornerRadius = appliedMaskingInfo.Hollow
                         ? appliedMaskingInfo.HollowCornerRadius
                         : globalUniformBuffer.Data.InnerCornerRadius,
@@ -1354,8 +1280,7 @@ namespace osu.Framework.Graphics.Rendering
                     WrapModeT = (int)CurrentWrapModeT
                 };
 
-                // Encoded draws publish a neutral mask. The next uniform-dependent draw has to upload the real one.
-                globalUniformsChanged = drawEncodedBatch;
+                globalUniformsChanged = false;
             }
 
             Shader.BindUniformBlock("g_GlobalUniforms", globalUniformBuffer!);
