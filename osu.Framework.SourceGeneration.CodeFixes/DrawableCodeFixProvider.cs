@@ -12,8 +12,9 @@ using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using osu.Framework.SourceGeneration.Analysers;
 
-namespace osu.Framework.SourceGeneration.Analysers
+namespace osu.Framework.SourceGeneration.CodeFixes
 {
     [ExportCodeFixProvider(LanguageNames.CSharp), Shared]
     public class DrawableCodeFixProvider : CodeFixProvider

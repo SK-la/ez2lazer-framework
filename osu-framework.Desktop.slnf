@@ -6,6 +6,7 @@
       "osu.Framework.NativeLibs\\osu.Framework.NativeLibs.csproj",
       "osu.Framework.SourceGeneration.Tests\\osu.Framework.SourceGeneration.Tests.csproj",
       "osu.Framework.SourceGeneration\\osu.Framework.SourceGeneration.csproj",
+      "osu.Framework.SourceGeneration.CodeFixes\\osu.Framework.SourceGeneration.CodeFixes.csproj",
       "osu.Framework.Tests\\osu.Framework.Tests.csproj",
       "osu.Framework\\osu.Framework.csproj",
       "SampleGame.Desktop\\SampleGame.Desktop.csproj",
