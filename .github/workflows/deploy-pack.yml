@@ -61,8 +61,13 @@ jobs:
       - name: Pack
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $version = '${{ steps.version.outputs.value }}'
+          dotnet pack -c Release osu.Framework.SourceGeneration /p:Version=$version -o artifacts
           dotnet pack -c Release osu.Framework `
-            /p:Version=${{ steps.version.outputs.value }} `
+            /p:Version=$version `
+            /p:Ez2LazerSourceGenerationPackageId=ez2lazer.Framework.SourceGeneration `
+            /p:Ez2LazerSourceGenerationVersion=$version `
+            /p:RestoreAdditionalProjectSources=${{ github.workspace }}\artifacts `
             /p:GenerateDocumentationFile=true `
             /p:IncludeSymbols=true `
             /p:SymbolPackageFormat=snupkg `
@@ -89,7 +94,10 @@ jobs:
           $apiKey = '${{ steps.nuget_login.outputs.NUGET_API_KEY }}'
           $log = Join-Path $env:RUNNER_TEMP 'nuget-push.log'
           $failed = $false
-          Get-ChildItem artifacts -Filter *.nupkg | ForEach-Object {
+          # 生成器包必须先推，框架包以它为依赖。
+          $packages = @(Get-ChildItem artifacts -Filter 'ez2lazer.framework.sourcegeneration*.nupkg')
+          $packages += @(Get-ChildItem artifacts -Filter *.nupkg | Where-Object { $_.Name -notlike 'ez2lazer.framework.sourcegeneration*' })
+          $packages | ForEach-Object {
             dotnet nuget push $_.FullName `
               --api-key $apiKey `
               --source https://api.nuget.org/v3/index.json `

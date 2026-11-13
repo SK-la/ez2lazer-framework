@@ -19,7 +19,6 @@
     <PackageTags>ez2lazer framework</PackageTags>
   </PropertyGroup>
   <ItemGroup Label="Package References">
-    <PackageReference Include="NAudio" Version="3.3.0" />
     <PackageReference Include="NAudio.Wasapi" Version="3.3.0" />
     <PackageReference Include="BASS.ASIO" Version="1.3.1.2">
       <PrivateAssets>none</PrivateAssets>
@@ -50,7 +49,7 @@
     <PackageReference Include="StbiSharp" Version="1.2.3" />
     <PackageReference Include="ppy.SDL2-CS" Version="1.0.741-alpha" />
     <PackageReference Include="ppy.SDL3-CS" Version="2026.1002.1" />
-    <PackageReference Include="ppy.osu.Framework.SourceGeneration" Version="2025.1121.1" />
+    <PackageReference Include="$(Ez2LazerSourceGenerationPackageId)" Version="$(Ez2LazerSourceGenerationVersion)" />
 
     <!-- DO NOT use ProjectReference for native packaging project.
          See https://github.com/NuGet/Home/issues/4514 and https://github.com/dotnet/sdk/issues/765 . -->
@@ -62,7 +61,7 @@
 
     <!-- Any version ahead of this will cause runtime issues on iOS
          See https://github.com/xoofx/markdig/issues/564 -->
-    <PackageReference Include="Markdig" Version="1.3.2" />
+    <PackageReference Include="Markdig" Version="1.6.0" />
     <PackageReference Include="System.Numerics.Tensors" Version="10.0.13" />
   </ItemGroup>
   <!-- PlutoSVG FreeType OT-SVG hooks (plutosvgft). Packed into ez2lazer.Framework for NuGet consumers.

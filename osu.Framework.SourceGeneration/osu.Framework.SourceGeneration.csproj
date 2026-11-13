@@ -13,7 +13,7 @@
   </PropertyGroup>
   <PropertyGroup Label="Nuget">
     <Title>Ez2Lazer Framework Source Generators</Title>
-    <PackageId>ppy.osu.Framework.SourceGeneration</PackageId>
+    <PackageId>ez2lazer.Framework.SourceGeneration</PackageId>
     <PackageReleaseNotes>Automated release.</PackageReleaseNotes>
     <PackageTags>ez2lazer framework source generator</PackageTags>
   </PropertyGroup>
