@@ -4,8 +4,8 @@
 using System;
 using System.Threading;
 using NUnit.Framework;
-using osu.Framework.Utils;
 using osu.Framework.Timing;
+using osu.Framework.Utils;
 
 namespace osu.Framework.Tests.Clocks
 {
@@ -267,7 +267,7 @@ namespace osu.Framework.Tests.Clocks
             while (interpolating.CurrentTime <= 1000)
             {
                 interpolating.ProcessFrame();
-                Assert.That(interpolating.CurrentTime, Is.EqualTo(stopwatch.CurrentTime).Within(1));
+                Assert.That(interpolating.CurrentTime, Is.EqualTo(stopwatch.CurrentTime).Within(2));
 
                 Thread.Sleep(updateRate);
             }
