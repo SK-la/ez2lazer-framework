@@ -19,11 +19,11 @@ concurrency:
 permissions:
   actions: read
   contents: read
-  security-events: write # for reporting InspectCode issues
 
 jobs:
-  inspect-code:
-    name: Code Quality
+  # Roslyn + CFS 为硬门槛；PR/master 深度静态与装饰见 sonar.yml
+  code-style:
+    name: Code style
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -40,12 +40,6 @@ jobs:
       - name: Restore Packages
         run: dotnet restore osu-framework.Desktop.slnf
 
-      - name: Restore inspectcode cache
-        uses: actions/cache@v5
-        with:
-          path: ${{ github.workspace }}/inspectcode
-          key: inspectcode-${{ hashFiles('.config/dotnet-tools.json', '.github/workflows/ci.yml', 'osu-framework.sln*', 'osu-framework*.slnf', '.editorconfig', '.globalconfig', 'CodeAnalysis/*', '**/*.csproj', '**/*.props') }}
-
       - name: Dotnet code style
         run: dotnet build -c Debug -warnaserror osu-framework.Desktop.slnf -p:EnforceCodeStyleInBuild=true
 
@@ -61,17 +55,6 @@ jobs:
             fi
           done <<< $(dotnet codefilesanity)
           exit $exit_code
-
-      - name: InspectCode
-        uses: JetBrains/ReSharper-InspectCode@v0.11
-        with:
-          # this is WTF tier but if you don't specify *both* of these the defaults assume `build: true`
-          build: false
-          no-build: true
-          tool-version: '2026.2.1'
-          solution: ./osu-framework.Desktop.slnf
-          caches-home: inspectcode
-          verbosity: WARN
 
   test:
     name: Test
