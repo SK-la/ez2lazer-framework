@@ -7,6 +7,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Textures;
@@ -103,6 +104,49 @@ namespace osu.Framework.IO.Stores
 
         private Task childStoreLoadTasks;
 
+        private readonly Lock glyphCacheLock = new Lock();
+
+        private int pendingFontLoads;
+
+        private int loadGeneration;
+
+        /// <summary>
+        /// Bumps when a glyph store starts or finishes loading, including nested stores.
+        /// Text that looked up glyphs too early compares this and rebuilds.
+        /// </summary>
+        internal int LoadGeneration
+        {
+            get
+            {
+                int generation = Volatile.Read(ref loadGeneration);
+
+                foreach (var nested in nestedFontStores)
+                {
+                    if (nested is FontStore fonts)
+                        generation += fonts.LoadGeneration;
+                }
+
+                return generation;
+            }
+        }
+
+        private bool anyFontLoadPending
+        {
+            get
+            {
+                if (Volatile.Read(ref pendingFontLoads) > 0)
+                    return true;
+
+                foreach (var nested in nestedFontStores)
+                {
+                    if (nested is FontStore fonts && fonts.anyFontLoadPending)
+                        return true;
+                }
+
+                return false;
+            }
+        }
+
         /// <summary>
         /// Append child stores to a single threaded load task.
         /// </summary>
@@ -110,13 +154,17 @@ namespace osu.Framework.IO.Stores
         {
             var previousLoadStream = childStoreLoadTasks;
 
+            // HasGlyph is false until LoadFontAsync finishes. A lookup in that window must not stick,
+            // or the character stays blank after the face is ready.
+            beginFontLoad();
+
             childStoreLoadTasks = Task.Run(async () =>
             {
-                if (previousLoadStream != null)
-                    await previousLoadStream.ConfigureAwait(false);
-
                 try
                 {
+                    if (previousLoadStream != null)
+                        await previousLoadStream.ConfigureAwait(false);
+
                     var sw = Stopwatch.StartNew();
                     await store.LoadFontAsync().ConfigureAwait(false);
                     Logger.Log($"Loaded font {store.FontName} ({sw.ElapsedMilliseconds} ms)", level: LogLevel.Debug);
@@ -126,7 +174,48 @@ namespace osu.Framework.IO.Stores
                     // Errors are logged by LoadFontAsync() but also propagated outwards.
                     // We can gracefully continue when loading a font fails, so the exception shouldn't trigger the unobserved exception handler of GameHost and potentially crash the game.
                 }
+                finally
+                {
+                    endFontLoad();
+                }
             });
+        }
+
+        /// <summary>
+        /// Drops missed lookups and publishes a new <see cref="LoadGeneration"/>.
+        /// </summary>
+        private void beginFontLoad()
+        {
+            ClearFailedCache();
+
+            lock (glyphCacheLock)
+            {
+                evictNullGlyphCache();
+                pendingFontLoads++;
+                loadGeneration++;
+            }
+        }
+
+        private void endFontLoad()
+        {
+            // Texture lookups that ran before the face existed are cached as null too.
+            ClearFailedCache();
+
+            lock (glyphCacheLock)
+            {
+                evictNullGlyphCache();
+                pendingFontLoads--;
+                loadGeneration++;
+            }
+        }
+
+        private void evictNullGlyphCache()
+        {
+            foreach (var key in namespacedGlyphCache.Keys)
+            {
+                if (namespacedGlyphCache.TryGetValue(key, out var glyph) && glyph == null)
+                    namespacedGlyphCache.TryRemove(key, out _);
+            }
         }
 
         public override void RemoveTextureStore(IResourceStore<TextureUpload> store)
@@ -170,7 +259,15 @@ namespace osu.Framework.IO.Stores
             var key = (fontName, codepoint);
 
             if (namespacedGlyphCache.TryGetValue(key, out var existing))
-                return existing;
+            {
+                // A miss recorded before the face finished loading is not a real miss.
+                if (existing != null || !anyFontLoadPending)
+                    return existing;
+
+                namespacedGlyphCache.TryRemove(key, out _);
+            }
+
+            int generationAtLookup = LoadGeneration;
 
             foreach (var store in glyphStores)
             {
@@ -199,7 +296,15 @@ namespace osu.Framework.IO.Stores
                     return namespacedGlyphCache[key] = glyph;
             }
 
-            return namespacedGlyphCache[key] = null;
+            lock (glyphCacheLock)
+            {
+                // The face may have become readable while this lookup was walking stores.
+                // Leave the miss uncached so the next lookup can see the glyph.
+                if (anyFontLoadPending || LoadGeneration != generationAtLookup)
+                    return null;
+
+                return namespacedGlyphCache[key] = null;
+            }
         }
 
         public Task<ITexturedCharacterGlyph> GetAsync(string fontName, char character) => Task.Run(() => Get(fontName, character));
