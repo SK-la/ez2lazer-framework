@@ -151,6 +151,11 @@ namespace osu.Framework.Graphics.Textures
 
             tex ??= renderer.CreateTexture(upload.Width, upload.Height, manualMipmaps, filteringMode, wrapModeS, wrapModeT);
             tex.ScaleAdjust = ScaleAdjust;
+
+            // One pixel from the buffer that is about to be uploaded. No second decode and no GPU readback.
+            if (upload.TrySampleOpaquePixel(out Colour4 backdropSample))
+                tex.SetBackdropSample(backdropSample);
+
             tex.SetData(upload);
 
             return tex;
