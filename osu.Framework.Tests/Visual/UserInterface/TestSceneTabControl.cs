@@ -17,7 +17,7 @@ using osu.Framework.Input;
 using osu.Framework.Localisation;
 using osuTK;
 
-#pragma warning disable CA1826 // Performance for test is not important
+#pragma warning disable CA1826, CA1860 // Performance for test is not important
 
 namespace osu.Framework.Tests.Visual.UserInterface
 {

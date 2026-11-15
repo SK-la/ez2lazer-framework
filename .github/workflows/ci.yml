@@ -29,10 +29,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install .NET 10.0.x
+      - name: Install .NET 11.0.x
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "11.0.x"
 
       - name: Restore Tools
         run: dotnet tool restore
@@ -77,10 +77,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install .NET 10.0.x
+      - name: Install .NET 11.0.x
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "11.0.x"
 
       - name: Install Vulkan (Linux)
         if: runner.os == 'Linux'
@@ -168,10 +168,10 @@ jobs:
           distribution: microsoft
           java-version: 11
 
-      - name: Install .NET 10.0.x
+      - name: Install .NET 11.0.x
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "11.0.x"
 
       - name: Restore .NET workloads
         run: dotnet workload install android
@@ -187,10 +187,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install .NET 10.0.x
+      - name: Install .NET 11.0.x
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "11.0.x"
 
       # The .NET workload (built against/requires a specific Xcode version) and the default Xcode on the GHA runner can get out of sync.
       # Force a common Xcode version to prevent builds spontaneously failing.
