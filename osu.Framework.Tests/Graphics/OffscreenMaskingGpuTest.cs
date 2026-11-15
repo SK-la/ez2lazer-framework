@@ -2,6 +2,8 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.IO;
+using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Development;
 using osu.Framework.Graphics;
@@ -21,6 +23,14 @@ namespace osu.Framework.Tests.Graphics
     public class OffscreenMaskingGpuTest
     {
         private const int size = 64;
+        private const string vulkan_icd_directory = "/usr/share/vulkan/icd.d";
+
+        [OneTimeSetUp]
+        public void OneTimeSetUp()
+        {
+            if (OperatingSystem.IsLinux() && !hasVulkanIcd())
+                Assert.Ignore("No Vulkan ICD available on this host.");
+        }
 
         [Test]
         public void TestUnmaskedQuadIsVisible()
@@ -128,5 +138,16 @@ namespace osu.Framework.Tests.Graphics
         }
 
         private static int index(int x, int y) => y * size + x;
+
+        private static bool hasVulkanIcd()
+        {
+            string? customIcd = Environment.GetEnvironmentVariable("VK_ICD_FILENAMES");
+
+            if (!string.IsNullOrWhiteSpace(customIcd))
+                return customIcd.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).All(File.Exists);
+
+            return Directory.Exists(vulkan_icd_directory)
+                   && Directory.EnumerateFiles(vulkan_icd_directory, "*.json").Any();
+        }
     }
 }
