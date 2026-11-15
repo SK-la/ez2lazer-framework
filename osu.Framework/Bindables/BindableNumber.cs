@@ -4,6 +4,7 @@
 #nullable disable
 
 using System;
+using System.Globalization;
 using System.Numerics;
 using JetBrains.Annotations;
 using osu.Framework.Utils;
@@ -74,19 +75,34 @@ namespace osu.Framework.Bindables
 
         private void setValue(T value)
         {
-            decimal decPrecision = decimal.CreateTruncating(Precision);
+            decimal decPrecision = toRealDecimal(Precision);
 
             if (decPrecision > 0)
             {
                 // this rounding is purposefully performed on `decimal` to ensure that the resulting value is the closest possible floating-point
                 // number to actual real-world base-10 decimals, as that is the most common usage of precision.
-                decimal accurateResult = decimal.CreateTruncating(T.Clamp(value, MinValue, MaxValue));
+                decimal accurateResult = toRealDecimal(T.Clamp(value, MinValue, MaxValue));
                 accurateResult = Math.Round(accurateResult / decPrecision) * decPrecision;
 
                 base.Value = T.CreateTruncating(accurateResult);
             }
             else
                 base.Value = value;
+        }
+
+        // float/double binary values are not the real-world decimals users specify (0.1f is not 0.1m).
+        // Parse the default string form when it is a plain decimal so precision rounding stays on that value;
+        // .NET 11 rounding of the binary expansion no longer lands on the closest float.
+        // Values like float.Epsilon stringify as scientific notation and cannot be parsed as decimal.
+        private static decimal toRealDecimal(T value)
+        {
+            if (typeof(T) == typeof(float) || typeof(T) == typeof(double))
+            {
+                if (decimal.TryParse(value.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal parsed))
+                    return parsed;
+            }
+
+            return decimal.CreateTruncating(value);
         }
 
         protected override T DefaultMinValue => T.MinValue;
