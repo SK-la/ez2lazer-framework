@@ -1,7 +1,7 @@
 <Project>
   <!-- Some transitive assemblies don't behave well with AOT, so we strip them.
        Importantly, this is done in such a way that the assembly's MVID is preserved to satisfy runtime requirements. -->
-  <Target Name="OsuFrameworkIOSStripAssemblies" AfterTargets="ILLink" BeforeTargets="_AOTCompile">
+  <Target Name="OsuFrameworkIOSStripAssemblies" AfterTargets="ILLink" BeforeTargets="_AOTCompile" Condition="'$(UseMonoRuntime)' == 'true'">
     <PropertyGroup>
       <AssemblyStripper>$(MSBuildThisFileDirectory)tools\AssemblyStripper.cs</AssemblyStripper>
       <LinkedOutputFolder>$(IntermediateOutputPath)linked\</LinkedOutputFolder>
