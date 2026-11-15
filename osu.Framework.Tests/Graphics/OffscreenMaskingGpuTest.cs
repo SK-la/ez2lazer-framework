@@ -23,7 +23,6 @@ namespace osu.Framework.Tests.Graphics
     public class OffscreenMaskingGpuTest
     {
         private const int size = 64;
-        private const string vulkan_icd_directory = "/usr/share/vulkan/icd.d";
 
         [OneTimeSetUp]
         public void OneTimeSetUp()
@@ -141,13 +140,13 @@ namespace osu.Framework.Tests.Graphics
 
         private static bool hasVulkanIcd()
         {
-            string? customIcd = Environment.GetEnvironmentVariable("VK_ICD_FILENAMES");
+            string? customIcd = Environment.GetEnvironmentVariable("VK_DRIVER_FILES") ?? Environment.GetEnvironmentVariable("VK_ICD_FILENAMES");
 
             if (!string.IsNullOrWhiteSpace(customIcd))
-                return customIcd.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).All(File.Exists);
+                return customIcd.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).All(File.Exists);
 
-            return Directory.Exists(vulkan_icd_directory)
-                   && Directory.EnumerateFiles(vulkan_icd_directory, "*.json").Any();
+            string[] dirs = { "/etc/vulkan/icd.d", "/usr/local/share/vulkan/icd.d", "/usr/share/vulkan/icd.d" };
+            return dirs.Any(d => Directory.Exists(d) && Directory.EnumerateFiles(d, "*.json").Any());
         }
     }
 }
