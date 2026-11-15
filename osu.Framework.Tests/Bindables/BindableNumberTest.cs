@@ -83,6 +83,13 @@ namespace osu.Framework.Tests.Bindables
             Assert.That(bindable.Value, Is.EqualTo(9.87f));
         }
 
+        [Test]
+        [SetCulture("de-DE")]
+        public void TestDecimalPrecisionUnderCommaDecimalCulture()
+        {
+            TestDecimalPrecision();
+        }
+
         /// <summary>
         /// Tests that value can be added to on all supported <see cref="BindableNumber{T}"/> types.
         /// </summary>

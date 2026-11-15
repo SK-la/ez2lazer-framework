@@ -98,7 +98,8 @@ namespace osu.Framework.Bindables
         {
             if (typeof(T) == typeof(float) || typeof(T) == typeof(double))
             {
-                if (decimal.TryParse(value.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal parsed))
+                string str = value.ToString(null, CultureInfo.InvariantCulture);
+                if (decimal.TryParse(str, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out decimal parsed))
                     return parsed;
             }
 
