@@ -873,9 +873,9 @@ namespace osu.Framework.Threading
                 firstAttemptMs ??= bufferMs;
                 bool onlyTransientFailures = true;
 
-                for (int attempt = 0; attempt < WasapiExclusiveBufferLadder.TransientRetryDelaysMs.Length; attempt++)
+                for (int attempt = 0; attempt < WasapiExclusiveBufferLadder.TRANSIENT_RETRY_DELAYS_MS.Length; attempt++)
                 {
-                    int delayMs = WasapiExclusiveBufferLadder.TransientRetryDelaysMs[attempt];
+                    int delayMs = WasapiExclusiveBufferLadder.TRANSIENT_RETRY_DELAYS_MS[attempt];
 
                     if (delayMs > 0)
                         Thread.Sleep(delayMs);
@@ -903,7 +903,7 @@ namespace osu.Framework.Threading
                     }
 
                     Logger.Log(
-                        $"WASAPI Exclusive init transient {error} at {bufferMs}ms (attempt {attempt + 1}/{WasapiExclusiveBufferLadder.TransientRetryDelaysMs.Length}).",
+                        $"WASAPI Exclusive init transient {error} at {bufferMs}ms (attempt {attempt + 1}/{WasapiExclusiveBufferLadder.TRANSIENT_RETRY_DELAYS_MS.Length}).",
                         name: "audio",
                         level: LogLevel.Important);
                 }
@@ -1166,7 +1166,7 @@ namespace osu.Framework.Threading
             exclusiveEndpointGain?.Dispose();
             exclusiveEndpointGain = null;
 
-            if (!isValidBassHandle(mixerHandle))
+            if (mixerHandle is not int handle || handle == 0)
                 return;
 
             string? endpointId = null;
@@ -1174,7 +1174,7 @@ namespace osu.Framework.Threading
             if (wasapiDevice >= 0 && BassWasapi.GetDeviceInfo(wasapiDevice, out WasapiDeviceInfo info))
                 endpointId = info.ID;
 
-            exclusiveEndpointGain = WasapiExclusiveEndpointGain.TryAttach(endpointId, mixerHandle!.Value, Scheduler);
+            exclusiveEndpointGain = WasapiExclusiveEndpointGain.TryAttach(endpointId, handle, Scheduler);
         }
 
         private bool initNAudioDefault(int bassDeviceId)

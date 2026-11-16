@@ -152,9 +152,10 @@ namespace osu.Framework.Audio
         /// <summary>
         /// User-facing details for <see cref="OnAudioOutputSwitchFailed"/>.
         /// </summary>
-        public readonly record struct AudioOutputFailureInfo(AudioOutputMode Mode, string Selection, string BassError, string Message)
+#nullable enable
+        public readonly record struct AudioOutputFailureInfo(AudioOutputMode Mode, string Selection, string? BassError, string Message)
         {
-            public static AudioOutputFailureInfo Create(AudioOutputMode mode, string selection, string bassError)
+            public static AudioOutputFailureInfo Create(AudioOutputMode mode, string? selection, string? bassError)
             {
                 string modeText = mode switch
                 {
@@ -174,6 +175,7 @@ namespace osu.Framework.Audio
                     $"{modeText} failed to start ({device}, {error}). Output is not running.");
             }
         }
+#nullable disable
 
         /// <summary>
         /// The preferred audio device we should use. A value of
@@ -445,6 +447,7 @@ namespace osu.Framework.Audio
         /// <summary>
         /// Last Windows output-path facts written from the audio thread for settings status notes.
         /// </summary>
+#nullable enable
         public readonly record struct WindowsOutputRuntimeInfo(
             AudioOutputMode Mode,
             bool Active,
@@ -456,7 +459,8 @@ namespace osu.Framework.Audio
             int? WasapiBufferMs = null,
             int? WasapiPeriodMs = null,
             int? WasapiRequestedBufferMs = null,
-            string LastError = null);
+            string? LastError = null);
+#nullable disable
 
         private WindowsOutputRuntimeInfo windowsOutputRuntime;
 
@@ -1061,15 +1065,15 @@ namespace osu.Framework.Audio
                 Logger.Log($"Keeping explicit audio selection '{AudioDevice.Value}' after initialisation failure; skipping silent fallback to default device.", name: "audio", level: LogLevel.Important);
                 Logger.Log($"Audio output remains uninitialised after explicit device selection failure: '{AudioDevice.Value}'.", name: "audio", level: LogLevel.Important);
 
-                var (mode, _) = parseSelection(AudioDevice.Value);
+                var (outputMode, _) = parseSelection(AudioDevice.Value);
                 string bassError = windowsOutputRuntime.LastError;
 
                 if (string.IsNullOrEmpty(bassError) && Bass.LastError != Errors.OK)
                     bassError = Bass.LastError.ToString();
 
-                notifyAudioOutputSwitchFailed(AudioOutputFailureInfo.Create(mode, AudioDevice.Value, bassError));
+                notifyAudioOutputSwitchFailed(AudioOutputFailureInfo.Create(outputMode, AudioDevice.Value, bassError));
 
-                if (mode == AudioOutputMode.Asio)
+                if (outputMode == AudioOutputMode.Asio)
                     notifyAsioOutputUnavailable();
             }
 
