@@ -890,6 +890,12 @@ namespace osu.Framework.Audio
         public AudioMixer CreateAudioMixer(string identifier = null) =>
             createAudioMixer(SampleMixer, !string.IsNullOrEmpty(identifier) ? identifier : $"user #{Interlocked.Increment(ref userMixerID)}");
 
+        internal void ReleaseNativeMixers()
+        {
+            foreach (var mixer in Items.OfType<BassAudioMixer>())
+                mixer.ReleaseNativeHandle();
+        }
+
         private AudioMixer createAudioMixer(AudioMixer fallbackMixer, string identifier)
         {
             // Always use BassAudioMixer. Output backends differ by mode:

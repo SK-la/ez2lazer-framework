@@ -5,15 +5,15 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using ManagedBass;
 using ManagedBass.Fx;
-using osu.Framework.IO;
-using System.Threading.Tasks;
 using osu.Framework.Audio.Callbacks;
 using osu.Framework.Audio.Mixing;
 using osu.Framework.Audio.Mixing.Bass;
 using osu.Framework.Extensions;
 using osu.Framework.Extensions.ObjectExtensions;
+using osu.Framework.IO;
 using osu.Framework.Utils;
 
 namespace osu.Framework.Audio.Track
@@ -156,7 +156,10 @@ namespace osu.Framework.Audio.Track
 
             fileCallbacks = new FileCallbacks(new DataStreamFileProcedures(dataStream));
 
-            BassFlags flags = (Preview ? 0 : BassFlags.Decode | BassFlags.Prescan);
+            // Decode + BASS_NODEVICE so Bass.Free during output switches does not destroy the stream.
+            BassFlags flags = BassFlags.Decode;
+            if (!Preview)
+                flags |= BassFlags.Prescan;
 
             // While this shouldn't cause issues, we've had a small subset of users reporting issues on windows.
             // To keep things working let's only apply to other platforms until we know more.
@@ -168,18 +171,15 @@ namespace osu.Framework.Audio.Track
 
             bitrate = (int)Math.Round(Bass.ChannelGetAttribute(stream, ChannelAttribute.Bitrate));
 
+            assignNoDevice(stream);
+
             if (!Preview)
             {
-                // We assign the BassFlags.Decode streams to the device "bass_nodevice" to prevent them from getting
-                // cleaned up during a Bass.Free call. This is necessary for seamless switching between audio devices.
-                // Further, we provide the flag BassFlags.FxFreeSource such that freeing the stream also frees
-                // all parent decoding streams.
-                const int bass_nodevice = 0x20000;
-
-                Bass.ChannelSetDevice(stream, bass_nodevice);
+                // FxFreeSource: freeing the reverse stream also frees tempo and the source decode stream.
                 tempoAdjustStream = BassFx.TempoCreate(stream, BassFlags.Decode | BassFlags.FxFreeSource);
-                Bass.ChannelSetDevice(tempoAdjustStream, bass_nodevice);
+                assignNoDevice(tempoAdjustStream);
                 stream = BassFx.ReverseCreate(tempoAdjustStream, 5f, BassFlags.Default | BassFlags.FxFreeSource | BassFlags.Decode);
+                assignNoDevice(stream);
 
                 Bass.ChannelSetAttribute(tempoAdjustStream, ChannelAttribute.TempoUseQuickAlgorithm, 1);
                 Bass.ChannelSetAttribute(tempoAdjustStream, ChannelAttribute.TempoOverlapMilliseconds, 4);
@@ -192,6 +192,16 @@ namespace osu.Framework.Audio.Track
             return stream;
         }
 
+        private const int bass_nodevice = 0x20000;
+
+        private static void assignNoDevice(int handle)
+        {
+            if (handle != 0)
+                Bass.ChannelSetDevice(handle, bass_nodevice);
+        }
+
+        private bool streamIsAlive() => activeStream != 0 && Bass.ChannelGetInfo(activeStream, out _);
+
         /// <summary>
         /// Returns whether the playback state is considered to be running or not.
         /// This will only return true for <see cref="PlaybackState.Playing"/> and <see cref="PlaybackState.Stalled"/>.
@@ -200,20 +210,30 @@ namespace osu.Framework.Audio.Track
 
         void IBassAudio.UpdateDevice(int deviceIndex)
         {
+            if (Mixer == null)
+                return;
+
+            if (!streamIsAlive())
+            {
+                isRunning = isPlayed = false;
+                return;
+            }
+
+            if (!isPlayed)
+                return;
+
             // Bass may leave us in an invalid state after the output device changes (this is true for "No sound" device)
             // if the observed state was playing before change, we should force things into a good state.
-            if (isPlayed && Mixer != null)
-            {
-                // While on windows, changing to "No sound" changes the playback state correctly,
-                // on macOS it is left in a playing-but-stalled state. Forcefully stopping first fixes this.
-                stopInternal();
+            // While on windows, changing to "No sound" changes the playback state correctly,
+            // on macOS it is left in a playing-but-stalled state. Forcefully stopping first fixes this.
+            stopInternal();
 
-                // this is required otherwise the "Completed" event won't fire after a device change
-                cleanUpSyncs();
-                initializeSyncs();
+            // this is required otherwise the "Completed" event won't fire after a device change
+            cleanUpSyncs();
+            initializeSyncs();
 
-                startInternal();
-            }
+            if (!startInternal())
+                isRunning = isPlayed = false;
         }
 
         private BassAmplitudeProcessor? bassAmplitudeProcessor;
@@ -221,6 +241,12 @@ namespace osu.Framework.Audio.Track
         protected override void UpdateState()
         {
             base.UpdateState();
+
+            if (!streamIsAlive())
+            {
+                isRunning = isPlayed = false;
+                return;
+            }
 
             bool running = isRunningState(bassMixer.ChannelIsActive(this));
 
@@ -365,7 +391,7 @@ namespace osu.Framework.Audio.Track
         {
             base.OnStateChanged();
 
-            if (activeStream == 0)
+            if (!streamIsAlive())
                 return;
 
             setDirection(AggregateFrequency.Value < 0);
@@ -374,7 +400,8 @@ namespace osu.Framework.Audio.Track
             Bass.ChannelSetAttribute(activeStream, ChannelAttribute.Pan, AggregateBalance.Value);
             relativeFrequencyHandler.SetFrequency(AggregateFrequency.Value);
 
-            Bass.ChannelSetAttribute(tempoAdjustStream, ChannelAttribute.Tempo, (Math.Abs(AggregateTempo.Value) - 1) * 100);
+            if (tempoAdjustStream != 0)
+                Bass.ChannelSetAttribute(tempoAdjustStream, ChannelAttribute.Tempo, (Math.Abs(AggregateTempo.Value) - 1) * 100);
         }
 
         private volatile int bitrate;

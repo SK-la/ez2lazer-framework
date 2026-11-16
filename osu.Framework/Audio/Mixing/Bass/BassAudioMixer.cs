@@ -7,8 +7,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using ManagedBass;
 using ManagedBass.Mix;
-using osu.Framework.Extensions.EnumExtensions;
 using osu.Framework.Audio.EzLatency;
+using osu.Framework.Extensions.EnumExtensions;
 using osu.Framework.Statistics;
 using osu.Framework.Threading;
 
@@ -120,8 +120,16 @@ namespace osu.Framework.Audio.Mixing.Bass
             if (Handle == 0 || channel.Handle == 0)
                 return false;
 
+            if (!ManagedBass.Bass.ChannelGetInfo(channel.Handle, out _))
+                return false;
+
             AddChannelToBassMix(channel);
+
+            if (!activeChannels.Contains(channel))
+                return false;
+
             BassMix.ChannelRemoveFlag(channel.Handle, BassFlags.MixerChanPause);
+            channel.MixerChannelPaused = false;
 
             return true;
         }
@@ -143,6 +151,9 @@ namespace osu.Framework.Audio.Mixing.Bass
         public bool ChannelPause(IBassAudioChannel channel, bool flushMixer = false)
         {
             bool result = BassMix.ChannelAddFlag(channel.Handle, BassFlags.MixerChanPause);
+
+            if (result)
+                channel.MixerChannelPaused = true;
 
             if (flushMixer)
                 flush();
@@ -270,6 +281,22 @@ namespace osu.Framework.Audio.Mixing.Bass
             createMixer();
         }
 
+        internal void ReleaseNativeHandle()
+        {
+            if (Handle == 0)
+                return;
+
+            try
+            {
+                ManagedBass.Bass.StreamFree(Handle);
+            }
+            catch
+            {
+            }
+
+            Handle = 0;
+        }
+
         protected override void UpdateState()
         {
             for (int i = 0; i < activeChannels.Count; i++)
@@ -288,8 +315,7 @@ namespace osu.Framework.Audio.Mixing.Bass
 
         private void createMixer()
         {
-            if (Handle != 0)
-                ManagedBass.Bass.StreamFree(Handle);
+            ReleaseNativeHandle();
 
             // Make sure that bass is initialised before trying to create a mixer.
             // If not, this will be called again when the device is initialised via UpdateDevice().
@@ -301,7 +327,9 @@ namespace osu.Framework.Audio.Mixing.Bass
             if (manager?.GlobalMixerHandle.Value is int globalHandle && globalHandle != 0 && ManagedBass.Bass.ChannelGetInfo(globalHandle, out var globalInfo))
                 mixerFrequency = globalInfo.Frequency;
 
-            Handle = manager?.GlobalMixerHandle.Value != null
+            bool decode = manager?.GlobalMixerHandle.Value != null;
+
+            Handle = decode
                 // The decode flag here is super important to maintain the lowest latency audio output.
                 ? BassMix.CreateMixerStream(mixerFrequency, 2, BassFlags.MixerNonStop | BassFlags.Decode)
                 : BassMix.CreateMixerStream(mixerFrequency, 2, BassFlags.MixerNonStop);
@@ -316,7 +344,12 @@ namespace osu.Framework.Audio.Mixing.Bass
             var toAdd = activeChannels.ToArray();
             activeChannels.Clear();
             foreach (var channel in toAdd)
+            {
+                if (channel.Handle == 0 || !ManagedBass.Bass.ChannelGetInfo(channel.Handle, out _))
+                    continue;
+
                 AddChannelToBassMix(channel);
+            }
 
             if (manager?.GlobalMixerHandle.Value != null)
                 BassMix.MixerAddChannel(manager.GlobalMixerHandle.Value.Value, Handle, BassFlags.MixerChanBuffer | BassFlags.MixerChanNoRampin);

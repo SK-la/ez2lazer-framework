@@ -373,6 +373,13 @@ namespace osu.Framework.Threading
             freeNAudioDefault();
             freeAsio();
             freeWasapi();
+
+            lock (managers)
+            {
+                for (int i = 0; i < managers.Count; i++)
+                    managers[i].ReleaseNativeMixers();
+            }
+
             releaseAllOutputsForSwitch(deviceId, outputMode);
 
             // ASIO / BassWasapi / prior NAudio may still hold a virtual endpoint briefly (Oculus VAIO etc.).
