@@ -207,6 +207,26 @@ namespace osu.Framework.Audio.Windows
         /// </summary>
         public static MMDevice? TryOpenPlaybackDevice(string? bassDriverId) => tryGetPlaybackDevice(bassDriverId);
 
+        /// <summary>
+        /// Endpoint device format from the property store. Does not activate <c>IAudioClient</c>.
+        /// </summary>
+        public static WaveFormat? TryGetDeviceFormat(MMDevice device)
+        {
+            try
+            {
+                device.GetPropertyInformation();
+
+                if (device.Properties.TryGetValue(PropertyKeys.PKEY_AudioEngine_DeviceFormat, out byte[]? blob))
+                    return waveFormatFromBlob(blob);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Windows device format lookup failed: {ex.Message}", LoggingTarget.Runtime, LogLevel.Debug);
+            }
+
+            return null;
+        }
+
         private static string? tryGetDriverIdForBassDeviceName(string bassDeviceName)
         {
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)

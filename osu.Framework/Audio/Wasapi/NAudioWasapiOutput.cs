@@ -22,6 +22,7 @@ namespace osu.Framework.Audio.Wasapi
     {
         private MMDevice? device;
         private WasapiPlayer? player;
+        private string? playbackDriverId;
         private bool ownsMixer;
 
         public int? MixerHandle { get; private set; }
@@ -59,34 +60,25 @@ namespace osu.Framework.Audio.Wasapi
 
             // BASS's synthetic "Default" device often reports an empty Driver id. That is not a
             // failure — open the Windows default render endpoint instead of aborting to classic BASS.
-            string? driverId = string.IsNullOrEmpty(bassInfo.Driver) ? null : bassInfo.Driver;
-            string? endpointId = WindowsAudioFormatQuery.TryResolvePlaybackEndpointId(driverId);
+            playbackDriverId = string.IsNullOrEmpty(bassInfo.Driver) ? null : bassInfo.Driver;
+            string? endpointId = WindowsAudioFormatQuery.TryResolvePlaybackEndpointId(playbackDriverId);
 
-            device = WindowsAudioFormatQuery.TryOpenPlaybackDevice(driverId);
+            device = WindowsAudioFormatQuery.TryOpenPlaybackDevice(playbackDriverId);
 
             if (device == null)
             {
                 Logger.Log(
-                    $"NAudio default output: could not open MMDevice for bassDevice={bassDeviceId} (\"{bassInfo.Name}\", driver={driverId ?? "empty"}).",
+                    $"NAudio default output: could not open MMDevice for bassDevice={bassDeviceId} (\"{bassInfo.Name}\", driver={playbackDriverId ?? "empty"}).",
                     name: "audio",
                     level: LogLevel.Important);
                 return null;
             }
 
-            NAudioWaveFormat? mixFormat = (driverId != null
-                                              ? WindowsAudioFormatQuery.TryGetMixFormatForDriver(driverId)
-                                              : null)
-                                          ?? WindowsAudioFormatQuery.TryGetDefaultPlaybackMixFormat();
+            var deviceFormat = WindowsAudioFormatQuery.TryGetDeviceFormat(device);
+            int sampleRate = deviceFormat is { SampleRate: > 0 } ? deviceFormat.SampleRate : AudioOutputDefaults.DEFAULT_SAMPLE_RATE;
+            int channels = deviceFormat is { Channels: > 0 } ? deviceFormat.Channels : 2;
 
-            if (mixFormat == null || mixFormat.SampleRate <= 0 || mixFormat.Channels <= 0)
-            {
-                Logger.Log("NAudio default output: mix format unavailable.", name: "audio", level: LogLevel.Important);
-                Stop();
-                return null;
-            }
-
-            // Feed IEEE float into WASAPI shared; NAudio resamples/converts to the device mix format as needed.
-            var sourceFormat = NAudioWaveFormat.CreateIeeeFloatWaveFormat(mixFormat.SampleRate, mixFormat.Channels);
+            var sourceFormat = NAudioWaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
 
             int handle = BassMix.CreateMixerStream(sourceFormat.SampleRate, sourceFormat.Channels,
                 BassFlags.MixerNonStop | BassFlags.Decode | BassFlags.Float);
@@ -106,26 +98,22 @@ namespace osu.Framework.Audio.Wasapi
 
             try
             {
-                // Prefer IAudioClient3 low-latency shared mode, but do not require it.
-                // Some endpoints (e.g. HDMI / AMD HD Audio) decline the low-latency request;
-                // WithLowLatency(true) would throw and leave the device uninitialised.
-                // MMCSS: without it the render thread is Normal priority and loses its 10 ms wake-up to the
-                // 2000 Hz update/draw threads, which shows up as ~20 ms steps in the mixer position.
-                var builder = new WasapiPlayerBuilder()
-                              .WithDevice(device)
-                              .WithSharedMode()
-                              .WithEventSync()
-                              .WithLowLatency()
-                              .WithMmcssThreadPriority(AudioOutputDefaults.DEFAULT_NAUDIO_MMCSS_TASK)
-                              .WithLatency(AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS);
+                Exception? sharedError = null;
 
-                player = builder.Build();
-                player.Init(provider);
-                player.Play();
+                if (!tryStartPlayer(provider, requestLowLatency: true, out Exception? lowLatencyError)
+                    && (!reopenPlaybackDevice() || !tryStartPlayer(provider, requestLowLatency: false, out sharedError)))
+                {
+                    Logger.Log(
+                        $"NAudio default output failed to start: {sharedError?.Message ?? lowLatencyError?.Message}",
+                        name: "audio",
+                        level: LogLevel.Error);
+                    Stop();
+                    return null;
+                }
 
                 SampleRateHz = sourceFormat.SampleRate;
                 RequestedLatencyMs = AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS;
-                ActualLatencyMs = player.LatencyMilliseconds;
+                ActualLatencyMs = player!.LatencyMilliseconds;
                 LowLatencyActive = player.LowLatencyActive;
 
                 string lowLatencyNote = LowLatencyActive
@@ -134,7 +122,7 @@ namespace osu.Framework.Audio.Wasapi
 
                 Logger.Log(
                     $"NAudio default output started: bassDevice={bassDeviceId} (\"{bassInfo.Name}\"), wasapi=\"{device.FriendlyName}\", endpoint={BoundEndpointId}, {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, {lowLatencyNote}, mmcss={AudioOutputDefaults.DEFAULT_NAUDIO_MMCSS_TASK} (requested)"
-                    + (driverId == null ? " (via Windows default endpoint; BASS Driver empty)" : string.Empty),
+                    + (playbackDriverId == null ? " (via Windows default endpoint; BASS Driver empty)" : string.Empty),
                     name: "audio", level: LogLevel.Important);
 
                 // Return the local handle — never re-read MixerHandle (Stop from another path could null it).
@@ -148,7 +136,55 @@ namespace osu.Framework.Audio.Wasapi
             }
         }
 
-        public void Stop()
+        private bool reopenPlaybackDevice()
+        {
+            disposePlayer();
+
+            try
+            {
+                device?.Dispose();
+            }
+            catch
+            {
+            }
+
+            device = WindowsAudioFormatQuery.TryOpenPlaybackDevice(playbackDriverId);
+            return device != null;
+        }
+
+        private bool tryStartPlayer(IWaveProvider provider, bool requestLowLatency, out Exception? error)
+        {
+            error = null;
+            disposePlayer();
+
+            try
+            {
+                var builder = new WasapiPlayerBuilder()
+                              .WithDevice(device!)
+                              .WithSharedMode()
+                              .WithEventSync();
+
+                if (requestLowLatency)
+                    builder = builder.WithLowLatency();
+
+                builder = builder
+                          .WithMmcssThreadPriority(AudioOutputDefaults.DEFAULT_NAUDIO_MMCSS_TASK)
+                          .WithLatency(AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS);
+
+                player = builder.Build();
+                player.Init(provider);
+                player.Play();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+                disposePlayer();
+                return false;
+            }
+        }
+
+        private void disposePlayer()
         {
             try
             {
@@ -167,6 +203,11 @@ namespace osu.Framework.Audio.Wasapi
             }
 
             player = null;
+        }
+
+        public void Stop()
+        {
+            disposePlayer();
             SampleRateHz = 0;
             RequestedLatencyMs = 0;
             ActualLatencyMs = 0;
@@ -196,6 +237,7 @@ namespace osu.Framework.Audio.Wasapi
             }
 
             device = null;
+            playbackDriverId = null;
         }
 
         public void Dispose() => Stop();

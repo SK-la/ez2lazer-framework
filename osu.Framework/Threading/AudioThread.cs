@@ -403,7 +403,9 @@ namespace osu.Framework.Threading
                                     && OperatingSystem.IsWindows()
                                     && !DebugUtils.IsNUnitRunning;
 
-            bool hostBassOnNoSound = (useNAudioDefault || outputMode == AudioOutputMode.WasapiExclusive)
+            bool hostBassOnNoSound = (useNAudioDefault
+                                      || outputMode == AudioOutputMode.WasapiExclusive
+                                      || outputMode == AudioOutputMode.Asio)
                                      && RuntimeInfo.OS == RuntimeInfo.Platform.Windows
                                      && OperatingSystem.IsWindows()
                                      && !DebugUtils.IsNUnitRunning;
@@ -1198,26 +1200,8 @@ namespace osu.Framework.Threading
             {
                 naudioDefaultOutput = new NAudioWasapiOutput();
 
-                // Virtual endpoints often reject an immediate reopen after BassWasapi/NAudio Stop.
                 // BASS HSTREAM is a DWORD; ManagedBass exposes it as signed int — negative values are valid.
-                int? mixer = null;
-                int[] delaysMs = [0, 100, 250];
-
-                for (int attempt = 0; attempt < delaysMs.Length; attempt++)
-                {
-                    if (delaysMs[attempt] > 0)
-                        Thread.Sleep(delaysMs[attempt]);
-
-                    mixer = naudioDefaultOutput.Start(bassDeviceId);
-
-                    if (isValidBassHandle(mixer))
-                        break;
-
-                    Logger.Log(
-                        $"NAudio default output start attempt {attempt + 1}/{delaysMs.Length} failed for BASS device {bassDeviceId} (returned={mixer?.ToString() ?? "null"}).",
-                        name: "audio",
-                        level: LogLevel.Important);
-                }
+                int? mixer = naudioDefaultOutput.Start(bassDeviceId);
 
                 if (!isValidBassHandle(mixer))
                 {
