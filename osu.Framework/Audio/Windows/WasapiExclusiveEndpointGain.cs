@@ -96,8 +96,6 @@ namespace osu.Framework.Audio.Windows
 
             float volume = WasapiExclusiveEndpointGainPolicy.MixerVolume(scalar, muted, levelDb);
             setPullGain(volume);
-            Bass.ChannelSetAttribute(mixerHandle, ChannelAttribute.Volume, volume);
-            Bass.ChannelSetAttribute(mixerHandle, volume_dsp_attribute, volume);
         }
 
         public void Dispose()
