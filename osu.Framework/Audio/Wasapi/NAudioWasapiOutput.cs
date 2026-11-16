@@ -98,27 +98,24 @@ namespace osu.Framework.Audio.Wasapi
 
             try
             {
-                Exception? sharedError = null;
-
-                if (!tryStartPlayer(provider, requestLowLatency: true, out Exception? lowLatencyError)
-                    && (!reopenPlaybackDevice() || !tryStartPlayer(provider, requestLowLatency: false, out sharedError)))
-                {
-                    Logger.Log(
-                        $"NAudio default output failed to start: {sharedError?.Message ?? lowLatencyError?.Message}",
-                        name: "audio",
-                        level: LogLevel.Error);
-                    Stop();
-                    return null;
-                }
+                player = new WasapiPlayerBuilder()
+                         .WithDevice(device)
+                         .WithSharedMode()
+                         .WithEventSync()
+                         .WithMmcssThreadPriority(AudioOutputDefaults.DEFAULT_NAUDIO_MMCSS_TASK)
+                         .WithLatency(AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS)
+                         .Build();
+                player.Init(provider);
+                player.Play();
 
                 SampleRateHz = sourceFormat.SampleRate;
                 RequestedLatencyMs = AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS;
-                ActualLatencyMs = player!.LatencyMilliseconds;
+                ActualLatencyMs = player.LatencyMilliseconds;
                 LowLatencyActive = player.LowLatencyActive;
 
                 string lowLatencyNote = LowLatencyActive
                     ? "lowLatency=true"
-                    : $"lowLatency=false ({player.LowLatencyUnavailableReason ?? "fell back to standard shared mode"})";
+                    : $"lowLatency=false ({player.LowLatencyUnavailableReason ?? "standard shared mode"})";
 
                 Logger.Log(
                     $"NAudio default output started: bassDevice={bassDeviceId} (\"{bassInfo.Name}\"), wasapi=\"{device.FriendlyName}\", endpoint={BoundEndpointId}, {sourceFormat.SampleRate}Hz/{sourceFormat.Channels}ch float, requestedLatency={RequestedLatencyMs}ms, actualLatency={ActualLatencyMs}ms, {lowLatencyNote}, mmcss={AudioOutputDefaults.DEFAULT_NAUDIO_MMCSS_TASK} (requested)"
@@ -133,54 +130,6 @@ namespace osu.Framework.Audio.Wasapi
                 Logger.Log($"NAudio default output failed to start: {ex.Message}", name: "audio", level: LogLevel.Error);
                 Stop();
                 return null;
-            }
-        }
-
-        private bool reopenPlaybackDevice()
-        {
-            disposePlayer();
-
-            try
-            {
-                device?.Dispose();
-            }
-            catch
-            {
-            }
-
-            device = WindowsAudioFormatQuery.TryOpenPlaybackDevice(playbackDriverId);
-            return device != null;
-        }
-
-        private bool tryStartPlayer(IWaveProvider provider, bool requestLowLatency, out Exception? error)
-        {
-            error = null;
-            disposePlayer();
-
-            try
-            {
-                var builder = new WasapiPlayerBuilder()
-                              .WithDevice(device!)
-                              .WithSharedMode()
-                              .WithEventSync();
-
-                if (requestLowLatency)
-                    builder = builder.WithLowLatency();
-
-                builder = builder
-                          .WithMmcssThreadPriority(AudioOutputDefaults.DEFAULT_NAUDIO_MMCSS_TASK)
-                          .WithLatency(AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS);
-
-                player = builder.Build();
-                player.Init(provider);
-                player.Play();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                error = ex;
-                disposePlayer();
-                return false;
             }
         }
 

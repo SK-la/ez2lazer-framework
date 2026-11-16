@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using ManagedBass;
 using ManagedBass.Asio;
@@ -956,18 +957,32 @@ namespace osu.Framework.Audio.Asio
             return actualRate;
         }
 
+        private static bool isUsablePcmRate(double rate) =>
+            rate > 0 && rate <= 1_000_000 && !double.IsNaN(rate) && !double.IsInfinity(rate);
+
+        private static bool isDsdSampleFormat(AsioSampleFormat format) =>
+            format is AsioSampleFormat.DSD_LSB or AsioSampleFormat.DSD_MSB;
+
         private static double tryGetUsableDeviceRate()
         {
             try
             {
                 double deviceRate = BassAsio.Rate;
 
-                if (deviceRate > 0)
+                if (isUsablePcmRate(deviceRate))
                     return deviceRate;
             }
             catch (Exception ex)
             {
                 Logger.Log($"Could not read ASIO device sample rate: {ex}", LoggingTarget.Runtime, LogLevel.Debug);
+            }
+
+            foreach (double candidate in new[] { DEFAULT_SAMPLE_RATE, (double)AudioOutputDefaults.SECONDARY_SAMPLE_RATE })
+            {
+                double applied = tryApplySampleRate(candidate);
+
+                if (isUsablePcmRate(applied))
+                    return applied;
             }
 
             return 0;
@@ -1017,6 +1032,9 @@ namespace osu.Framework.Audio.Asio
                 return false;
             }
 
+            if (BassAsio.ChannelGetInfo(false, 0, out AsioChannelInfo nativeFormat) && isDsdSampleFormat(nativeFormat.Format))
+                tryGetUsableDeviceRate();
+
             try
             {
                 if (tryConfigureOutputRoutingWithBassChannel(info, mixerHandle))
@@ -1056,15 +1074,20 @@ namespace osu.Framework.Audio.Asio
         {
             for (int channel = 0; channel <= info.Outputs - 2; channel++)
             {
+                if (BassAsio.ChannelGetInfo(false, channel, out AsioChannelInfo channelInfo) && isDsdSampleFormat(channelInfo.Format))
+                    tryGetUsableDeviceRate();
+
                 if (!BassAsio.ChannelEnable(false, channel, asio_callback, IntPtr.Zero))
                 {
                     Logger.Log($"Failed to enable ASIO callback output channel {channel}: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Debug);
                     continue;
                 }
 
-                // Callback path reads float samples from the BASS mixer; keep float ASIO format here.
-                if (!BassAsio.ChannelSetFormat(false, channel, AsioSampleFormat.Float))
-                    Logger.Log($"Failed to set ASIO callback channel {channel} format to Float: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Debug);
+                if (!trySetCallbackPcmFormat(channel))
+                {
+                    BassAsio.ChannelReset(false, channel, AsioChannelResetFlags.Enable | AsioChannelResetFlags.Join | AsioChannelResetFlags.Joined);
+                    continue;
+                }
 
                 if (!BassAsio.ChannelSetRate(false, channel, 0))
                     Logger.Log($"Failed to set ASIO callback channel {channel} rate to device rate: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Debug);
@@ -1084,6 +1107,22 @@ namespace osu.Framework.Audio.Asio
             }
 
             Logger.Log("Failed to configure ASIO stereo routing on any output channel pair.", LoggingTarget.Runtime, LogLevel.Error);
+            return false;
+        }
+
+        private static bool trySetCallbackPcmFormat(int channel)
+        {
+            if (BassAsio.ChannelSetFormat(false, channel, AsioSampleFormat.Float))
+                return true;
+
+            Logger.Log($"Failed to set ASIO callback channel {channel} format to Float: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Important);
+
+            tryGetUsableDeviceRate();
+
+            if (BassAsio.ChannelSetFormat(false, channel, AsioSampleFormat.Float))
+                return true;
+
+            Logger.Log($"ASIO callback channel {channel} rejected PCM float after rate fallback: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Error);
             return false;
         }
 
@@ -1171,6 +1210,63 @@ namespace osu.Framework.Audio.Asio
 
         private static void freeDeviceInternal(bool resetMixerHandle)
         {
+            if (ActiveDeviceIndex is int cachedIndex)
+                capabilities_cache.Remove(cachedIndex);
+
+            try
+            {
+                if (ActiveDeviceIndex is int active)
+                    BassAsio.CurrentDevice = active;
+            }
+            catch
+            {
+            }
+
+            freeCurrentAsioDevice();
+
+            try
+            {
+                int count = BassAsio.DeviceCount;
+
+                for (int i = 0; i < count; i++)
+                {
+                    try
+                    {
+                        BassAsio.CurrentDevice = i;
+
+                        if (!BassAsio.GetInfo(out _))
+                            continue;
+
+                        freeCurrentAsioDevice();
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                CoFreeUnusedLibraries();
+            }
+            catch
+            {
+            }
+
+            appliedBufferSize = null;
+            ActiveDeviceIndex = null;
+
+            if (resetMixerHandle)
+                globalMixerHandle = 0;
+
+            sleepWithBackoff(2);
+        }
+
+        private static void freeCurrentAsioDevice()
+        {
             try
             {
                 if (BassAsio.IsStarted)
@@ -1192,24 +1288,16 @@ namespace osu.Framework.Audio.Asio
 
             try
             {
-                if (ActiveDeviceIndex is int cachedIndex)
-                    capabilities_cache.Remove(cachedIndex);
-
                 BassAsio.Free();
             }
             catch (Exception ex)
             {
                 Logger.Log($"Exception during ASIO device release: {ex}", LoggingTarget.Runtime, LogLevel.Error);
             }
-
-            appliedBufferSize = null;
-            ActiveDeviceIndex = null;
-
-            if (resetMixerHandle)
-                globalMixerHandle = 0;
-
-            sleepWithBackoff(2);
         }
+
+        [DllImport("ole32.dll")]
+        private static extern void CoFreeUnusedLibraries();
 
         private static string getAsioErrorDescription(int errorCode)
         {

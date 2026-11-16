@@ -450,15 +450,10 @@ namespace osu.Framework.Threading
                         if (!initNAudioDefault(deviceId))
                         {
                             Logger.Log(
-                                $"NAudio default output unavailable for BASS device {deviceId}; falling back to classic BASS device output.",
+                                $"NAudio default output unavailable for BASS device {deviceId}.",
                                 name: "audio",
                                 level: LogLevel.Important);
-
-                            // Classic playback needs the real device initialised.
-                            if (!tryInitBassDevice(deviceId))
-                                return false;
-
-                            bassHostDeviceId = deviceId;
+                            return false;
                         }
                     }
 
