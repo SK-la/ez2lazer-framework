@@ -944,7 +944,8 @@ namespace osu.Framework.Threading
                     return false;
 
                 BassWasapi.GetInfo(out var wasapiInfo);
-                wasapiPullSampleFormat = mapWasapiPullSampleFormat(wasapiInfo.Format);
+                // WASAPIPROC 缓冲始终是 32-bit float。wasapiInfo.Format 是设备格式，BASSWASAPI 自己再转换。
+                wasapiPullSampleFormat = AcousticLevelMath.SampleFormat.IeeeFloat32;
 
                 int bytesPerSample = wasapiInfo.Format switch
                 {
@@ -1020,16 +1021,6 @@ namespace osu.Framework.Threading
                 return false;
             }
         }
-
-        private static AcousticLevelMath.SampleFormat mapWasapiPullSampleFormat(WasapiFormat format) =>
-            format switch
-            {
-                WasapiFormat.Float => AcousticLevelMath.SampleFormat.IeeeFloat32,
-                WasapiFormat.Bit16 => AcousticLevelMath.SampleFormat.Pcm16,
-                WasapiFormat.Bit24 => AcousticLevelMath.SampleFormat.Pcm24,
-                WasapiFormat.Bit32 => AcousticLevelMath.SampleFormat.Pcm32,
-                _ => AcousticLevelMath.SampleFormat.Unsupported
-            };
 
         private void freeWasapi()
         {
