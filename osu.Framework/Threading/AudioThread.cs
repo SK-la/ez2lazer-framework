@@ -55,6 +55,10 @@ namespace osu.Framework.Threading
 
         internal void ResetLastAsioReconfigurePath() => LastAsioReconfigurePath = null;
 
+        internal static bool AllowRealWindowsAudioOutput;
+
+        internal static bool UseRealWindowsAudioOutput => !DebugUtils.IsNUnitRunning || AllowRealWindowsAudioOutput;
+
         private static int wasapiNativeUnavailableLogged;
         private static int asioResolverRegistered;
 
@@ -386,14 +390,14 @@ namespace osu.Framework.Threading
             bool needsEndpointSettle = wasapiOrAsioWasActive || outputMode == AudioOutputMode.Default;
             wasapiOrAsioWasActive = false;
 
-            if (outputMode == AudioOutputMode.Asio && !DebugUtils.IsNUnitRunning)
+            if (outputMode == AudioOutputMode.Asio && UseRealWindowsAudioOutput)
             {
                 Thread.Sleep(100);
             }
             else if (needsEndpointSettle
                      && outputMode == AudioOutputMode.Default
                      && OperatingSystem.IsWindows()
-                     && !DebugUtils.IsNUnitRunning)
+                     && UseRealWindowsAudioOutput)
             {
                 Thread.Sleep(150);
             }
@@ -401,14 +405,14 @@ namespace osu.Framework.Threading
             bool useNAudioDefault = outputMode == AudioOutputMode.Default
                                     && RuntimeInfo.OS == RuntimeInfo.Platform.Windows
                                     && OperatingSystem.IsWindows()
-                                    && !DebugUtils.IsNUnitRunning;
+                                    && UseRealWindowsAudioOutput;
 
             bool hostBassOnNoSound = (useNAudioDefault
                                       || outputMode == AudioOutputMode.WasapiExclusive
                                       || outputMode == AudioOutputMode.Asio)
                                      && RuntimeInfo.OS == RuntimeInfo.Platform.Windows
                                      && OperatingSystem.IsWindows()
-                                     && !DebugUtils.IsNUnitRunning;
+                                     && UseRealWindowsAudioOutput;
 
             // NAudio / exclusive WASAPI open the render endpoint themselves. Host the BASS decode mixer on
             // NoSound so Bass.Init does not take a shared client on the same device (false Busy on exclusive).
@@ -450,10 +454,18 @@ namespace osu.Framework.Threading
                         if (!initNAudioDefault(deviceId))
                         {
                             Logger.Log(
-                                $"NAudio default output unavailable for BASS device {deviceId}.",
+                                $"NAudio default output unavailable for BASS device {deviceId}; trying BassWasapi shared.",
                                 name: "audio",
                                 level: LogLevel.Important);
-                            return false;
+
+                            if (!attemptWasapiInitialisation(deviceId, exclusive: false))
+                            {
+                                Logger.Log(
+                                    $"BassWasapi shared fallback failed for BASS device {deviceId}: {Bass.LastError}",
+                                    name: "audio",
+                                    level: LogLevel.Important);
+                                return false;
+                            }
                         }
                     }
 
@@ -1610,7 +1622,7 @@ namespace osu.Framework.Threading
             }
 
             // Extra delay after ASIO teardown to avoid busy-driver errors when switching devices.
-            if (!DebugUtils.IsNUnitRunning)
+            if (UseRealWindowsAudioOutput)
                 Thread.Sleep(300);
         }
 

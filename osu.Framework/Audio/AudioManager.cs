@@ -1065,7 +1065,8 @@ namespace osu.Framework.Audio
             void handleExplicitSelectionFailed()
             {
                 // Headless tests explicitly select "No sound", which is a BASS internal device.
-                if (DebugUtils.IsNUnitRunning && trySetDevice(Bass.NoSoundDevice, AudioOutputMode.Default))
+                if (DebugUtils.IsNUnitRunning && !AudioThread.AllowRealWindowsAudioOutput
+                    && trySetDevice(Bass.NoSoundDevice, AudioOutputMode.Default))
                     return;
 
                 var (outputMode, failedDeviceName) = parseSelection(AudioDevice.Value);
@@ -1104,7 +1105,7 @@ namespace osu.Framework.Audio
                     return false;
 
                 // we don't want bass initializing with real audio device on headless test runs.
-                if (deviceId != Bass.NoSoundDevice && DebugUtils.IsNUnitRunning)
+                if (deviceId != Bass.NoSoundDevice && DebugUtils.IsNUnitRunning && !AudioThread.AllowRealWindowsAudioOutput)
                     return false;
 
                 // initialize new device

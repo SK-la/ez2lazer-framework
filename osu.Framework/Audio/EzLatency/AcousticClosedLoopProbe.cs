@@ -34,6 +34,7 @@ namespace osu.Framework.Audio.EzLatency
         private volatile bool armed;
         private double armedInputTime;
         private float threshold = default_threshold;
+        private float peakRms;
         private bool disposed;
         private Timer? pollTimer;
 
@@ -57,6 +58,16 @@ namespace osu.Framework.Audio.EzLatency
         {
             get => threshold;
             set => threshold = Math.Clamp(value, 0.0001f, 1f);
+        }
+
+        /// <summary>Highest RMS observed on the current capture (0–1 linear).</summary>
+        public float PeakRms
+        {
+            get
+            {
+                lock (sync)
+                    return peakRms;
+            }
         }
 
         /// <summary>
@@ -91,6 +102,7 @@ namespace osu.Framework.Audio.EzLatency
                     capture.RecordingStopped += onRecordingStopped;
                     capture.StartRecording();
                     boundDriverId = bassDriverId ?? device.ID;
+                    peakRms = 0;
 
                     // Ensure soft-timeout can fire even if DataAvailable is quiet/silent.
                     pollTimer?.Dispose();
@@ -151,6 +163,13 @@ namespace osu.Framework.Audio.EzLatency
                 return;
 
             float rms = AcousticLevelMath.ComputeRms(e.Buffer, e.BytesRecorded, toSampleFormat(capture.WaveFormat));
+
+            lock (sync)
+            {
+                if (rms > peakRms)
+                    peakRms = rms;
+            }
+
             if (rms < threshold)
                 return;
 
