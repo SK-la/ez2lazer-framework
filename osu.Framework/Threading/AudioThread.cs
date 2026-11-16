@@ -1096,14 +1096,6 @@ namespace osu.Framework.Threading
             }
         }
 
-        private static AcousticLevelMath.SampleFormat mapWasapiPullSampleFormat(WasapiFormat format) =>
-            format switch
-            {
-                WasapiFormat.Float => AcousticLevelMath.SampleFormat.IeeeFloat32,
-                WasapiFormat.Bit16 => AcousticLevelMath.SampleFormat.Pcm16,
-                _ => AcousticLevelMath.SampleFormat.Unsupported
-            };
-
         private void freeWasapi()
         {
             // basswasapi ships only for Windows. This runs on every device init, so on
