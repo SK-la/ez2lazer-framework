@@ -11,27 +11,12 @@ namespace osu.Framework.Tests.Audio
     public class WasapiExclusiveBufferLadderTest
     {
         [Test]
-        public void TransientErrorsRetrySameBuffer()
-        {
-            Assert.That(WasapiExclusiveBufferLadder.IsTransientInitError(Errors.Busy), Is.True);
-            Assert.That(WasapiExclusiveBufferLadder.IsTransientInitError(Errors.Driver), Is.True);
-            Assert.That(WasapiExclusiveBufferLadder.IsTransientInitError(Errors.Unknown), Is.True);
-        }
-
-        [Test]
         public void OnlyBusyAbortsTheLadder()
         {
             Assert.That(WasapiExclusiveBufferLadder.ShouldAbortLadder(Errors.Busy), Is.True);
             Assert.That(WasapiExclusiveBufferLadder.ShouldAbortLadder(Errors.Unknown), Is.False);
             Assert.That(WasapiExclusiveBufferLadder.ShouldAbortLadder(Errors.Driver), Is.False);
-        }
-
-        [Test]
-        public void NonTransientErrorsAdvanceBuffer()
-        {
-            Assert.That(WasapiExclusiveBufferLadder.IsTransientInitError(Errors.OK), Is.False);
-            Assert.That(WasapiExclusiveBufferLadder.IsTransientInitError(Errors.Already), Is.False);
-            Assert.That(WasapiExclusiveBufferLadder.IsTransientInitError(Errors.Init), Is.False);
+            Assert.That(WasapiExclusiveBufferLadder.ShouldAbortLadder(Errors.OK), Is.False);
         }
     }
 }

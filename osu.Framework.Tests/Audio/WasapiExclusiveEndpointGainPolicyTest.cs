@@ -11,7 +11,14 @@ namespace osu.Framework.Tests.Audio
     {
         [Test]
         public void MuteForcesSilence()
-            => Assert.That(WasapiExclusiveEndpointGainPolicy.MixerVolume(1f, true), Is.EqualTo(0f));
+            => Assert.That(WasapiExclusiveEndpointGainPolicy.MixerVolume(1f, true, 0f), Is.EqualTo(0f));
+
+        [Test]
+        public void DecibelsMapToAmplitude()
+        {
+            Assert.That(WasapiExclusiveEndpointGainPolicy.MixerVolume(1f, false, 0f), Is.EqualTo(1f).Within(0.0001f));
+            Assert.That(WasapiExclusiveEndpointGainPolicy.MixerVolume(1f, false, -6.0206f), Is.EqualTo(0.5f).Within(0.001f));
+        }
 
         [Test]
         public void ScalarIsClamped()

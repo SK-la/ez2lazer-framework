@@ -7,11 +7,6 @@ namespace osu.Framework.Audio.Wasapi
 {
     internal static class WasapiExclusiveBufferLadder
     {
-        public static readonly int[] TRANSIENT_RETRY_DELAYS_MS = [0, 100, 250];
-
-        public static bool IsTransientInitError(Errors error)
-            => error == Errors.Busy || error == Errors.Driver || error == Errors.Unknown;
-
         public static bool ShouldAbortLadder(Errors error)
             => error == Errors.Busy;
     }

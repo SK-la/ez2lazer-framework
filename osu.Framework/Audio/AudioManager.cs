@@ -1062,10 +1062,7 @@ namespace osu.Framework.Audio
                 if (DebugUtils.IsNUnitRunning && trySetDevice(Bass.NoSoundDevice, AudioOutputMode.Default))
                     return;
 
-                Logger.Log($"Keeping explicit audio selection '{AudioDevice.Value}' after initialisation failure; skipping silent fallback to default device.", name: "audio", level: LogLevel.Important);
-                Logger.Log($"Audio output remains uninitialised after explicit device selection failure: '{AudioDevice.Value}'.", name: "audio", level: LogLevel.Important);
-
-                var (outputMode, _) = parseSelection(AudioDevice.Value);
+                var (outputMode, failedDeviceName) = parseSelection(AudioDevice.Value);
                 string bassError = windowsOutputRuntime.LastError;
 
                 if (string.IsNullOrEmpty(bassError) && Bass.LastError != Errors.OK)
@@ -1075,6 +1072,21 @@ namespace osu.Framework.Audio
 
                 if (outputMode == AudioOutputMode.Asio)
                     notifyAsioOutputUnavailable();
+
+                if (outputMode == AudioOutputMode.WasapiExclusive)
+                {
+                    Logger.Log($"Restoring shared WASAPI output after exclusive failure: '{AudioDevice.Value}'.", name: "audio", level: LogLevel.Important);
+
+                    int deviceIndex = audioDeviceNames.FindIndex(d => d == failedDeviceName);
+                    if (deviceIndex >= 0 && trySetDevice(BASS_INTERNAL_DEVICE_COUNT + deviceIndex, AudioOutputMode.Default))
+                        return;
+
+                    trySetDevice(bass_default_device, AudioOutputMode.Default);
+                    return;
+                }
+
+                Logger.Log($"Keeping explicit audio selection '{AudioDevice.Value}' after initialisation failure; skipping silent fallback to default device.", name: "audio", level: LogLevel.Important);
+                Logger.Log($"Audio output remains uninitialised after explicit device selection failure: '{AudioDevice.Value}'.", name: "audio", level: LogLevel.Important);
             }
 
             bool trySetDevice(int deviceId, AudioOutputMode outputMode)
@@ -1643,6 +1655,20 @@ namespace osu.Framework.Audio
                 && !windowsOutputRuntime.NAudioFallbackToClassicBass)
             {
                 return true;
+            }
+
+            // Exclusive WASAPI also hosts BASS on NoSound. Failed exclusive may restore shared output
+            // while the dropdown still says Exclusive — do not re-enter InitDevice every poll.
+            if (mode == AudioOutputMode.WasapiExclusive)
+            {
+                if (windowsOutputRuntime.Mode == AudioOutputMode.WasapiExclusive && windowsOutputRuntime.Active
+                    && GlobalMixerHandle.Value is int exclusiveMixer && exclusiveMixer != 0)
+                    return true;
+
+                if (windowsOutputRuntime.Mode == AudioOutputMode.WasapiExclusive && !windowsOutputRuntime.Active)
+                    return true;
+
+                return GlobalMixerHandle.Value is int restoredMixer && restoredMixer != 0;
             }
 
             bool isFallback = string.IsNullOrEmpty(selectedName) ? !device.IsDefault : device.Name != selectedName;

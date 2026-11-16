@@ -16,11 +16,12 @@ namespace osu.Framework.Audio.Windows
         private readonly MMDevice device;
         private readonly Scheduler audioScheduler;
         private readonly int mixerHandle;
+        private readonly Action<float> setPullGain;
         // BASS_ATTRIB_VOLDSP (19) is not exposed by the ManagedBass enum.
         private const ChannelAttribute volume_dsp_attribute = (ChannelAttribute)19;
         private bool disposed;
 
-        public static WasapiExclusiveEndpointGain? TryAttach(string? endpointId, int mixerHandle, Scheduler audioScheduler)
+        public static WasapiExclusiveEndpointGain? TryAttach(string? endpointId, int mixerHandle, Scheduler audioScheduler, Action<float> setPullGain)
         {
             if (mixerHandle == 0)
                 return null;
@@ -37,7 +38,7 @@ namespace osu.Framework.Audio.Windows
                     return null;
                 }
 
-                var gain = new WasapiExclusiveEndpointGain(device, mixerHandle, audioScheduler);
+                var gain = new WasapiExclusiveEndpointGain(device, mixerHandle, audioScheduler, setPullGain);
                 device = null;
                 gain.subscribeAndApply();
                 return gain;
@@ -50,32 +51,52 @@ namespace osu.Framework.Audio.Windows
             }
         }
 
-        private WasapiExclusiveEndpointGain(MMDevice device, int mixerHandle, Scheduler audioScheduler)
+        private WasapiExclusiveEndpointGain(MMDevice device, int mixerHandle, Scheduler audioScheduler, Action<float> setPullGain)
         {
             this.device = device;
             this.mixerHandle = mixerHandle;
             this.audioScheduler = audioScheduler;
+            this.setPullGain = setPullGain;
         }
 
         private void subscribeAndApply()
         {
-            apply(device.AudioEndpointVolume.MasterVolumeLevelScalar, device.AudioEndpointVolume.Mute);
-            device.AudioEndpointVolume.OnVolumeNotification += onVolumeNotification;
+            var volume = device.AudioEndpointVolume;
+            apply(volume.MasterVolumeLevelScalar, volume.Mute, volume.MasterVolumeLevel);
+            volume.OnVolumeNotification += onVolumeNotification;
         }
 
         private void onVolumeNotification(AudioVolumeNotificationData data)
         {
             float scalar = data.MasterVolume;
             bool muted = data.Muted;
-            audioScheduler.Add(() => apply(scalar, muted));
+            audioScheduler.Add(() =>
+            {
+                if (disposed)
+                    return;
+
+                float levelDb = float.NaN;
+
+                try
+                {
+                    levelDb = device.AudioEndpointVolume.MasterVolumeLevel;
+                }
+                catch
+                {
+                }
+
+                apply(scalar, muted, levelDb);
+            });
         }
 
-        private void apply(float scalar, bool muted)
+        private void apply(float scalar, bool muted, float levelDb)
         {
             if (disposed)
                 return;
 
-            float volume = WasapiExclusiveEndpointGainPolicy.MixerVolume(scalar, muted);
+            float volume = WasapiExclusiveEndpointGainPolicy.MixerVolume(scalar, muted, levelDb);
+            setPullGain(volume);
+            Bass.ChannelSetAttribute(mixerHandle, ChannelAttribute.Volume, volume);
             Bass.ChannelSetAttribute(mixerHandle, volume_dsp_attribute, volume);
         }
 
@@ -96,6 +117,8 @@ namespace osu.Framework.Audio.Windows
 
             try
             {
+                setPullGain(1f);
+                Bass.ChannelSetAttribute(mixerHandle, ChannelAttribute.Volume, 1f);
                 Bass.ChannelSetAttribute(mixerHandle, volume_dsp_attribute, 1f);
             }
             catch
