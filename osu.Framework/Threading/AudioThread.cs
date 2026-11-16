@@ -1026,6 +1026,8 @@ namespace osu.Framework.Threading
             {
                 WasapiFormat.Float => AcousticLevelMath.SampleFormat.IeeeFloat32,
                 WasapiFormat.Bit16 => AcousticLevelMath.SampleFormat.Pcm16,
+                WasapiFormat.Bit24 => AcousticLevelMath.SampleFormat.Pcm24,
+                WasapiFormat.Bit32 => AcousticLevelMath.SampleFormat.Pcm32,
                 _ => AcousticLevelMath.SampleFormat.Unsupported
             };
 
