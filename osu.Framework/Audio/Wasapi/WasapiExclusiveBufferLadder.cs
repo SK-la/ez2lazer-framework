@@ -11,5 +11,8 @@ namespace osu.Framework.Audio.Wasapi
 
         public static bool IsTransientInitError(Errors error)
             => error == Errors.Busy || error == Errors.Driver || error == Errors.Unknown;
+
+        public static bool ShouldAbortLadder(Errors error)
+            => error == Errors.Busy;
     }
 }

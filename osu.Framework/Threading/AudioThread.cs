@@ -908,7 +908,7 @@ namespace osu.Framework.Threading
                         level: LogLevel.Important);
                 }
 
-                if (onlyTransientFailures)
+                if (onlyTransientFailures && WasapiExclusiveBufferLadder.ShouldAbortLadder(lastWasapiInitError))
                 {
                     Logger.Log(
                         $"WASAPI Exclusive init remained busy at {bufferMs}ms; not stepping the buffer ladder.",
@@ -916,6 +916,14 @@ namespace osu.Framework.Threading
                         level: LogLevel.Important);
                     publishExclusiveWasapiInactive();
                     return false;
+                }
+
+                if (onlyTransientFailures)
+                {
+                    Logger.Log(
+                        $"WASAPI Exclusive init still {lastWasapiInitError} at {bufferMs}ms; stepping the buffer ladder.",
+                        name: "audio",
+                        level: LogLevel.Important);
                 }
             }
 
