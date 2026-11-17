@@ -108,6 +108,7 @@ namespace osu.Framework.Audio.Wasapi
                 };
 
                 bool started = false;
+                int startedLatencyMs = 0;
 
                 for (int i = 0; i < attempts.Length; i++)
                 {
@@ -117,6 +118,7 @@ namespace osu.Framework.Audio.Wasapi
                     if (tryStartPlayer(provider, attempts[i].eventSync, attempts[i].latencyMs, out lastError))
                     {
                         started = true;
+                        startedLatencyMs = attempts[i].latencyMs;
                         break;
                     }
                 }
@@ -129,7 +131,7 @@ namespace osu.Framework.Audio.Wasapi
                 }
 
                 SampleRateHz = sourceFormat.SampleRate;
-                RequestedLatencyMs = AudioOutputDefaults.DEFAULT_NAUDIO_LATENCY_MS;
+                RequestedLatencyMs = startedLatencyMs;
                 ActualLatencyMs = player!.LatencyMilliseconds;
                 LowLatencyActive = player.LowLatencyActive;
 
