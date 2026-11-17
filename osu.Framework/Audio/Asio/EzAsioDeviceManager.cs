@@ -927,7 +927,7 @@ namespace osu.Framework.Audio.Asio
             if (!BassAsio.CheckRate(desiredRate))
             {
                 Logger.Log($"Requested ASIO sample rate {desiredRate}Hz is not supported; using device rate if available.", LoggingTarget.Runtime, LogLevel.Important);
-                return tryGetUsableDeviceRate();
+                return readUsableDeviceRate();
             }
 
             try
@@ -937,13 +937,13 @@ namespace osu.Framework.Audio.Asio
             catch (Exception ex)
             {
                 Logger.Log($"Failed to set ASIO sample rate to {desiredRate}Hz: {ex.Message}", LoggingTarget.Runtime, LogLevel.Important);
-                return tryGetUsableDeviceRate();
+                return readUsableDeviceRate();
             }
 
             if (BassAsio.LastError != Errors.OK)
             {
                 Logger.Log($"Failed to set ASIO sample rate to {desiredRate}Hz: {BassAsio.LastError}", LoggingTarget.Runtime, LogLevel.Error);
-                return tryGetUsableDeviceRate();
+                return readUsableDeviceRate();
             }
 
             double actualRate = BassAsio.Rate;
@@ -963,19 +963,25 @@ namespace osu.Framework.Audio.Asio
         private static bool isDsdSampleFormat(AsioSampleFormat format) =>
             format is AsioSampleFormat.DSD_LSB or AsioSampleFormat.DSD_MSB;
 
-        private static double tryGetUsableDeviceRate()
+        private static double readUsableDeviceRate()
         {
             try
             {
-                double deviceRate = BassAsio.Rate;
-
-                if (isUsablePcmRate(deviceRate))
-                    return deviceRate;
+                double rate = BassAsio.Rate;
+                return isUsablePcmRate(rate) ? rate : 0;
             }
-            catch (Exception ex)
+            catch
             {
-                Logger.Log($"Could not read ASIO device sample rate: {ex}", LoggingTarget.Runtime, LogLevel.Debug);
+                return 0;
             }
+        }
+
+        private static double tryGetUsableDeviceRate()
+        {
+            double deviceRate = readUsableDeviceRate();
+
+            if (isUsablePcmRate(deviceRate))
+                return deviceRate;
 
             foreach (double candidate in new[] { DEFAULT_SAMPLE_RATE, (double)AudioOutputDefaults.SECONDARY_SAMPLE_RATE })
             {

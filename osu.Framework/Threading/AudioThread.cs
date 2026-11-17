@@ -444,6 +444,8 @@ namespace osu.Framework.Threading
                 bassHostDeviceId = deviceId;
             }
 
+            bool usedWasapiSharedFallback = false;
+
             switch (outputMode)
             {
                 case AudioOutputMode.Default:
@@ -466,6 +468,10 @@ namespace osu.Framework.Threading
                                     level: LogLevel.Important);
                                 return false;
                             }
+                            Manager?.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(
+                                Mode: AudioOutputMode.WasapiShared,
+                                Active: isValidBassHandle(globalMixerHandle.Value)));
+                            usedWasapiSharedFallback = true;
                         }
                     }
 
@@ -543,7 +549,8 @@ namespace osu.Framework.Threading
             // Bind latency probe context to the active output endpoint/backend.
             EzLatencyManager.GLOBAL.NotifyOutputDeviceChanged(latencyDriver, outputMode);
 
-            publishWindowsOutputRuntime(outputMode);
+            if (!usedWasapiSharedFallback)
+                publishWindowsOutputRuntime(outputMode);
 
             return true;
         }
