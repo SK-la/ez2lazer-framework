@@ -118,5 +118,15 @@ namespace osu.Framework.Audio.EzLatency
             fixed (byte* ptr = buffer)
                 return ComputeRms((IntPtr)ptr, Math.Min(bytesRecorded, buffer.Length), format);
         }
+
+        /// <summary>RMS of interleaved PCM in <paramref name="buffer"/>.</summary>
+        public static unsafe float ComputeRms(ReadOnlySpan<byte> buffer, SampleFormat format)
+        {
+            if (buffer.IsEmpty)
+                return 0;
+
+            fixed (byte* ptr = buffer)
+                return ComputeRms((IntPtr)ptr, buffer.Length, format);
+        }
     }
 }

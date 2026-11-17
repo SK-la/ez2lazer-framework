@@ -26,9 +26,7 @@ namespace osu.Framework.Audio.EzLatency
         private readonly Action onPollTimeout;
         private readonly Action<double, double, double, double> recordHardware;
 
-#pragma warning disable CS0618 // WasapiLoopbackCapture is obsolete in NAudio 3 but still the simplest system-wide loopback API.
-        private WasapiLoopbackCapture? capture;
-#pragma warning restore CS0618
+        private WasapiRecorder? capture;
         private MMDevice? device;
         private string? boundDriverId;
         private volatile bool armed;
@@ -84,9 +82,7 @@ namespace osu.Framework.Audio.EzLatency
             stopCapture();
 
             MMDevice? opened = null;
-#pragma warning disable CS0618
-            WasapiLoopbackCapture? started = null;
-#pragma warning restore CS0618
+            WasapiRecorder? started = null;
             bool attached = false;
 
             try
@@ -99,7 +95,10 @@ namespace osu.Framework.Audio.EzLatency
                     return false;
                 }
 
-                started = new WasapiLoopbackCapture(opened);
+                started = new WasapiRecorderBuilder()
+                          .WithDevice(opened)
+                          .WithLoopbackCapture()
+                          .Build();
                 started.DataAvailable += onDataAvailable;
                 started.RecordingStopped += onRecordingStopped;
 
@@ -176,7 +175,7 @@ namespace osu.Framework.Audio.EzLatency
 
         public void Disarm() => armed = false;
 
-        private void onDataAvailable(object? sender, WaveInEventArgs e)
+        private void onDataAvailable(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)
         {
             try
             {
@@ -189,10 +188,17 @@ namespace osu.Framework.Audio.EzLatency
 
             var cap = capture;
 
-            if (e.BytesRecorded <= 0 || cap == null)
-                return;
+            bool silent = (flags & AudioClientBufferFlags.Silent) != 0;
 
-            float rms = AcousticLevelMath.ComputeRms(e.Buffer, e.BytesRecorded, toSampleFormat(cap.WaveFormat));
+            if (cap == null || buffer.IsEmpty || silent)
+            {
+                if (cap != null && silent)
+                    currentRms = 0;
+
+                return;
+            }
+
+            float rms = AcousticLevelMath.ComputeRms(buffer, toSampleFormat(cap.WaveFormat));
             currentRms = rms;
 
             if (rms > peakRms)
@@ -241,9 +247,7 @@ namespace osu.Framework.Audio.EzLatency
 
         private void stopCapture()
         {
-#pragma warning disable CS0618
-            WasapiLoopbackCapture? captureToStop;
-#pragma warning restore CS0618
+            WasapiRecorder? captureToStop;
             MMDevice? deviceToDispose;
             Timer? timerToDispose;
 
