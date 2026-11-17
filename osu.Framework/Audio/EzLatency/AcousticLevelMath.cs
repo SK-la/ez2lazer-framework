@@ -109,6 +109,34 @@ namespace osu.Framework.Audio.EzLatency
         public static float ComputeRmsFloat(IntPtr buffer, int bytes) =>
             ComputeRms(buffer, bytes, SampleFormat.IeeeFloat32);
 
+        /// <summary>Peak absolute sample. A short click can be loud here while its RMS stays under the threshold.</summary>
+        public static unsafe float ComputePeak(IntPtr buffer, int bytes, SampleFormat format)
+        {
+            if (bytes <= 0 || buffer == IntPtr.Zero || format != SampleFormat.IeeeFloat32)
+                return 0;
+
+            int samples = bytes / 4;
+            if (samples <= 0)
+                return 0;
+
+            float* ptr = (float*)buffer;
+            float peak = 0;
+
+            for (int i = 0; i < samples; i++)
+                peak = Math.Max(peak, Math.Abs(ptr[i]));
+
+            return peak;
+        }
+
+        public static unsafe float ComputePeak(byte[]? buffer, int bytes, SampleFormat format)
+        {
+            if (buffer == null || bytes <= 0 || format != SampleFormat.IeeeFloat32)
+                return 0;
+
+            fixed (byte* ptr = buffer)
+                return ComputePeak((IntPtr)ptr, Math.Min(bytes, buffer.Length), format);
+        }
+
         /// <summary>RMS of interleaved PCM samples.</summary>
         public static unsafe float ComputeRms(byte[]? buffer, int bytesRecorded, SampleFormat format)
         {

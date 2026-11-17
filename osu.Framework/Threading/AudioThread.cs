@@ -194,7 +194,7 @@ namespace osu.Framework.Threading
             if (mixer == null)
                 return 0;
 
-            int read = Bass.ChannelGetData(mixer.Value, buffer, length);
+            int read = Bass.ChannelGetData(mixer.Value, buffer, length | (int)DataFlags.Float);
 
             if (read > 0)
             {

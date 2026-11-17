@@ -60,8 +60,8 @@ namespace osu.Framework.Audio.EzLatency
             if (now - armedInputTime < ignore_after_arm_ms)
                 return;
 
-            float rms = AcousticLevelMath.ComputeRms(buffer, bytes, format);
-            tryRecord(now, rms);
+            float level = signalLevel(buffer, bytes, format);
+            tryRecord(now, level);
         }
 
         /// <summary>IEEE float shortcut for ASIO / NAudio float pulls.</summary>
@@ -82,9 +82,15 @@ namespace osu.Framework.Audio.EzLatency
             if (now - armedInputTime < ignore_after_arm_ms)
                 return;
 
-            float rms = AcousticLevelMath.ComputeRms(buffer, bytes, format);
-            tryRecord(now, rms);
+            float level = signalLevel(buffer, bytes, format);
+            tryRecord(now, level);
         }
+
+        private static float signalLevel(IntPtr buffer, int bytes, AcousticLevelMath.SampleFormat format) =>
+            Math.Max(AcousticLevelMath.ComputeRms(buffer, bytes, format), AcousticLevelMath.ComputePeak(buffer, bytes, format));
+
+        private static float signalLevel(byte[] buffer, int bytes, AcousticLevelMath.SampleFormat format) =>
+            Math.Max(AcousticLevelMath.ComputeRms(buffer, bytes, format), AcousticLevelMath.ComputePeak(buffer, bytes, format));
 
         private void poll()
         {
