@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.Versioning;
 using System.Threading;
+using JetBrains.Annotations;
 using ManagedBass;
 using NUnit.Framework;
 using osu.Framework.Audio;
@@ -205,7 +206,7 @@ namespace osu.Framework.Tests.Ez
             return new string('#', filled) + new string('-', meter_width - filled);
         }
 
-        private static bool waitUntil(Func<bool> condition, int timeoutMs, string? failMessage)
+        private static bool waitUntil([InstantHandle] Func<bool> condition, int timeoutMs, string? failMessage)
         {
             var sw = Stopwatch.StartNew();
 
