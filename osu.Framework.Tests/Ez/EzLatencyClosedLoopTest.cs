@@ -233,7 +233,7 @@ namespace osu.Framework.Tests.Ez
         }
 
         [Test]
-        public void OutputPathProbe_IgnoreWindow_SkipsEarlyEnergy()
+        public void OutputPathProbe_FirstBufferAfterArm_RecordsEnergy()
         {
             double now = 0;
             var hardware = new List<double>();
@@ -246,7 +246,7 @@ namespace osu.Framework.Tests.Ez
             };
 
             probe.Arm(0);
-            now = 4; // within ignore_after_arm_ms = 8
+            now = 4;
 
             byte[] buffer = new byte[4 * 32];
 
@@ -255,8 +255,9 @@ namespace osu.Framework.Tests.Ez
 
             probe.Observe(buffer, buffer.Length, AcousticLevelMath.SampleFormat.IeeeFloat32);
 
-            Assert.That(hardware, Is.Empty);
-            Assert.That(probe.IsArmed, Is.True);
+            Assert.That(hardware, Has.Count.EqualTo(1));
+            Assert.That(hardware[0], Is.EqualTo(4).Within(0.01));
+            Assert.That(probe.IsArmed, Is.False);
         }
     }
 }

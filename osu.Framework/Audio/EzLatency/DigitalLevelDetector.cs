@@ -12,7 +12,6 @@ namespace osu.Framework.Audio.EzLatency
     /// </summary>
     internal sealed class DigitalLevelDetector
     {
-        private const double ignore_after_arm_ms = 8;
         private const float default_threshold = 0.08f;
 
         private readonly Func<double> getTimestamp;
@@ -57,9 +56,6 @@ namespace osu.Framework.Audio.EzLatency
                 return;
 
             double now = getTimestamp();
-            if (now - armedInputTime < ignore_after_arm_ms)
-                return;
-
             float level = signalLevel(buffer, bytes, format);
             tryRecord(now, level);
         }
@@ -79,9 +75,6 @@ namespace osu.Framework.Audio.EzLatency
                 return;
 
             double now = getTimestamp();
-            if (now - armedInputTime < ignore_after_arm_ms)
-                return;
-
             float level = signalLevel(buffer, bytes, format);
             tryRecord(now, level);
         }
@@ -110,11 +103,11 @@ namespace osu.Framework.Audio.EzLatency
                 return;
 
             armed = false;
-            double roundtripMs = Math.Max(0, now - armedInputTime);
+            double roundtripMs = Math.Max(0.01, now - armedInputTime);
 
             try
             {
-                recordHardware(now, roundtripMs, 0, roundtripMs);
+                recordHardware(Math.Max(now, roundtripMs), roundtripMs, 0, roundtripMs);
             }
             catch (Exception ex)
             {
