@@ -1056,12 +1056,11 @@ namespace osu.Framework.Audio.Asio
 
         private static bool tryConfigureOutputRoutingWithBassChannel(AsioInfo info, int mixerHandle)
         {
-            var sampleFormat = GetSampleFormatForBitDepth(TargetBitDepth);
-
             for (int channel = 0; channel <= info.Outputs - 2; channel++)
             {
-                BassAsio.ChannelSetFormat(false, channel, sampleFormat);
-                BassAsio.ChannelSetFormat(false, channel + 1, sampleFormat);
+                // The decode mixer is float. An integer channel format starts the driver and then plays silence.
+                BassAsio.ChannelSetFormat(false, channel, AsioSampleFormat.Float);
+                BassAsio.ChannelSetFormat(false, channel + 1, AsioSampleFormat.Float);
 
                 if (BassAsio.ChannelEnableBass(false, channel, mixerHandle, true))
                 {

@@ -372,8 +372,8 @@ namespace osu.Framework.Tests.Visual.Ez
             for (int i = 0; i < burst_count; i++)
                 pendingHits.Add(Scheduler.AddDelayed(fireOnce, first_hit_delay_ms + i * hit_gap_ms));
 
-            double doneMs = first_hit_delay_ms + (burst_count - 1) * hit_gap_ms + hit_timeout_ms + 200;
-            pendingHits.Add(Scheduler.AddDelayed(() => finishAutoBurst(step, startId), doneMs));
+            const double done_ms = first_hit_delay_ms + (burst_count - 1) * hit_gap_ms + hit_timeout_ms + 200;
+            pendingHits.Add(Scheduler.AddDelayed(() => finishAutoBurst(step, startId), done_ms));
         }
 
         private void finishAutoBurst(AutoStep step, int startId)
@@ -414,7 +414,7 @@ namespace osu.Framework.Tests.Visual.Ez
         {
             var names = audioManager.AudioDeviceNames.Where(name => !string.IsNullOrEmpty(name)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-            string Bare(string entry)
+            string bare(string entry)
             {
                 if (entry.EndsWith(exclusive_suffix, StringComparison.Ordinal))
                     return entry[..^exclusive_suffix.Length];
@@ -427,14 +427,14 @@ namespace osu.Framework.Tests.Visual.Ez
 
             var playback = names
                 .Where(name => !name.EndsWith(asio_suffix, StringComparison.Ordinal))
-                .Select(Bare)
+                .Select(bare)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             var asio = names
                 .Where(name => name.EndsWith(asio_suffix, StringComparison.Ordinal))
-                .Select(Bare)
+                .Select(bare)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -537,19 +537,16 @@ namespace osu.Framework.Tests.Visual.Ez
 
                 if (!loopbackCheck)
                 {
-                    double doneMs = first_hit_delay_ms + (burst_count - 1) * hit_gap_ms + hit_timeout_ms + 200;
+                    const double done_ms = first_hit_delay_ms + (burst_count - 1) * hit_gap_ms + hit_timeout_ms + 200;
                     pendingHits.Add(Scheduler.AddDelayed(() =>
                     {
                         int pullHeard = EzLatencyManager.GLOBAL.GetStatistics().AcousticRecordCount;
                         appendResult(pullHeard > 0 ? $"pull ok  n={pullHeard}" : "silent pull  n=0");
-                    }, doneMs));
+                    }, done_ms));
                 }
 
                 return;
             }
-
-            if (waits == 0)
-                audioManager.ReloadCurrentAudioDevice();
 
             if (waits >= 20)
             {
@@ -658,7 +655,19 @@ namespace osu.Framework.Tests.Visual.Ez
                 Threshold = heard_rms
             };
 
-            string? driverId = tryResolveDriverId(audioManager.AudioDevice.Value);
+            string selection = audioManager.AudioDevice.Value ?? string.Empty;
+
+            // Exclusive owns the endpoint, and ASIO never enters the Windows engine.
+            // Opening the default endpoint here listens to a different device.
+            if (selection.EndsWith(exclusive_suffix, StringComparison.Ordinal) || selection.EndsWith(asio_suffix, StringComparison.Ordinal))
+            {
+                loopback.Dispose();
+                loopback = null;
+                loopbackText.Text = "loopback: not used for this mode";
+                return;
+            }
+
+            string? driverId = tryResolveDriverId(selection);
             bool started = loopback.TryStart(driverId);
             loopbackText.Text = started
                 ? $"loopback: on\n{audioManager.AudioDevice.Value}"

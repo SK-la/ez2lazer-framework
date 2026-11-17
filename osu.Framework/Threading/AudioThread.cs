@@ -370,6 +370,9 @@ namespace osu.Framework.Threading
 
         private bool initDeviceCore(int deviceId, AudioOutputMode outputMode, double preferredSampleRate, int asioBitDepth)
         {
+            // The previous device can still be Active. Readers must not treat that as this switch having finished.
+            Manager?.SetWindowsOutputRuntime(new AudioManager.WindowsOutputRuntimeInfo(Mode: outputMode, Active: false));
+
             // Important: stop any existing output first.
             // In particular, WASAPI exclusive can hold the device such that a subsequent Bass.Init() returns Busy.
             // If we can't initialise BASS, we also won't get a chance to clean up the previous output mode.
@@ -455,7 +458,8 @@ namespace osu.Framework.Threading
                                 name: "audio",
                                 level: LogLevel.Important);
 
-                            if (!attemptWasapiInitialisation(deviceId, exclusive: false))
+                            if (!attemptWasapiInitialisation(deviceId, exclusive: false)
+                                && !attemptWasapiInitialisation(deviceId, exclusive: false, sharedBufferMs: 20))
                             {
                                 Logger.Log(
                                     $"BassWasapi shared fallback failed for BASS device {deviceId}: {Bass.LastError}",
@@ -771,7 +775,7 @@ namespace osu.Framework.Threading
 
         private bool attemptWasapiInitialisation() => attemptWasapiInitialisation(Bass.CurrentDevice, exclusive: false);
 
-        private bool attemptWasapiInitialisation(int bassDeviceId, bool exclusive)
+        private bool attemptWasapiInitialisation(int bassDeviceId, bool exclusive, int sharedBufferMs = 0)
         {
             if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
                 return false;
@@ -780,7 +784,7 @@ namespace osu.Framework.Threading
 
             try
             {
-                return attemptWasapiInitialisationInternal(bassDeviceId, exclusive);
+                return attemptWasapiInitialisationInternal(bassDeviceId, exclusive, sharedBufferMs);
             }
             catch (DllNotFoundException e)
             {
@@ -799,7 +803,7 @@ namespace osu.Framework.Threading
             }
         }
 
-        private bool attemptWasapiInitialisationInternal(int bassDeviceId, bool exclusive)
+        private bool attemptWasapiInitialisationInternal(int bassDeviceId, bool exclusive, int sharedBufferMs)
         {
             Logger.Log($"Attempting local BassWasapi initialisation (exclusive: {exclusive})", name: "audio", level: LogLevel.Verbose);
 
@@ -886,7 +890,7 @@ namespace osu.Framework.Threading
                 return tryInitWasapiExclusiveWithBufferLadder(wasapiDevice);
 
             freeWasapi();
-            return initWasapi(wasapiDevice, exclusive: false, bufferMs: 0);
+            return initWasapi(wasapiDevice, exclusive: false, bufferMs: sharedBufferMs);
         }
 
         private static IEnumerable<int> wasapiExclusiveBufferLadder(int requestedMs)
@@ -931,10 +935,17 @@ namespace osu.Framework.Threading
 
                 if (WasapiExclusiveBufferLadder.ShouldAbortLadder(error))
                 {
+                    // The shared client on this endpoint may still be releasing. One delayed retry, then stop.
                     Logger.Log(
-                        $"WASAPI Exclusive init busy at {bufferMs}ms; not retrying on the audio thread.",
+                        $"WASAPI Exclusive init busy at {bufferMs}ms; waiting for the endpoint to release.",
                         name: "audio",
                         level: LogLevel.Important);
+                    Thread.Sleep(500);
+                    freeWasapi();
+
+                    if (initWasapi(wasapiDevice, exclusive: true, bufferMs))
+                        return true;
+
                     publishExclusiveWasapiInactive();
                     return false;
                 }

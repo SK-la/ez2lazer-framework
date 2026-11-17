@@ -3,6 +3,7 @@
 
 using System;
 using System.Runtime.Versioning;
+using System.Threading;
 using ManagedBass;
 using ManagedBass.Mix;
 using NAudio.CoreAudioApi;
@@ -121,6 +122,11 @@ namespace osu.Framework.Audio.Wasapi
                         startedLatencyMs = attempts[i].latencyMs;
                         break;
                     }
+
+                    // 0x800700AA: this endpoint was just released (default and the named device are often the same DAC).
+                    if (lastError?.HResult == unchecked((int)0x800700AA)
+                        || lastError?.Message.Contains("800700AA", StringComparison.OrdinalIgnoreCase) == true)
+                        Thread.Sleep(250);
                 }
 
                 if (!started)
