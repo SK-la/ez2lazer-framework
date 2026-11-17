@@ -98,6 +98,7 @@ namespace osu.Framework.Audio.EzLatency
                 started = new WasapiRecorderBuilder()
                           .WithDevice(opened)
                           .WithLoopbackCapture()
+                          .WithBufferLength(20)
                           .Build();
                 started.DataAvailable += onDataAvailable;
                 started.RecordingStopped += onRecordingStopped;
