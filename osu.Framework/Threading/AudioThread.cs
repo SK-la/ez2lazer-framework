@@ -17,7 +17,6 @@ using ManagedBass.Wasapi;
 using osu.Framework.Audio;
 using osu.Framework.Audio.Asio;
 using osu.Framework.Audio.EzLatency;
-using osu.Framework.Audio.Host;
 using osu.Framework.Audio.Wasapi;
 using osu.Framework.Audio.Windows;
 using osu.Framework.Bindables;
@@ -390,16 +389,12 @@ namespace osu.Framework.Threading
             bool needsEndpointSettle = wasapiOrAsioWasActive || outputMode == AudioOutputMode.Default;
             wasapiOrAsioWasActive = false;
 
-            if (outputMode == AudioOutputMode.Asio && UseRealWindowsAudioOutput)
+            if (needsEndpointSettle && UseRealWindowsAudioOutput)
             {
-                Thread.Sleep(100);
-            }
-            else if (needsEndpointSettle
-                     && outputMode == AudioOutputMode.Default
-                     && OperatingSystem.IsWindows()
-                     && UseRealWindowsAudioOutput)
-            {
-                Thread.Sleep(150);
+                if (OperatingSystem.IsWindows())
+                    Marshal.CleanupUnusedObjectsInCurrentContext();
+
+                Thread.Sleep(outputMode == AudioOutputMode.Asio ? 100 : 150);
             }
 
             bool useNAudioDefault = outputMode == AudioOutputMode.Default
@@ -989,21 +984,6 @@ namespace osu.Framework.Threading
                     {
                         requestedFrequency = selectedInfo.MixFrequency;
                         requestedChannels = selectedInfo.MixChannels;
-
-                        int currentBassDevice = Bass.CurrentDevice;
-
-                        if ((requestedFrequency <= 0 || requestedChannels <= 0) && currentBassDevice > 0)
-                        {
-                            string driver = Bass.GetDeviceInfo(currentBassDevice).Driver;
-                            string deviceName = Bass.GetDeviceInfo(currentBassDevice).Name;
-                            var mixFormat = HostAudioFormatQuery.TryGetMixFormat(driver, deviceName);
-
-                            if (mixFormat != null)
-                            {
-                                requestedFrequency = mixFormat.Value.sampleRate;
-                                requestedChannels = mixFormat.Value.channels;
-                            }
-                        }
                     }
                 }
                 else
@@ -1140,6 +1120,13 @@ namespace osu.Framework.Threading
             int? mixerToFree = globalMixerHandle.Value;
             bool hadWasapi = wasapiExclusiveActive || mixerToFree != null;
 
+            if (OperatingSystem.IsWindows())
+            {
+                exclusiveEndpointGain?.Dispose();
+                exclusiveEndpointGain = null;
+                exclusivePullGain = 1f;
+            }
+
             try
             {
                 // The mixer probably doesn't need to be recycled. Just keeping things sane for now.
@@ -1165,13 +1152,6 @@ namespace osu.Framework.Threading
             }
             finally
             {
-                if (OperatingSystem.IsWindows())
-                {
-                    exclusiveEndpointGain?.Dispose();
-                    exclusiveEndpointGain = null;
-                    exclusivePullGain = 1f;
-                }
-
                 if (hadWasapi)
                     wasapiOrAsioWasActive = true;
 

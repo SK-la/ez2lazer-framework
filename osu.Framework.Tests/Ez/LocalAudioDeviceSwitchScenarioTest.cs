@@ -62,6 +62,7 @@ namespace osu.Framework.Tests.Ez
                 {
                     runMode(audioManager, device, "shared", failures, switchFailures);
                     runMode(audioManager, device + exclusive_suffix, "exclusive", failures, switchFailures);
+                    runMode(audioManager, device, "shared", failures, switchFailures);
                 }
             }
             finally

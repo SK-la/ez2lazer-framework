@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using ManagedBass;
 using ManagedBass.Asio;
@@ -103,9 +102,12 @@ namespace osu.Framework.Audio.Asio
         {
             get
             {
+                if (RuntimeInfo.OS != RuntimeInfo.Platform.Windows)
+                    return false;
+
                 try
                 {
-                    _ = BassAsio.DeviceCount;
+                    _ = BassAsio.Version;
                     return true;
                 }
                 catch (DllNotFoundException)
@@ -160,11 +162,8 @@ namespace osu.Framework.Audio.Asio
                 if (!IsAvailable)
                     yield break;
 
-                for (int i = 0; i < BassAsio.DeviceCount; i++)
-                {
-                    if (BassAsio.GetDeviceInfo(i, out AsioDeviceInfo info))
-                        yield return (i, info.Name);
-                }
+                for (int i = 0; BassAsio.GetDeviceInfo(i, out AsioDeviceInfo info); i++)
+                    yield return (i, info.Name);
             }
         }
 
@@ -851,9 +850,9 @@ namespace osu.Framework.Audio.Asio
         {
             deviceInfo = default;
 
-            if (deviceIndex < 0 || deviceIndex >= BassAsio.DeviceCount)
+            if (deviceIndex < 0)
             {
-                Logger.Log($"Invalid ASIO device index: {deviceIndex} (DeviceCount: {BassAsio.DeviceCount})", LoggingTarget.Runtime, LogLevel.Error);
+                Logger.Log($"Invalid ASIO device index: {deviceIndex}", LoggingTarget.Runtime, LogLevel.Error);
                 return false;
             }
 
@@ -1230,38 +1229,6 @@ namespace osu.Framework.Audio.Asio
 
             freeCurrentAsioDevice();
 
-            try
-            {
-                int count = BassAsio.DeviceCount;
-
-                for (int i = 0; i < count; i++)
-                {
-                    try
-                    {
-                        BassAsio.CurrentDevice = i;
-
-                        if (!BassAsio.GetInfo(out _))
-                            continue;
-
-                        freeCurrentAsioDevice();
-                    }
-                    catch
-                    {
-                    }
-                }
-            }
-            catch
-            {
-            }
-
-            try
-            {
-                CoFreeUnusedLibraries();
-            }
-            catch
-            {
-            }
-
             appliedBufferSize = null;
             ActiveDeviceIndex = null;
 
@@ -1301,9 +1268,6 @@ namespace osu.Framework.Audio.Asio
                 Logger.Log($"Exception during ASIO device release: {ex}", LoggingTarget.Runtime, LogLevel.Error);
             }
         }
-
-        [DllImport("ole32.dll")]
-        private static extern void CoFreeUnusedLibraries();
 
         private static string getAsioErrorDescription(int errorCode)
         {

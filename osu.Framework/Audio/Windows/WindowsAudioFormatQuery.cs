@@ -29,11 +29,8 @@ namespace osu.Framework.Audio.Windows
             {
                 using var enumerator = new MMDeviceEnumerator();
 
-                foreach (var device in enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
-                {
-                    if (string.Equals(device.ID, bassDriverId, StringComparison.OrdinalIgnoreCase))
-                        return device.FriendlyName;
-                }
+                using var device = enumerator.GetDevice(bassDriverId);
+                return device.FriendlyName;
             }
             catch (Exception ex)
             {
@@ -77,15 +74,6 @@ namespace osu.Framework.Audio.Windows
 
             try
             {
-                addWaveFormat(results, tryGetMixFormat(device));
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"Windows mix format lookup failed: {ex.Message}", LoggingTarget.Runtime, LogLevel.Debug);
-            }
-
-            try
-            {
                 device.GetPropertyInformation();
 
                 if (device.Properties.TryGetValue(PropertyKeys.PKEY_AudioEngine_DeviceFormat, out byte[]? blob))
@@ -94,6 +82,10 @@ namespace osu.Framework.Audio.Windows
             catch (Exception ex)
             {
                 Logger.Log($"Windows device format property lookup failed: {ex.Message}", LoggingTarget.Runtime, LogLevel.Debug);
+            }
+            finally
+            {
+                device.Dispose();
             }
 
             return results;
@@ -185,10 +177,12 @@ namespace osu.Framework.Audio.Windows
 
                 if (!string.IsNullOrEmpty(bassDriverId))
                 {
-                    foreach (var device in enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
+                    try
                     {
-                        if (string.Equals(device.ID, bassDriverId, StringComparison.OrdinalIgnoreCase))
-                            return device;
+                        return enumerator.GetDevice(bassDriverId);
+                    }
+                    catch
+                    {
                     }
                 }
 
@@ -238,9 +232,12 @@ namespace osu.Framework.Audio.Windows
 
                 foreach (var device in enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
                 {
-                    if (device.FriendlyName.Contains(bassDeviceName, StringComparison.OrdinalIgnoreCase)
-                        || bassDeviceName.Contains(device.FriendlyName, StringComparison.OrdinalIgnoreCase))
-                        return device.ID;
+                    using (device)
+                    {
+                        if (device.FriendlyName.Contains(bassDeviceName, StringComparison.OrdinalIgnoreCase)
+                            || bassDeviceName.Contains(device.FriendlyName, StringComparison.OrdinalIgnoreCase))
+                            return device.ID;
+                    }
                 }
             }
             catch (Exception ex)
