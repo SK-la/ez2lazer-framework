@@ -24,6 +24,10 @@ namespace osu.Framework.Tests.Ez
         private const string exclusive_suffix = " (WASAPI Exclusive)";
         private const int switch_timeout_ms = 8000;
         private const int playback_ms = 500;
+        private const int meter_tick_ms = 100;
+        private const int meter_width = 16;
+        private const float silence_rms = 0.0001f;
+        private const float heard_rms = 0.01f;
 
         [Test]
         public void SharedThenExclusivePerPlaybackDevice()
@@ -114,19 +118,23 @@ namespace osu.Framework.Tests.Ez
                 return;
             }
 
-            if (mode == "exclusive")
-            {
-                TestContext.WriteLine("loopback: skipped (exclusive owns the endpoint)");
-            }
-
             using var loopback = mode == "exclusive" ? null : new LoopbackListen(tryResolveDriverId(selection));
-            loopback?.Arm();
 
+            if (mode == "exclusive")
+                TestContext.WriteLine("loopback: skipped (exclusive owns the endpoint)");
+            else if (loopback is { Started: false })
+                TestContext.WriteLine($"loopback: unavailable ({loopback.StartError ?? "no capture"})");
+
+            loopback?.Arm();
             track.Restart();
 
             bool progressing = waitUntil(() => track.IsRunning && track.CurrentTime > 0, 2000, null);
-            Thread.Sleep(playback_ms);
-            bool heard = loopback?.Heard ?? false;
+
+            if (loopback is { Started: true })
+                watchLoopbackMeter(loopback, playback_ms);
+            else
+                Thread.Sleep(playback_ms);
+
             float peak = loopback?.PeakRms ?? 0;
 
             track.Stop();
@@ -139,13 +147,15 @@ namespace osu.Framework.Tests.Ez
                 return;
             }
 
-            if (loopback == null)
+            if (loopback is not { Started: true })
                 return;
 
-            if (!loopback.Started)
-                TestContext.WriteLine($"loopback: unavailable ({loopback.StartError ?? "no capture"})");
-            else if (!heard)
-                TestContext.WriteLine($"loopback: below threshold (peakRms={peak:0.0000}, recorded, not a failure)");
+            TestContext.WriteLine($"loopback meter: [{formatMeter(peak)}] peakRms={peak:0.0000}");
+
+            if (peak < silence_rms)
+                failures.Add($"{selection} ({mode}): no loopback sound (peakRms={peak:0.0000})");
+            else if (peak < heard_rms)
+                TestContext.WriteLine($"loopback: below threshold (peakRms={peak:0.0000})");
             else
                 TestContext.WriteLine($"loopback: heard peakRms={peak:0.0000}");
         }
@@ -176,6 +186,25 @@ namespace osu.Framework.Tests.Ez
             return null;
         }
 
+        private static void watchLoopbackMeter(LoopbackListen loopback, int durationMs)
+        {
+            var sw = Stopwatch.StartNew();
+
+            while (sw.ElapsedMilliseconds < durationMs)
+            {
+                float curr = loopback.CurrentRms;
+                TestContext.WriteLine($"loopback meter: [{formatMeter(curr)}] curr={curr:0.0000} peak={loopback.PeakRms:0.0000}");
+                Thread.Sleep(meter_tick_ms);
+            }
+        }
+
+        private static string formatMeter(float rms)
+        {
+            float shown = Math.Clamp(rms, 0f, 1f);
+            int filled = Math.Clamp((int)Math.Round(Math.Sqrt(shown) * meter_width), 0, meter_width);
+            return new string('#', filled) + new string('-', meter_width - filled);
+        }
+
         private static bool waitUntil(Func<bool> condition, int timeoutMs, string? failMessage)
         {
             var sw = Stopwatch.StartNew();
@@ -198,16 +227,15 @@ namespace osu.Framework.Tests.Ez
         private sealed class LoopbackListen : IDisposable
         {
             private readonly AcousticClosedLoopProbe probe;
-            private volatile bool heard;
 
             public LoopbackListen(string? bassDriverId)
             {
                 probe = new AcousticClosedLoopProbe(
                     () => Environment.TickCount64,
                     () => { },
-                    (_, _, _, _) => heard = true)
+                    (_, _, _, _) => { })
                 {
-                    Threshold = 0.01f
+                    Threshold = heard_rms
                 };
 
                 Started = probe.TryStart(bassDriverId);
@@ -216,8 +244,8 @@ namespace osu.Framework.Tests.Ez
 
             public bool Started { get; }
             public string? StartError { get; }
-            public bool Heard => heard;
             public float PeakRms => probe.PeakRms;
+            public float CurrentRms => probe.CurrentRms;
 
             public void Arm()
             {
