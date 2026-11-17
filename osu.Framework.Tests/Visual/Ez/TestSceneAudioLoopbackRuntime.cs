@@ -58,6 +58,12 @@ namespace osu.Framework.Tests.Visual.Ez
         private int fireSeq;
         private int armedId;
         private bool applyingDevice;
+        private bool autoRunning;
+        private bool haveSavedDevice;
+        private string savedDevice = string.Empty;
+        private bool savedExternalPcm;
+        private int autoIndex;
+        private List<AutoStep> autoPlan = new List<AutoStep>();
 
         [BackgroundDependencyLoader]
         private void load()
@@ -87,7 +93,7 @@ namespace osu.Framework.Tests.Visual.Ez
                         },
                         new SpriteText
                         {
-                            Text = "Switch device, then Test / Retest.\nAuto-fires samples and records trigger to loopback.",
+                            Text = "Check all outputs.\nShared must be heard on loopback. Exclusive and ASIO must be heard in the driver pull.",
                             Font = FrameworkFont.Condensed.With(size: 14),
                             Colour = Color4.LightGray,
                         },
@@ -105,6 +111,7 @@ namespace osu.Framework.Tests.Visual.Ez
                             {
                                 createActionButton("Test", () => runBurst(clear: false), 120),
                                 createActionButton("Retest", () => runBurst(clear: true), 120),
+                                createActionButton("Check all outputs", startAuto, 220),
                                 createActionButton("Refresh devices", refreshDeviceList, 180),
                             }
                         },
@@ -161,6 +168,7 @@ namespace osu.Framework.Tests.Visual.Ez
             audioManager.OnNewDevice += onDeviceListChanged;
             audioManager.OnLostDevice += onDeviceListChanged;
             audioManager.OnWindowsOutputRuntimeChanged += onRuntimeChanged;
+            audioManager.ReloadCurrentAudioDevice();
             audioManager.AudioDevice.ValueChanged += onAudioDeviceBindableChanged;
             deviceDropdown.Current.ValueChanged += onDropdownBindableChanged;
 
@@ -195,6 +203,8 @@ namespace osu.Framework.Tests.Visual.Ez
             deviceDropdown.Current.ValueChanged -= onDropdownBindableChanged;
             cancelPendingHits();
             stopLoopback();
+            restoreSavedDevice();
+            EzLatencyManager.GLOBAL.Enabled.Value = false;
             AudioThread.AllowRealWindowsAudioOutput = false;
             base.Dispose(isDisposing);
         }
@@ -208,7 +218,7 @@ namespace osu.Framework.Tests.Visual.Ez
 
         private void onDeviceListChanged(string _) => Scheduler.AddOnce(refreshDeviceList);
 
-        private void onRuntimeChanged() => Scheduler.AddOnce(bindLoopbackToCurrentDevice);
+        private void onRuntimeChanged() => Scheduler.AddOnce(refreshStatus);
 
         private void onAudioDeviceBindableChanged(ValueChangedEvent<string> _) => onDeviceSelectionChanged();
 
@@ -257,8 +267,221 @@ namespace osu.Framework.Tests.Visual.Ez
             refreshStatus();
         }
 
+        private void startAuto()
+        {
+            cancelPendingHits();
+            autoRunning = true;
+            savedDevice = audioManager.AudioDevice.Value ?? string.Empty;
+            savedExternalPcm = audioManager.AsioUseExternalPCM.Value;
+            haveSavedDevice = true;
+            autoPlan = buildAutoPlan();
+            autoIndex = 0;
+            autoFailures = 0;
+            runAutoStep();
+        }
+
+        private void runAutoStep()
+        {
+            if (!autoRunning)
+                return;
+
+            if (autoIndex >= autoPlan.Count)
+            {
+                autoRunning = false;
+                restoreSavedDevice();
+                appendResult(autoFailures == 0 ? "all outputs heard" : $"failed {autoFailures}");
+                refreshStatus();
+                return;
+            }
+
+            AutoStep step = autoPlan[autoIndex];
+            statusText.Text = step.Label;
+
+            if (step.Missing)
+            {
+                noteAutoFailure($"{step.Label}  device missing");
+                autoIndex++;
+                runAutoStep();
+                return;
+            }
+
+            applyingDevice = true;
+
+            if (step.ExternalPcm.HasValue)
+                audioManager.SetAsioUseExternalPCM(step.ExternalPcm.Value);
+
+            audioManager.AudioDevice.Value = step.Selection;
+            applyingDevice = false;
+            waitAutoOutput(0);
+        }
+
+        private void waitAutoOutput(int waits)
+        {
+            if (!autoRunning)
+                return;
+
+            refreshStatus();
+            AutoStep step = autoPlan[autoIndex];
+
+            if (outputIsRunning())
+            {
+                reloadSample();
+                bindLoopbackToCurrentDevice();
+                beginMeasuredBurst(step);
+                return;
+            }
+
+            if (waits >= 20)
+            {
+                string note = audioManager.GetOutputDeviceStatusNote().ReplaceLineEndings(" | ");
+                noteAutoFailure($"{step.Label}  inactive  {note}");
+                autoIndex++;
+                runAutoStep();
+                return;
+            }
+
+            pendingHits.Add(Scheduler.AddDelayed(() => waitAutoOutput(waits + 1), 400));
+        }
+
+        private int autoFailures;
+
+        private void beginMeasuredBurst(AutoStep step)
+        {
+            if (sample == null)
+            {
+                noteAutoFailure($"{step.Label}  sample missing");
+                autoIndex++;
+                runAutoStep();
+                return;
+            }
+
+            if (step.HeardBy == HeardBy.Loopback && !loopbackIsRunning())
+            {
+                noteAutoFailure($"{step.Label}  loopback unavailable");
+                autoIndex++;
+                runAutoStep();
+                return;
+            }
+
+            EzLatencyManager.GLOBAL.ClearStatistics();
+            EzLatencyManager.GLOBAL.SetAcousticThreshold(heard_rms);
+            EzLatencyManager.GLOBAL.Enabled.Value = true;
+
+            int startId = fireSeq;
+
+            for (int i = 0; i < burst_count; i++)
+                pendingHits.Add(Scheduler.AddDelayed(fireOnce, first_hit_delay_ms + i * hit_gap_ms));
+
+            double doneMs = first_hit_delay_ms + (burst_count - 1) * hit_gap_ms + hit_timeout_ms + 200;
+            pendingHits.Add(Scheduler.AddDelayed(() => finishAutoBurst(step, startId), doneMs));
+        }
+
+        private void finishAutoBurst(AutoStep step, int startId)
+        {
+            if (!autoRunning)
+                return;
+
+            int loopbackHeard = 0;
+
+            for (int id = startId + 1; id <= startId + burst_count; id++)
+            {
+                if (hitHeard.TryGetValue(id, out bool ok) && ok)
+                    loopbackHeard++;
+            }
+
+            int pullHeard = EzLatencyManager.GLOBAL.GetStatistics().AcousticRecordCount;
+            bool passed = step.HeardBy == HeardBy.Loopback ? loopbackHeard > 0 : pullHeard > 0;
+
+            if (!passed)
+                autoFailures++;
+
+            string detail = step.HeardBy == HeardBy.Loopback
+                ? $"loopback {loopbackHeard}/{burst_count}"
+                : $"pull n={pullHeard}";
+
+            appendResult($"{step.Label}  {(passed ? "ok" : "silent")}  {detail}");
+            autoIndex++;
+            runAutoStep();
+        }
+
+        private void noteAutoFailure(string line)
+        {
+            autoFailures++;
+            appendResult(line);
+        }
+
+        private List<AutoStep> buildAutoPlan()
+        {
+            var names = audioManager.AudioDeviceNames.Where(name => !string.IsNullOrEmpty(name)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            string Bare(string entry)
+            {
+                if (entry.EndsWith(exclusive_suffix, StringComparison.Ordinal))
+                    return entry[..^exclusive_suffix.Length];
+
+                if (entry.EndsWith(asio_suffix, StringComparison.Ordinal))
+                    return entry[..^asio_suffix.Length];
+
+                return entry;
+            }
+
+            var playback = names
+                .Where(name => !name.EndsWith(asio_suffix, StringComparison.Ordinal))
+                .Select(Bare)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var asio = names
+                .Where(name => name.EndsWith(asio_suffix, StringComparison.Ordinal))
+                .Select(Bare)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var plan = new List<AutoStep>
+            {
+                new AutoStep("Default", string.Empty, null, HeardBy.Loopback, false),
+            };
+
+            foreach (string name in playback)
+            {
+                plan.Add(new AutoStep($"{name} shared", name, null, HeardBy.Loopback, false));
+                plan.Add(new AutoStep($"{name} exclusive", name + exclusive_suffix, null, HeardBy.Pull, false));
+            }
+
+            foreach (string name in asio)
+            {
+                plan.Add(new AutoStep($"{name} ASIO PCM", name + asio_suffix, true, HeardBy.Pull, false));
+                plan.Add(new AutoStep($"{name} ASIO internal", name + asio_suffix, false, HeardBy.Pull, false));
+            }
+
+            return plan;
+        }
+
+        private void restoreSavedDevice()
+        {
+            if (!haveSavedDevice)
+                return;
+
+            applyingDevice = true;
+            audioManager.SetAsioUseExternalPCM(savedExternalPcm);
+            audioManager.AudioDevice.Value = savedDevice;
+            applyingDevice = false;
+            haveSavedDevice = false;
+        }
+
+        private readonly record struct AutoStep(string Label, string Selection, bool? ExternalPcm, HeardBy HeardBy, bool Missing);
+
+        private enum HeardBy
+        {
+            Loopback,
+            Pull,
+        }
+
         private void runBurst(bool clear)
         {
+            autoRunning = false;
             cancelPendingHits();
 
             if (clear)
@@ -273,21 +496,82 @@ namespace osu.Framework.Tests.Visual.Ez
             refreshResults();
             refreshStats();
 
-            if (!loopbackIsRunning())
-                bindLoopbackToCurrentDevice();
-
             if (sample == null)
             {
                 appendResult("sample missing");
                 return;
             }
 
-            for (int i = 0; i < burst_count; i++)
-            {
-                var delayed = Scheduler.AddDelayed(fireOnce, first_hit_delay_ms + i * hit_gap_ms);
+            waitUntilOutputRunning(0);
+        }
 
-                pendingHits.Add(delayed);
+        private void waitUntilOutputRunning(int waits)
+        {
+            refreshStatus();
+
+            if (outputIsRunning())
+            {
+                reloadSample();
+                bindLoopbackToCurrentDevice();
+
+                if (sample == null)
+                {
+                    appendResult("sample missing");
+                    return;
+                }
+
+                bool loopbackCheck = usesLoopback(audioManager.AudioDevice.Value);
+
+                if (loopbackCheck && !loopbackIsRunning())
+                {
+                    appendResult("loopback unavailable");
+                    return;
+                }
+
+                EzLatencyManager.GLOBAL.ClearStatistics();
+                EzLatencyManager.GLOBAL.SetAcousticThreshold(heard_rms);
+                EzLatencyManager.GLOBAL.Enabled.Value = true;
+
+                for (int i = 0; i < burst_count; i++)
+                    pendingHits.Add(Scheduler.AddDelayed(fireOnce, first_hit_delay_ms + i * hit_gap_ms));
+
+                if (!loopbackCheck)
+                {
+                    double doneMs = first_hit_delay_ms + (burst_count - 1) * hit_gap_ms + hit_timeout_ms + 200;
+                    pendingHits.Add(Scheduler.AddDelayed(() =>
+                    {
+                        int pullHeard = EzLatencyManager.GLOBAL.GetStatistics().AcousticRecordCount;
+                        appendResult(pullHeard > 0 ? $"pull ok  n={pullHeard}" : "silent pull  n=0");
+                    }, doneMs));
+                }
+
+                return;
             }
+
+            if (waits == 0)
+                audioManager.ReloadCurrentAudioDevice();
+
+            if (waits >= 20)
+            {
+                appendResult(audioManager.GetOutputDeviceStatusNote().ReplaceLineEndings(" | "));
+                return;
+            }
+
+            pendingHits.Add(Scheduler.AddDelayed(() => waitUntilOutputRunning(waits + 1), 400));
+        }
+
+        private void reloadSample()
+        {
+            sampleStore.Invalidate("long.mp3");
+            sampleStore.Invalidate("sample-track.mp3");
+            sample = sampleStore.Get("long.mp3") ?? sampleStore.Get("sample-track.mp3");
+        }
+
+        private bool outputIsRunning()
+        {
+            string note = audioManager.GetOutputDeviceStatusNote();
+            return note.Contains("Output: running", StringComparison.Ordinal)
+                   && !note.Contains("routing inactive", StringComparison.OrdinalIgnoreCase);
         }
 
         private void fireOnce()
@@ -301,6 +585,9 @@ namespace osu.Framework.Tests.Visual.Ez
             if (OperatingSystem.IsWindows())
                 armLoopback();
 
+            EzLatencyManager.GLOBAL.SetAcousticThreshold(heard_rms);
+            EzLatencyManager.GLOBAL.Enabled.Value = true;
+            EzLatencyManager.GLOBAL.RecordInputEvent(id);
             sample.Play();
 
             var timeout = Scheduler.AddDelayed(() => completeHit(id, null), hit_timeout_ms);
@@ -447,6 +734,11 @@ namespace osu.Framework.Tests.Visual.Ez
         {
             statusText.Text = audioManager.GetOutputDeviceStatusNote();
         }
+
+        private static bool usesLoopback(string? selection) =>
+            string.IsNullOrEmpty(selection)
+            || (!selection.EndsWith(exclusive_suffix, StringComparison.Ordinal)
+                && !selection.EndsWith(asio_suffix, StringComparison.Ordinal));
 
         private static string toDropdownItem(string selection) =>
             string.IsNullOrEmpty(selection) ? default_item : selection;
