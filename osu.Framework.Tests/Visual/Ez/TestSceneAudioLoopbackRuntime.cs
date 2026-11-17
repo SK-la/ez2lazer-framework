@@ -644,11 +644,13 @@ namespace osu.Framework.Tests.Visual.Ez
             startLoopback();
         }
 
+        private static double nowMs() => System.Diagnostics.Stopwatch.GetTimestamp() * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+
         [SupportedOSPlatform("windows")]
         private void startLoopback()
         {
             loopback = new AcousticClosedLoopProbe(
-                () => Environment.TickCount64,
+                nowMs,
                 () => { },
                 (_, outputHardwareTime, _, _) => onLoopbackDetected(outputHardwareTime))
             {
@@ -681,7 +683,7 @@ namespace osu.Framework.Tests.Visual.Ez
         }
 
         [SupportedOSPlatform("windows")]
-        private void armLoopback() => loopback?.Arm(Environment.TickCount64);
+        private void armLoopback() => loopback?.Arm(nowMs());
 
         private bool loopbackIsRunning() => OperatingSystem.IsWindows() && loopbackRunningWindows();
 
