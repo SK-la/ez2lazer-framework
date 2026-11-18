@@ -26,6 +26,7 @@ namespace osu.Framework.Graphics.Textures
             this.store = new ResourceStore<byte[]>(store);
             this.store.AddExtension(@"png");
             this.store.AddExtension(@"jpg");
+            this.store.AddExtension(@"gif");
         }
 
         public Task<TextureUpload> GetAsync(string name, CancellationToken cancellationToken = default) =>
@@ -46,6 +47,20 @@ namespace osu.Framework.Graphics.Textures
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Decode all frames for an animated still resource. <see cref="Get"/> continues to return a single preview frame for GIFs.
+        /// </summary>
+        public AnimatedImageFrameLoadResult LoadAnimatedFrames(string name, int? maxFrames = null)
+        {
+            using (var stream = store.GetStream(name))
+            {
+                if (stream == null)
+                    return null;
+
+                return AnimatedImageLoader.LoadFromStream(stream, maxFrames);
+            }
         }
 
         public Stream GetStream(string name) => store.GetStream(name);
