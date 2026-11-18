@@ -196,7 +196,7 @@ namespace osu.Framework.Tests.Visual.Ez
         protected override void Dispose(bool isDisposing)
         {
             if (isDisposing)
-                decodedFrames?.Dispose();
+                decodedFrames.Dispose();
 
             base.Dispose(isDisposing);
         }
