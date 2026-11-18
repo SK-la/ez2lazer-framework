@@ -67,7 +67,12 @@ namespace osu.Framework.Graphics.Textures
 
             try
             {
-                source = Image.Load<Rgba32>(TextureUpload.DECODER_OPTIONS, stream);
+                var options = new DecoderOptions
+                {
+                    Configuration = TextureUpload.DECODER_OPTIONS.Configuration,
+                    MaxFrames = maxFrames.HasValue ? (uint)Math.Max(1, maxFrames.Value) : uint.MaxValue,
+                };
+                source = Image.Load<Rgba32>(options, stream);
 
                 if (source.Frames.Count <= 1)
                 {
@@ -77,14 +82,46 @@ namespace osu.Framework.Graphics.Textures
                 }
 
                 var (images, durations) = GifFrameCompositor.Compose(source, maxFrames);
-                var uploads = new List<TextureUpload>(images.Count);
+                List<TextureUpload>? uploads = null;
+                int convertedImageCount = 0;
 
-                foreach (var image in images)
+                try
                 {
-                    uploads.Add(new TextureUpload(image));
-                }
+                    uploads = new List<TextureUpload>(images.Count);
 
-                return new AnimatedImageFrameLoadResult(uploads, durations);
+                    while (convertedImageCount < images.Count)
+                    {
+                        var upload = new TextureUpload(images[convertedImageCount]);
+
+                        try
+                        {
+                            uploads.Add(upload);
+                        }
+                        catch
+                        {
+                            upload.Dispose();
+                            convertedImageCount++;
+                            throw;
+                        }
+
+                        convertedImageCount++;
+                    }
+
+                    return new AnimatedImageFrameLoadResult(uploads, durations);
+                }
+                catch
+                {
+                    if (uploads != null)
+                    {
+                        foreach (var upload in uploads)
+                            upload.Dispose();
+                    }
+
+                    for (int i = convertedImageCount; i < images.Count; i++)
+                        images[i].Dispose();
+
+                    throw;
+                }
             }
             catch
             {

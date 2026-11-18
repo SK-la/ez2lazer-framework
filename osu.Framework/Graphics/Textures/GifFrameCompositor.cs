@@ -23,16 +23,35 @@ namespace osu.Framework.Graphics.Textures
             if (maxFrames.HasValue)
                 frameCount = Math.Min(frameCount, Math.Max(1, maxFrames.Value));
 
-            for (int i = 0; i < frameCount; i++)
+            try
             {
-                var frameMetadata = source.Frames[i].Metadata.GetGifMetadata();
-                using (var frame = source.Frames.CloneFrame(i))
-                    images.Add(frame.Clone());
+                for (int i = 0; i < frameCount; i++)
+                {
+                    var frameMetadata = source.Frames[i].Metadata.GetGifMetadata();
+                    var image = source.Frames.CloneFrame(i);
 
-                durations.Add(Math.Max(frameMetadata.FrameDelay * 10, 20));
+                    try
+                    {
+                        images.Add(image);
+                    }
+                    catch
+                    {
+                        image.Dispose();
+                        throw;
+                    }
+
+                    durations.Add(Math.Max(frameMetadata.FrameDelay * 10, 20));
+                }
+
+                return (images, durations);
             }
+            catch
+            {
+                foreach (var image in images)
+                    image.Dispose();
 
-            return (images, durations);
+                throw;
+            }
         }
     }
 }

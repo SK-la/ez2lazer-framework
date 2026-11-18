@@ -30,6 +30,17 @@ namespace osu.Framework.Tests.Graphics
         }
 
         [Test]
+        public void TestGifRespectsMaxFrames()
+        {
+            using var stream = GifTestResources.OpenSampleFlameGifStream();
+            using var result = AnimatedImageLoader.LoadFromStream(stream, 2);
+
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result!.Frames.Count, Is.EqualTo(2));
+            Assert.That(result.FrameDurationMs.Count, Is.EqualTo(2));
+        }
+
+        [Test]
         public void TestTextureLoaderStoreLoadAnimatedFrames()
         {
             using var result = GifTestResources.LoadSampleFlameGif();
