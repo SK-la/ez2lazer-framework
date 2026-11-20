@@ -4,6 +4,7 @@
 using System;
 using System.IO;
 using NUnit.Framework;
+using osu.Framework.Platform;
 using osu.Framework.Testing;
 
 // ReSharper disable AccessToDisposedClosure
@@ -46,6 +47,53 @@ namespace osu.Framework.Tests.IO
                 });
 
                 Assert.Throws<ArgumentException>(() => storage.GetStorageForDirectory("../"));
+            }
+        }
+
+        [Test]
+        public void TestPrefixSiblingEscape()
+        {
+            string parent = Path.Combine(TestRunHeadlessGameHost.TemporaryTestDirectory, "sandbox-" + Guid.NewGuid().ToString("N"));
+            var storage = new NativeStorage(Path.Combine(parent, "osu"));
+
+            try
+            {
+                storage.GetFullPath("./", true);
+
+                string root = storage.GetFullPath(string.Empty);
+                string siblingDirectory = root + "-lazer";
+                string siblingFile = Path.Combine(siblingDirectory, "client.realm");
+
+                Assert.Throws<ArgumentException>(() => storage.GetFullPath("../osu-lazer"));
+                Assert.Throws<ArgumentException>(() => storage.GetFullPath("../osu-lazer/client.realm"));
+                Assert.Throws<ArgumentException>(() => storage.GetFullPath("../osu!"));
+                Assert.Throws<ArgumentException>(() => storage.GetFullPath(siblingFile));
+                Assert.Throws<ArgumentException>(() => storage.GetStorageForDirectory("../osu-lazer"));
+                Assert.That(Directory.Exists(siblingDirectory), Is.False);
+
+                Directory.CreateDirectory(siblingDirectory);
+                File.WriteAllText(siblingFile, "secret");
+
+                Assert.Throws<ArgumentException>(() =>
+                {
+                    using var x = storage.GetStream("../osu-lazer/client.realm");
+                });
+                Assert.Throws<ArgumentException>(() => storage.Delete("../osu-lazer/client.realm"));
+                Assert.Throws<ArgumentException>(() => storage.DeleteDirectory("../osu-lazer"));
+                Assert.That(File.ReadAllText(siblingFile), Is.EqualTo("secret"));
+
+                using (var stream = storage.CreateFileSafely("inside.txt"))
+                    stream.WriteByte(1);
+
+                Assert.That(storage.GetFiles(string.Empty), Is.EquivalentTo(new[] { "inside.txt" }));
+                Assert.AreEqual(root, storage.GetFullPath("../osu"));
+                Assert.AreEqual(Path.Combine(root, "osu-lazer", "file"), storage.GetFullPath("osu-lazer/file"));
+                Assert.AreEqual(Path.Combine(root, "skins"), storage.GetFullPath("../osu/skins"));
+            }
+            finally
+            {
+                if (Directory.Exists(parent))
+                    Directory.Delete(parent, true);
             }
         }
 
