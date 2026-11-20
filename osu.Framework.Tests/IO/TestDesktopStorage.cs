@@ -50,6 +50,63 @@ namespace osu.Framework.Tests.IO
         }
 
         [Test]
+        public void TestPrefixSiblingEscape()
+        {
+            string scope = Guid.NewGuid().ToString();
+            string scopePath = Path.Combine(TestRunHeadlessGameHost.TemporaryTestDirectory, scope);
+
+            try
+            {
+                using (var storage = new TemporaryNativeStorage(Path.Combine(scope, "osu")))
+                {
+                    string basePath = storage.GetFullPath(string.Empty);
+                    string siblingDirectory = basePath + "-lazer";
+                    string siblingFile = Path.Combine(siblingDirectory, "client.realm");
+
+                    Assert.That(basePath, Does.EndWith(Path.DirectorySeparatorChar + "osu"));
+
+                    Directory.CreateDirectory(siblingDirectory);
+                    File.WriteAllText(siblingFile, "secret");
+
+                    Assert.Throws<ArgumentException>(() => storage.GetFullPath("../osu-lazer"));
+                    Assert.Throws<ArgumentException>(() => storage.GetFullPath("../osu-lazer/client.realm"));
+                    Assert.Throws<ArgumentException>(() => storage.GetFullPath("../osu!"));
+                    Assert.Throws<ArgumentException>(() => storage.GetFullPath("../OSU-lazer/client.realm"));
+                    Assert.Throws<ArgumentException>(() => storage.GetFullPath(siblingFile));
+                    Assert.Throws<ArgumentException>(() => storage.GetStorageForDirectory("../osu-lazer"));
+                    Assert.Throws<ArgumentException>(() => storage.Delete("../osu-lazer/client.realm"));
+                    Assert.Throws<ArgumentException>(() => storage.DeleteDirectory("../osu-lazer"));
+                    Assert.Throws<ArgumentException>(() =>
+                    {
+                        using var stream = storage.GetStream("../osu-lazer/client.realm");
+                    });
+                    Assert.Throws<ArgumentException>(() =>
+                    {
+                        using var stream = storage.GetStream("../osu-lazer/client.realm", FileAccess.Write);
+                    });
+                    Assert.Throws<ArgumentException>(() =>
+                    {
+                        using var stream = storage.CreateFileSafely("../osu-lazer/client.realm");
+                    });
+
+                    Assert.That(File.ReadAllText(siblingFile), Is.EqualTo("secret"));
+                    Assert.That(storage.GetFullPath(string.Empty), Is.EqualTo(basePath));
+                    Assert.That(storage.GetFullPath("../osu"), Is.EqualTo(basePath));
+                    Assert.That(storage.GetFullPath("../osu/"), Is.EqualTo(basePath + Path.DirectorySeparatorChar));
+                    Assert.That(storage.GetFullPath("../osu/skins/file"), Is.EqualTo(Path.Combine(basePath, "skins", "file")));
+                    Assert.That(storage.GetFullPath("osu-lazer/client.realm"), Is.EqualTo(Path.Combine(basePath, "osu-lazer", "client.realm")));
+                    Assert.That(storage.GetFullPath(Path.Combine(basePath, "skins", "file")), Is.EqualTo(Path.Combine(basePath, "skins", "file")));
+                    Assert.That(storage.GetStorageForDirectory("../osu").GetFullPath(string.Empty), Is.EqualTo(basePath));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(scopePath))
+                    Directory.Delete(scopePath, true);
+            }
+        }
+
+        [Test]
         public void TestGetSubDirectoryStorage()
         {
             string guid = Guid.NewGuid().ToString();

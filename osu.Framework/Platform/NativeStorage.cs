@@ -57,13 +57,24 @@ namespace osu.Framework.Platform
 
         private IEnumerable<string> getRelativePaths(IEnumerable<string> paths)
         {
-            string basePath = Path.GetFullPath(GetFullPath(string.Empty));
+            string basePath = Path.GetFullPath(GetFullPath(string.Empty)).TrimEnd(Path.DirectorySeparatorChar);
             return paths.Select(Path.GetFullPath).Select(path =>
             {
-                if (!path.StartsWith(basePath, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException($"\"{path}\" does not start with \"{basePath}\" and is probably malformed");
+                if (!isPathInsideBase(path, basePath)) throw new ArgumentException($"\"{path}\" does not start with \"{basePath}\" and is probably malformed");
 
                 return path.AsSpan(basePath.Length).TrimStart(Path.DirectorySeparatorChar).ToString();
             });
+        }
+
+        // Require a directory separator after the root so a sibling that shares the prefix ("osu" vs "osu-lazer") is outside.
+        private static bool isPathInsideBase(string path, string basePath)
+        {
+            if (path.Equals(basePath, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return path.Length > basePath.Length
+                   && path[basePath.Length] == Path.DirectorySeparatorChar
+                   && path.StartsWith(basePath, StringComparison.OrdinalIgnoreCase);
         }
 
         public override string GetFullPath(string path, bool createIfNotExisting = false)
@@ -73,7 +84,7 @@ namespace osu.Framework.Platform
             string basePath = Path.GetFullPath(BasePath).TrimEnd(Path.DirectorySeparatorChar);
             string resolvedPath = Path.GetFullPath(Path.Combine(basePath, path));
 
-            if (!resolvedPath.StartsWith(basePath, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException($"\"{resolvedPath}\" traverses outside of \"{basePath}\" and is probably malformed");
+            if (!isPathInsideBase(resolvedPath, basePath)) throw new ArgumentException($"\"{resolvedPath}\" traverses outside of \"{basePath}\" and is probably malformed");
 
             if (createIfNotExisting) Directory.CreateDirectory(Path.GetDirectoryName(resolvedPath).AsNonNull());
             return resolvedPath;
