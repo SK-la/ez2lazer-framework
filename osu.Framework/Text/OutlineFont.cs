@@ -12,12 +12,10 @@ using System.Threading.Tasks;
 using FreeTypeSharp;
 using osu.Framework.Extensions;
 using osu.Framework.Extensions.EnumExtensions;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.IO.Stores;
 using osu.Framework.Logging;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Advanced;
-using SixLabors.ImageSharp.PixelFormats;
 using static FreeTypeSharp.FT;
 using static FreeTypeSharp.FT_Error;
 using static FreeTypeSharp.FT_FACE_FLAG;
@@ -928,7 +926,7 @@ namespace osu.Framework.Text
 
         private unsafe TextureUpload rasterizeGlyphInner(nint intPtr, uint glyphIndex, RawFontVariation? variation)
         {
-            Image<Rgba32> image;
+            RgbaImage image;
             var native = (FT_FaceRec_*)intPtr;
 
             // rasterize
@@ -949,7 +947,7 @@ namespace osu.Framework.Text
                 var ftBitmap = &native->glyph->bitmap;
                 int width = ftBitmap->width != 0 ? (int)ftBitmap->width : 1;
                 int height = ftBitmap->rows != 0 ? (int)ftBitmap->rows : 1;
-                image = new Image<Rgba32>(width, height, new Rgba32(0, 0, 0, 0));
+                image = new RgbaImage(width, height);
 
                 if (ftBitmap->buffer == null || ftBitmap->width == 0 || ftBitmap->rows == 0)
                     return new TextureUpload(image);
@@ -965,7 +963,7 @@ namespace osu.Framework.Text
 
                     int rowBytes = Math.Abs(pitch);
                     var srcRow = new ReadOnlySpan<byte>(rowPtr, rowBytes);
-                    var dstRow = image.DangerousGetPixelRowMemory(y).Span;
+                    var dstRow = image.GetPixelRowSpan(y);
 
                     if (ftBitmap->pixel_mode == (byte)FT_PIXEL_MODE_BGRA)
                     {
