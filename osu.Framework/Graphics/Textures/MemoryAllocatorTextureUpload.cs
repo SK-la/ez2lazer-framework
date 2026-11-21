@@ -7,7 +7,6 @@ using System;
 using System.Buffers;
 using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
-using SixLabors.ImageSharp.Memory;
 
 namespace osu.Framework.Graphics.Textures
 {
@@ -30,11 +29,11 @@ namespace osu.Framework.Graphics.Textures
         /// </summary>
         /// <param name="width">The width of the texture.</param>
         /// <param name="height">The height of the texture.</param>
-        /// <param name="memoryAllocator">The source to retrieve memory from. Shared default is used if null.</param>
-        public MemoryAllocatorTextureUpload(int width, int height, MemoryAllocator memoryAllocator = null)
+        /// <param name="memoryPool">The source pool to retrieve memory from. Shared default is used if null.</param>
+        public MemoryAllocatorTextureUpload(int width, int height, MemoryPool<Rgba32> memoryPool = null)
         {
             pixelCount = checked(width * height);
-            memoryOwner = (memoryAllocator ?? SixLabors.ImageSharp.Configuration.Default.MemoryAllocator).Allocate<Rgba32>(pixelCount);
+            memoryOwner = (memoryPool ?? MemoryPool<Rgba32>.Shared).Rent(pixelCount);
         }
 
         #region IDisposable Support

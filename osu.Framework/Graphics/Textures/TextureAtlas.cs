@@ -6,12 +6,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
 using System.Threading;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Logging;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Graphics.Textures
 {
@@ -173,7 +172,7 @@ namespace osu.Framework.Graphics.Textures
 
             using (var whiteTex = new TextureRegion(texture, bounds, WrapMode.Repeat, WrapMode.Repeat))
                 // Generate white padding as if the white texture was wrapped, even though it isn't
-                whiteTex.SetData(new TextureUpload(new Image<Rgba32>(SixLabors.ImageSharp.Configuration.Default, whiteTex.Width, whiteTex.Height, new Rgba32(Vector4.One))));
+                whiteTex.SetData(new TextureUpload(new RgbaImage(whiteTex.Width, whiteTex.Height, new Rgba32(Vector4.One))));
 
             // The first shelf starts after the white pixel; the next shelf starts below the white pixel, which is the
             // lowest thing allocated so far.

@@ -1,4 +1,4 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
@@ -12,6 +12,7 @@ namespace osu.Framework.Platform.Apple.Native
         internal const string LIB_APPKIT = "/System/Library/Frameworks/AppKit.framework/AppKit";
         internal const string LIB_OBJ_C = "/usr/lib/libobjc.dylib";
         internal const string LIB_CORE_GRAPHICS = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics";
+        internal const string LIB_IMAGE_IO = "/System/Library/Frameworks/ImageIO.framework/ImageIO";
         internal const string LIB_ACCELERATE = "/System/Library/Frameworks/Accelerate.framework/Accelerate";
         internal const string LIB_CORE_FOUNDATION = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
 
