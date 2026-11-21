@@ -7,14 +7,12 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using osu.Framework.Development;
-using osu.Framework.Extensions.ImageExtensions;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.Platform;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Veldrid;
 using PixelFormat = Veldrid.PixelFormat;
 using Texture = Veldrid.Texture;
@@ -516,16 +514,10 @@ namespace osu.Framework.Graphics.Veldrid.Textures
 
             var rgbaColour = new Rgba32(new Vector4(initialisationColour.Value.R, initialisationColour.Value.G, initialisationColour.Value.B, initialisationColour.Value.A));
 
-            // it is faster to initialise without a background specification if transparent black is all that's required.
-            using var image = initialisationColour == null
-                ? new Image<Rgba32>(width, height)
-                : new Image<Rgba32>(width, height, rgbaColour);
+            using var image = new RgbaImage(width, height, rgbaColour);
 
-            using (var pixels = image.CreateReadOnlyPixelSpan())
-            {
-                updateMemoryUsage(level, (long)width * height * sizeof(Rgba32));
-                Renderer.UpdateTexture(texture, 0, 0, width, height, level, pixels.Span);
-            }
+            updateMemoryUsage(level, (long)width * height * sizeof(Rgba32));
+            Renderer.UpdateTexture(texture, 0, 0, width, height, level, image.PixelSpan);
         }
 
         // todo: should this be limited to MAX_MIPMAP_LEVELS or was that constant supposed to be for automatic mipmap generation only?

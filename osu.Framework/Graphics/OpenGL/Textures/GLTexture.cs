@@ -7,16 +7,13 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using osu.Framework.Development;
-using osu.Framework.Extensions.ImageExtensions;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.Platform;
 using osuTK.Graphics;
 using osuTK.Graphics.ES30;
-using SixLabors.ImageSharp;
-using FrameworkRgba32 = osu.Framework.Graphics.Imaging.Rgba32;
-using ImageSharpRgba32 = SixLabors.ImageSharp.PixelFormats.Rgba32;
 
 namespace osu.Framework.Graphics.OpenGL.Textures
 {
@@ -277,7 +274,7 @@ namespace osu.Framework.Graphics.OpenGL.Textures
 
             void performUpload(ITextureUpload upload)
             {
-                fixed (FrameworkRgba32* ptr = upload.Data)
+                fixed (Rgba32* ptr = upload.Data)
                     DoUpload(upload, (IntPtr)ptr);
 
                 uploadedRegions.Add(upload.Bounds);
@@ -545,19 +542,12 @@ namespace osu.Framework.Graphics.OpenGL.Textures
             if (initialisationColour == null)
                 return;
 
-            var rgbaColour = new ImageSharpRgba32(initialisationColour.Value.R, initialisationColour.Value.G, initialisationColour.Value.B, initialisationColour.Value.A);
+            var rgbaColour = new Rgba32(initialisationColour.Value.R, initialisationColour.Value.G, initialisationColour.Value.B, initialisationColour.Value.A);
+            using var image = new RgbaImage(width, height, rgbaColour);
 
-            // it is faster to initialise without a background specification if transparent black is all that's required.
-            using var image = initialisationColour == null
-                ? new Image<ImageSharpRgba32>(width, height)
-                : new Image<ImageSharpRgba32>(width, height, rgbaColour);
-
-            using (var pixels = image.CreateReadOnlyPixelSpan())
-            {
-                updateMemoryUsage(level, (long)width * height * 4);
-                GL.TexImage2D(TextureTarget2d.Texture2D, level, InternalFormat, width, height, 0, PixelFormat, PixelType,
-                    ref MemoryMarshal.GetReference(pixels.Span));
-            }
+            updateMemoryUsage(level, (long)width * height * 4);
+            GL.TexImage2D(TextureTarget2d.Texture2D, level, InternalFormat, width, height, 0, PixelFormat, PixelType,
+                ref MemoryMarshal.GetReference(image.PixelSpan));
         }
     }
 }

@@ -3,16 +3,13 @@
 
 using System;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Threading;
 using osu.Framework.Development;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Veldrid.Buffers;
 using osu.Framework.Logging;
 using osu.Framework.Platform;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 using Veldrid;
 using Veldrid.OpenGL;
 using Veldrid.OpenGLBindings;
@@ -419,46 +416,43 @@ namespace osu.Framework.Graphics.Veldrid
         /// <summary>
         /// Returns an image containing the current content of the backbuffer, i.e. takes a screenshot.
         /// </summary>
-        public unsafe Image<Rgba32> TakeScreenshot()
+        public unsafe RgbaImage TakeScreenshot()
         {
             if (displayPresent is { IsAllocated: true })
                 return displayPresent.TakeScreenshot();
 
             var texture = DefaultFramebuffer.ColorTargets[0].Target;
 
-            switch (SurfaceType)
+            // Veldrid cannot copy a swapchain framebuffer texture on OpenGL.
+            if (SurfaceType == GraphicsSurfaceType.OpenGL)
             {
-                // Veldrid doesn't support copying content from a swapchain framebuffer texture on OpenGL.
-                // OpenGL already provides a method for reading pixels directly from the active framebuffer, so let's just use that for now.
-                case GraphicsSurfaceType.OpenGL:
+                int width = (int)texture.Width;
+                int height = (int)texture.Height;
+                var pixels = new Rgba32[checked(width * height)];
+
+                var info = Device.GetOpenGLInfo();
+                info.ExecuteOnGLThread(() =>
                 {
-                    var pixelData = SixLabors.ImageSharp.Configuration.Default.MemoryAllocator.Allocate<Rgba32>((int)(texture.Width * texture.Height));
+                    fixed (Rgba32* data = pixels)
+                        OpenGLNative.glReadPixels(0, 0, texture.Width, texture.Height, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, data);
+                });
 
-                    var info = Device.GetOpenGLInfo();
-
-                    info.ExecuteOnGLThread(() =>
-                    {
-                        fixed (Rgba32* data = pixelData.Memory.Span)
-                            OpenGLNative.glReadPixels(0, 0, texture.Width, texture.Height, GLPixelFormat.Rgba, GLPixelType.UnsignedByte, data);
-                    });
-
-                    var glImage = Image.LoadPixelData(pixelData.Memory.Span, (int)texture.Width, (int)texture.Height);
-                    glImage.Mutate(i => i.Flip(FlipMode.Vertical));
-                    return glImage;
-                }
-
-                default:
-                    return texture.Format == PixelFormat.R8G8B8A8UNorm
-                        ? ExtractTexture<Rgba32>(texture, flipVertical: !Device.IsUvOriginTopLeft)
-                        : ExtractTexture<Bgra32>(texture, flipVertical: !Device.IsUvOriginTopLeft);
+                var image = new RgbaImage(width, height, pixels);
+                image.FlipVertical();
+                return image;
             }
+
+            return ExtractTexture(texture, flipVertical: !Device.IsUvOriginTopLeft);
         }
 
-        public unsafe Image<Rgba32> ExtractTexture<TPixel>(Texture texture, bool flipVertical = false)
-            where TPixel : unmanaged, IPixel<TPixel>
+        public unsafe RgbaImage ExtractTexture(Texture texture, bool flipVertical = false)
         {
             uint width = texture.Width;
             uint height = texture.Height;
+            bool bgra = texture.Format is PixelFormat.B8G8R8A8UNorm or PixelFormat.B8G8R8A8UNormSRgb;
+
+            if (!bgra && texture.Format is not PixelFormat.R8G8B8A8UNorm and not PixelFormat.R8G8B8A8UNormSRgb)
+                throw new NotSupportedException($"Cannot extract pixels from texture format {texture.Format}.");
 
             using var staging = Factory.CreateTexture(TextureDescription.Texture2D(width, height, texture.MipLevels, texture.ArrayLayers, texture.Format, TextureUsage.Staging));
             using var commands = Factory.CreateCommandList();
@@ -472,27 +466,43 @@ namespace osu.Framework.Graphics.Veldrid
             if (!waitForFence(fence, 5000))
             {
                 Logger.Log("Failed to capture framebuffer content within reasonable time.", level: LogLevel.Important);
-                return new Image<Rgba32>((int)width, (int)height);
+                return new RgbaImage((int)width, (int)height);
             }
 
-            var resource = Device.Map(staging, MapMode.Read);
-            var span = new Span<TPixel>(resource.Data.ToPointer(), (int)(resource.SizeInBytes / Marshal.SizeOf<TPixel>()));
+            var image = new RgbaImage((int)width, (int)height);
 
-            // on some backends (Direct3D11, in particular), the staging resource data may contain padding at the end of each row for alignment,
-            // which means that for the image width, we cannot use the framebuffer's width raw.
-            using var image = Image.LoadPixelData(span, (int)(resource.RowPitch / Marshal.SizeOf<TPixel>()), (int)height);
+            try
+            {
+                var resource = Device.Map(staging, MapMode.Read);
 
-            if (flipVertical)
-                image.Mutate(i => i.Flip(FlipMode.Vertical));
+                try
+                {
+                    for (int y = 0; y < image.Height; y++)
+                    {
+                        // RowPitch includes any alignment padding imposed by the graphics backend.
+                        var source = new ReadOnlySpan<Rgba32>((byte*)resource.Data.ToPointer() + y * resource.RowPitch, image.Width);
+                        var destination = image.GetPixelRowSpan(flipVertical ? image.Height - y - 1 : y);
+                        source.CopyTo(destination);
 
-            // if the image width doesn't match the framebuffer, it means that we still have padding at the end of each row mentioned above to get rid of.
-            // snip it to get a clean image.
-            if (image.Width != width)
-                image.Mutate(i => i.Crop((int)texture.Width, (int)texture.Height));
+                        if (bgra)
+                        {
+                            for (int x = 0; x < destination.Length; x++)
+                                (destination[x].R, destination[x].B) = (destination[x].B, destination[x].R);
+                        }
+                    }
+                }
+                finally
+                {
+                    Device.Unmap(staging);
+                }
 
-            Device.Unmap(staging);
-
-            return image.CloneAs<Rgba32>();
+                return image;
+            }
+            catch
+            {
+                image.Dispose();
+                throw;
+            }
         }
 
         /// <summary>

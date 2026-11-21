@@ -24,8 +24,6 @@ using osu.Framework.Threading;
 using osu.Framework.Utils;
 using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using ImageSharpRgba32 = SixLabors.ImageSharp.PixelFormats.Rgba32;
 using WindowState = osu.Framework.Platform.WindowState;
 
 namespace osu.Framework.Graphics.Performance
@@ -45,6 +43,7 @@ namespace osu.Framework.Graphics.Performance
         private const float alpha_when_active = 0.75f;
 
         private readonly TimeBar[] timeBars;
+        private RgbaImage pendingBackground;
 
         private static readonly Color4[] garbage_collect_colors = { Color4.Green, Color4.Yellow, Color4.Red };
         private readonly PerformanceMonitor monitor;
@@ -256,17 +255,15 @@ namespace osu.Framework.Graphics.Performance
         {
             //initialise background
             var columnUpload = new ArrayPoolTextureUpload(1, HEIGHT);
-            var fullBackground = new Image<ImageSharpRgba32>(WIDTH, HEIGHT);
+            var fullBackground = new RgbaImage(WIDTH, HEIGHT);
+            pendingBackground = fullBackground;
 
             addArea(null, null, HEIGHT, amount_ms_steps, columnUpload);
 
             for (int i = 0; i < HEIGHT; i++)
             {
                 for (int k = 0; k < WIDTH; k++)
-                {
-                    Rgba32 pixel = columnUpload.RawData[i];
-                    fullBackground[k, i] = new ImageSharpRgba32(pixel.R, pixel.G, pixel.B, pixel.A);
-                }
+                    fullBackground[k, i] = columnUpload.RawData[i];
             }
 
             addArea(null, null, HEIGHT, amount_count_steps, columnUpload);
@@ -279,9 +276,28 @@ namespace osu.Framework.Graphics.Performance
 
             Schedule(() =>
             {
-                foreach (var t in timeBars)
-                    t.Sprite.Texture.SetData(new TextureUpload(fullBackground.Clone()));
+                RgbaImage background = pendingBackground;
+                pendingBackground = null;
+                if (background == null)
+                    return;
+
+                try
+                {
+                    foreach (var t in timeBars)
+                        t.Sprite.Texture.SetData(new TextureUpload(background.Clone()));
+                }
+                finally
+                {
+                    background.Dispose();
+                }
             });
+        }
+
+        protected override void Dispose(bool isDisposing)
+        {
+            pendingBackground?.Dispose();
+            pendingBackground = null;
+            base.Dispose(isDisposing);
         }
 
         private void addEvent(int type)

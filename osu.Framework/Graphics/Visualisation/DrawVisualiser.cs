@@ -129,7 +129,8 @@ namespace osu.Framework.Graphics.Visualisation
                 if (image == null)
                     return;
 
-                clipboard.SetImage(image);
+                using (image)
+                    clipboard.SetImage(image);
 
                 if (currentTarget.IsDisposed)
                     return;
