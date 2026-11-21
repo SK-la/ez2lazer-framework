@@ -96,12 +96,14 @@ namespace osu.Framework.Graphics.Imaging
                            && header[5] == 0x0a
                            && header[6] == 0x1a
                            && header[7] == 0x0a;
+                bool jpeg = header[0] == 0xff && header[1] == 0xd8 && header[2] == 0xff;
+                bool gif = header[..6].SequenceEqual("GIF87a"u8) || header[..6].SequenceEqual("GIF89a"u8);
                 bool bmp = header.Length >= 2 && header[0] == 'B' && header[1] == 'M';
                 bool webp = header.Length >= 12
                             && header[..4].SequenceEqual("RIFF"u8)
                             && header[8..12].SequenceEqual("WEBP"u8);
 
-                return png || bmp || webp;
+                return png || jpeg || gif || bmp || webp;
             }
             finally
             {
