@@ -4,11 +4,10 @@
 using System;
 using osu.Framework.Allocation;
 using osu.Framework.Caching;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Textures;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Graphics.Lines
 {
@@ -53,7 +52,7 @@ namespace osu.Framework.Graphics.Lines
             int textureWidth = (int)Math.Max(PathRadius, 1) * 2;
 
             //initialise background
-            var raw = new Image<Rgba32>(textureWidth, 1);
+            var raw = new RgbaImage(textureWidth, 1);
 
             const float aa_portion = 0.02f;
 
