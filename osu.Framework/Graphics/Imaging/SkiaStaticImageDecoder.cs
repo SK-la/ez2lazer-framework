@@ -25,7 +25,8 @@ namespace osu.Framework.Graphics.Imaging
 
             try
             {
-                using var codec = SKCodec.Create(stream);
+                using var skStream = new SKManagedStream(stream, disposeManagedStream: false);
+                using var codec = SKCodec.Create(skStream);
                 if (codec == null)
                     return false;
 
