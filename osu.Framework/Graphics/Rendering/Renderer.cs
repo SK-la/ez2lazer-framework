@@ -12,6 +12,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using osu.Framework.Development;
 using osu.Framework.Extensions.TypeExtensions;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering.Vertices;
 using osu.Framework.Graphics.Shaders;
@@ -25,8 +26,6 @@ using osu.Framework.Threading;
 using osu.Framework.Timing;
 using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using RectangleF = osu.Framework.Graphics.Primitives.RectangleF;
 using Texture = osu.Framework.Graphics.Textures.Texture;
 
@@ -445,12 +444,12 @@ namespace osu.Framework.Graphics.Rendering
         /// <summary>
         /// Returns an image containing the current content of the backbuffer, i.e. takes a screenshot.
         /// </summary>
-        protected internal abstract Image<Rgba32> TakeScreenshot();
+        protected internal abstract RgbaImage TakeScreenshot();
 
         /// <summary>
         /// Returns an image containing the content of a framebuffer.
         /// </summary>
-        protected internal virtual Image<Rgba32>? ExtractFrameBufferData(IFrameBuffer frameBuffer) => null;
+        protected internal virtual RgbaImage? ExtractFrameBufferData(IFrameBuffer frameBuffer) => null;
 
         /// <inheritdoc cref="IRenderer.SupportsBackbufferRegionCopy"/>
         public virtual bool SupportsBackbufferRegionCopy => false;
@@ -1498,8 +1497,8 @@ namespace osu.Framework.Graphics.Rendering
         void IRenderer.SetUniform<T>(IUniformWithValue<T> uniform) => SetUniform(uniform);
         void IRenderer.PushQuadBatch(IVertexBatch<TexturedVertex2D> quadBatch) => PushQuadBatch(quadBatch);
         void IRenderer.PopQuadBatch() => PopQuadBatch();
-        Image<Rgba32> IRenderer.TakeScreenshot() => TakeScreenshot();
-        Image<Rgba32>? IRenderer.ExtractFrameBufferData(IFrameBuffer frameBuffer) => ExtractFrameBufferData(frameBuffer);
+        RgbaImage IRenderer.TakeScreenshot() => TakeScreenshot();
+        RgbaImage? IRenderer.ExtractFrameBufferData(IFrameBuffer frameBuffer) => ExtractFrameBufferData(frameBuffer);
         bool IRenderer.SupportsBackbufferRegionCopy => SupportsBackbufferRegionCopy;
         IFrameBuffer? IRenderer.PrepareBackbufferRegionSnapshot(RectangleI screenRect) => PrepareBackbufferRegionSnapshot(screenRect);
         IShaderPart IRenderer.CreateShaderPart(IShaderStore store, string name, byte[]? rawData, ShaderPartType partType) => CreateShaderPart(store, name, rawData, partType);

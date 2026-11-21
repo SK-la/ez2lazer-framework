@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering.Deferred.Events;
 using osu.Framework.Graphics.Shaders;
@@ -16,8 +17,6 @@ using osu.Framework.Graphics.Veldrid.Textures;
 using osu.Framework.Platform;
 using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Veldrid;
 using Texture = Veldrid.Texture;
 
@@ -189,7 +188,7 @@ namespace osu.Framework.Graphics.Rendering.Deferred
         protected internal override void ClearCurrent()
             => VeldridDevice.ClearCurrent();
 
-        protected internal override Image<Rgba32> TakeScreenshot()
+        protected internal override RgbaImage TakeScreenshot()
             => VeldridDevice.TakeScreenshot();
 
         void IRenderer.EnterDrawNode(DrawNode node)
