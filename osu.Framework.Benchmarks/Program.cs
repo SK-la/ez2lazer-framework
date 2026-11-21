@@ -14,7 +14,6 @@ namespace osu.Framework.Benchmarks
             if (Array.IndexOf(args, "--image-decoding") >= 0)
             {
                 BenchmarkImageDecoding.Run();
-                BenchmarkAnimatedImageDecoding.Run();
                 return;
             }
 
