@@ -94,27 +94,66 @@ namespace osu.Framework.Graphics.Imaging
 
         private static RgbaImage applyEncodedOrigin(RgbaImage source, SKEncodedOrigin origin)
         {
-            if (origin is < SKEncodedOrigin.TopRight or > SKEncodedOrigin.LeftBottom)
-                return source;
-
             int width = source.Width;
             int height = source.Height;
+            bool identity = false;
             bool transpose = origin >= SKEncodedOrigin.LeftTop;
-            var result = new RgbaImage(transpose ? height : width, transpose ? width : height);
 
             // Destination index of the first source pixel and the strides along the source axes.
-            (int offset, int xStep, int yStep) = origin switch
-            {
-                SKEncodedOrigin.TopRight => (width - 1, -1, width),
-                SKEncodedOrigin.BottomRight => (source.PixelCount - 1, -1, -width),
-                SKEncodedOrigin.BottomLeft => ((height - 1) * width, 1, -width),
-                SKEncodedOrigin.LeftTop => (0, height, 1),
-                SKEncodedOrigin.RightTop => (height - 1, height, -1),
-                SKEncodedOrigin.RightBottom => (source.PixelCount - 1, -height, -1),
-                SKEncodedOrigin.LeftBottom => ((width - 1) * height, -height, 1),
-                _ => (0, 1, width),
-            };
+            int offset = 0;
+            int xStep = 1;
+            int yStep = width;
 
+            switch (origin)
+            {
+                case SKEncodedOrigin.TopRight:
+                    offset = width - 1;
+                    xStep = -1;
+                    break;
+
+                case SKEncodedOrigin.BottomRight:
+                    offset = source.PixelCount - 1;
+                    xStep = -1;
+                    yStep = -width;
+                    break;
+
+                case SKEncodedOrigin.BottomLeft:
+                    offset = (height - 1) * width;
+                    yStep = -width;
+                    break;
+
+                case SKEncodedOrigin.LeftTop:
+                    yStep = 1;
+                    xStep = height;
+                    break;
+
+                case SKEncodedOrigin.RightTop:
+                    offset = height - 1;
+                    xStep = height;
+                    yStep = -1;
+                    break;
+
+                case SKEncodedOrigin.RightBottom:
+                    offset = source.PixelCount - 1;
+                    xStep = -height;
+                    yStep = -1;
+                    break;
+
+                case SKEncodedOrigin.LeftBottom:
+                    offset = (width - 1) * height;
+                    xStep = -height;
+                    yStep = 1;
+                    break;
+
+                case SKEncodedOrigin.TopLeft:
+                    identity = true;
+                    break;
+            }
+
+            if (identity)
+                return source;
+
+            var result = new RgbaImage(transpose ? height : width, transpose ? width : height);
             ReadOnlySpan<Rgba32> sourcePixels = source.PixelSpan;
             Span<Rgba32> destinationPixels = result.PixelSpan;
 

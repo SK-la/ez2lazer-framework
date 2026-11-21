@@ -43,19 +43,27 @@ namespace osu.Framework.Tests.Graphics
         [Test]
         public void TestHeadlessClipboardCopiesImageOwnership()
         {
-            using var source = createImage();
+            var source = createImage();
             var clipboard = new HeadlessClipboard();
-            Assert.That(clipboard.SetImage(source), Is.True);
-            source.Dispose();
 
-            using var retrieved = clipboard.GetImage();
-            Assert.That(retrieved, Is.Not.Null);
-            Assert.That(retrieved![0, 0], Is.EqualTo(new Rgba32(12, 34, 56, 255)));
-            Assert.That(retrieved[1, 0], Is.EqualTo(new Rgba32(78, 90, 123, 128)));
+            try
+            {
+                Assert.That(clipboard.SetImage(source), Is.True);
+                source.Dispose();
 
-            retrieved[0, 0] = new Rgba32(0, 0, 0, 0);
-            using var retrievedAgain = clipboard.GetImage();
-            Assert.That(retrievedAgain![0, 0], Is.EqualTo(new Rgba32(12, 34, 56, 255)));
+                using var retrieved = clipboard.GetImage();
+                Assert.That(retrieved, Is.Not.Null);
+                Assert.That(retrieved![0, 0], Is.EqualTo(new Rgba32(12, 34, 56, 255)));
+                Assert.That(retrieved[1, 0], Is.EqualTo(new Rgba32(78, 90, 123, 128)));
+
+                retrieved[0, 0] = new Rgba32(0, 0, 0, 0);
+                using var retrievedAgain = clipboard.GetImage();
+                Assert.That(retrievedAgain![0, 0], Is.EqualTo(new Rgba32(12, 34, 56, 255)));
+            }
+            finally
+            {
+                source.Dispose();
+            }
         }
 
         [Test]
