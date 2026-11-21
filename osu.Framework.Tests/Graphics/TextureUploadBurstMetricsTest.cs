@@ -4,10 +4,10 @@
 using System;
 using System.Diagnostics;
 using NUnit.Framework;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering.Dummy;
 using osu.Framework.Graphics.Textures;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Tests.Graphics
 {

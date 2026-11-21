@@ -3,28 +3,29 @@
 
 #nullable disable
 
-using osuTK.Graphics;
-using osu.Framework.Allocation;
-using osu.Framework.Graphics.Containers;
-using osu.Framework.Graphics.Primitives;
-using osu.Framework.Graphics.Shapes;
-using osu.Framework.Graphics.Sprites;
-using osu.Framework.Graphics.Textures;
-using osu.Framework.Utils;
-using osu.Framework.Statistics;
-using osu.Framework.Threading;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using JetBrains.Annotations;
+using osu.Framework.Allocation;
+using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Pooling;
+using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
+using osu.Framework.Graphics.Shapes;
+using osu.Framework.Graphics.Sprites;
+using osu.Framework.Graphics.Textures;
 using osu.Framework.Platform;
+using osu.Framework.Statistics;
+using osu.Framework.Threading;
+using osu.Framework.Utils;
 using osuTK;
+using osuTK.Graphics;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using ImageSharpRgba32 = SixLabors.ImageSharp.PixelFormats.Rgba32;
 using WindowState = osu.Framework.Platform.WindowState;
 
 namespace osu.Framework.Graphics.Performance
@@ -255,14 +256,17 @@ namespace osu.Framework.Graphics.Performance
         {
             //initialise background
             var columnUpload = new ArrayPoolTextureUpload(1, HEIGHT);
-            var fullBackground = new Image<Rgba32>(WIDTH, HEIGHT);
+            var fullBackground = new Image<ImageSharpRgba32>(WIDTH, HEIGHT);
 
             addArea(null, null, HEIGHT, amount_ms_steps, columnUpload);
 
             for (int i = 0; i < HEIGHT; i++)
             {
                 for (int k = 0; k < WIDTH; k++)
-                    fullBackground[k, i] = columnUpload.RawData[i];
+                {
+                    Rgba32 pixel = columnUpload.RawData[i];
+                    fullBackground[k, i] = new ImageSharpRgba32(pixel.R, pixel.G, pixel.B, pixel.A);
+                }
             }
 
             addArea(null, null, HEIGHT, amount_count_steps, columnUpload);

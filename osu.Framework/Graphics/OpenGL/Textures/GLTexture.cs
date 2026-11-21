@@ -5,7 +5,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Numerics;
 using System.Runtime.InteropServices;
 using osu.Framework.Development;
 using osu.Framework.Extensions.ImageExtensions;
@@ -16,7 +15,8 @@ using osu.Framework.Platform;
 using osuTK.Graphics;
 using osuTK.Graphics.ES30;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using FrameworkRgba32 = osu.Framework.Graphics.Imaging.Rgba32;
+using ImageSharpRgba32 = SixLabors.ImageSharp.PixelFormats.Rgba32;
 
 namespace osu.Framework.Graphics.OpenGL.Textures
 {
@@ -92,7 +92,13 @@ namespace osu.Framework.Graphics.OpenGL.Textures
         /// <param name="manualMipmaps">Whether manual mipmaps will be uploaded to the texture. If false, the texture will compute mipmaps automatically.</param>
         /// <param name="filteringMode">The filtering mode.</param>
         /// <param name="initialisationColour">The colour to initialise texture levels with (in the case of sub region initial uploads). If null, no initialisation is provided out-of-the-box.</param>
-        public GLTexture(GLRenderer renderer, int width, int height, TexturePixelFormat textureFormat = TexturePixelFormat.R8G8B8A8Float, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear, Color4? initialisationColour = null)
+        public GLTexture(GLRenderer renderer,
+                         int width,
+                         int height,
+                         TexturePixelFormat textureFormat = TexturePixelFormat.R8G8B8A8Float,
+                         bool manualMipmaps = false,
+                         TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
+                         Color4? initialisationColour = null)
         {
             Renderer = renderer;
             Width = width;
@@ -271,7 +277,7 @@ namespace osu.Framework.Graphics.OpenGL.Textures
 
             void performUpload(ITextureUpload upload)
             {
-                fixed (Rgba32* ptr = upload.Data)
+                fixed (FrameworkRgba32* ptr = upload.Data)
                     DoUpload(upload, (IntPtr)ptr);
 
                 uploadedRegions.Add(upload.Bounds);
@@ -539,12 +545,12 @@ namespace osu.Framework.Graphics.OpenGL.Textures
             if (initialisationColour == null)
                 return;
 
-            var rgbaColour = new Rgba32(new Vector4(initialisationColour.Value.R, initialisationColour.Value.G, initialisationColour.Value.B, initialisationColour.Value.A));
+            var rgbaColour = new ImageSharpRgba32(initialisationColour.Value.R, initialisationColour.Value.G, initialisationColour.Value.B, initialisationColour.Value.A);
 
             // it is faster to initialise without a background specification if transparent black is all that's required.
             using var image = initialisationColour == null
-                ? new Image<Rgba32>(width, height)
-                : new Image<Rgba32>(width, height, rgbaColour);
+                ? new Image<ImageSharpRgba32>(width, height)
+                : new Image<ImageSharpRgba32>(width, height, rgbaColour);
 
             using (var pixels = image.CreateReadOnlyPixelSpan())
             {

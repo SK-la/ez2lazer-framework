@@ -7,11 +7,11 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using NUnit.Framework;
 using osu.Framework.Extensions;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.IO.Stores;
 using osu.Framework.Platform;
 using osu.Framework.Text;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Tests.Ez
 {
@@ -75,7 +75,8 @@ namespace osu.Framework.Tests.Ez
         {
             string[] candidates =
             {
-                Path.GetFullPath(Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "osu-resources", "osu.Game.Resources", "Fonts", "Emoji", "NotoColorEmoji-Regular.ttf")),
+                Path.GetFullPath(Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "osu-resources", "osu.Game.Resources", "Fonts", "Emoji",
+                    "NotoColorEmoji-Regular.ttf")),
                 Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "osu-resources", "osu.Game.Resources", "Fonts", "Emoji", "NotoColorEmoji-Regular.ttf")),
                 Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "osu-resources", "osu.Game.Resources", "Fonts", "Emoji", "NotoColorEmoji-Regular.ttf")),
             };

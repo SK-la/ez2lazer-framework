@@ -10,18 +10,19 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Text;
 using JetBrains.Annotations;
 using osu.Framework.Extensions;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.Logging;
 using osu.Framework.Text;
 using SharpFNT;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
-using SixLabors.ImageSharp.PixelFormats;
+using ImageSharpRgba32 = SixLabors.ImageSharp.PixelFormats.Rgba32;
 
 namespace osu.Framework.IO.Stores
 {
@@ -218,7 +219,7 @@ namespace osu.Framework.IO.Stores
             var page = GetPageImage(character.Page);
             LoadedGlyphCount++;
 
-            var image = new Image<Rgba32>(SixLabors.ImageSharp.Configuration.Default, character.Width, character.Height);
+            var image = new Image<ImageSharpRgba32>(SixLabors.ImageSharp.Configuration.Default, character.Width, character.Height);
             var source = page.Data;
 
             // the spritesheet may have unused pixels trimmed
@@ -231,7 +232,15 @@ namespace osu.Framework.IO.Stores
                 int readOffset = (character.Y + y) * page.Width + character.X;
 
                 for (int x = 0; x < character.Width; x++)
-                    pixelRowMemory.Span[x] = x < readableWidth && y < readableHeight ? source[readOffset + x] : new Rgba32(255, 255, 255, 0);
+                {
+                    if (x < readableWidth && y < readableHeight)
+                    {
+                        Rgba32 sourcePixel = source[readOffset + x];
+                        pixelRowMemory.Span[x] = new ImageSharpRgba32(sourcePixel.R, sourcePixel.G, sourcePixel.B, sourcePixel.A);
+                    }
+                    else
+                        pixelRowMemory.Span[x] = new ImageSharpRgba32(255, 255, 255, 0);
+                }
             }
 
             return new TextureUpload(image);

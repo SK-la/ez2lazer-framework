@@ -4,7 +4,6 @@
 using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
-using SixLabors.ImageSharp.Memory;
 using Veldrid;
 
 namespace osu.Framework.Graphics.Veldrid.Buffers.Staging
@@ -27,8 +26,9 @@ namespace osu.Framework.Graphics.Veldrid.Buffers.Staging
             Count = count;
             SizeInBytes = (uint)(Unsafe.SizeOf<T>() * count);
 
-            memoryOwner = SixLabors.ImageSharp.Configuration.Default.MemoryAllocator.Allocate<T>((int)Count, AllocationOptions.Clean);
-            cpuBuffer = memoryOwner.Memory;
+            memoryOwner = MemoryPool<T>.Shared.Rent(checked((int)Count));
+            cpuBuffer = memoryOwner.Memory[..checked((int)Count)];
+            cpuBuffer.Span.Clear();
 
             driverBuffer = renderer.Factory.CreateBuffer(new BufferDescription(SizeInBytes, BufferUsage.Staging));
         }
