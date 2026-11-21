@@ -8,6 +8,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Gif;
 using SixLabors.ImageSharp.PixelFormats;
+using SkiaAnimatedImageDecoder = osu.Framework.Graphics.Imaging.SkiaAnimatedImageDecoder;
 
 namespace osu.Framework.Graphics.Textures
 {
@@ -47,7 +48,7 @@ namespace osu.Framework.Graphics.Textures
                 stream.Position = 0;
 
             if (format.Name == GifFormat.Instance.Name)
-                return loadGif(stream, maxFrames);
+                return SkiaAnimatedImageDecoder.TryDecode(stream, maxFrames) ?? loadGif(stream, maxFrames);
 
             try
             {
