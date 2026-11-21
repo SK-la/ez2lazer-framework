@@ -11,16 +11,13 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Configuration;
 using osu.Framework.Extensions.EnumExtensions;
-using osu.Framework.Extensions.ImageExtensions;
 using osu.Framework.Graphics;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Logging;
 using osu.Framework.Threading;
 using SDL;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using Image = SixLabors.ImageSharp.Image;
-using Point = System.Drawing.Point;
 using static SDL.SDL3;
+using Point = System.Drawing.Point;
 
 namespace osu.Framework.Platform.SDL3
 {
@@ -520,28 +517,33 @@ namespace osu.Framework.Platform.SDL3
         /// <summary>
         /// Attempts to set the window's icon to the specified image.
         /// </summary>
-        /// <param name="image">An <see cref="Image{Rgba32}"/> to set as the window icon.</param>
-        private void setSDLIcon(Image<Rgba32> image)
+        /// <param name="image">An <see cref="RgbaImage"/> to set as the window icon.</param>
+        private void setSDLIcon(RgbaImage image)
         {
-            var pixelMemory = image.CreateReadOnlyPixelMemory();
-            var imageSize = image.Size;
+            Rgba32[] pixels = image.PixelSpan.ToArray();
+            int imageWidth = image.Width;
+            int imageHeight = image.Height;
 
             ScheduleCommand(() =>
             {
-                var pixelSpan = pixelMemory.Span;
-
-                SDL_Surface* surface;
+                var pixelSpan = pixels.AsSpan();
 
                 fixed (Rgba32* ptr = pixelSpan)
                 {
                     var pixelFormat = SDL_GetPixelFormatForMasks(32, 0xff, 0xff00, 0xff0000, 0xff000000);
-                    surface = SDL3Extensions.LogErrorIfFailed(SDL_CreateSurfaceFrom(imageSize.Width, imageSize.Height, pixelFormat, new IntPtr(ptr), imageSize.Width * 4));
+                    var surface = SDL3Extensions.LogErrorIfFailed(SDL_CreateSurfaceFrom(imageWidth, imageHeight, pixelFormat, new IntPtr(ptr), imageWidth * 4));
                     if (surface == null)
                         return;
-                }
 
-                SDL_SetWindowIcon(SDLWindowHandle, surface).LogErrorIfFailed();
-                SDL_DestroySurface(surface);
+                    try
+                    {
+                        SDL_SetWindowIcon(SDLWindowHandle, surface).LogErrorIfFailed();
+                    }
+                    finally
+                    {
+                        SDL_DestroySurface(surface);
+                    }
+                }
             });
         }
 
@@ -701,7 +703,9 @@ namespace osu.Framework.Platform.SDL3
 
                 try
                 {
-                    SetIconFromImage(Image.Load<Rgba32>(ms.GetBuffer()));
+                    ms.Position = 0;
+                    using var image = ImageCodec.Decode(ms);
+                    SetIconFromImage(image);
                 }
                 catch
                 {
@@ -718,10 +722,12 @@ namespace osu.Framework.Platform.SDL3
             if (bytes == null)
                 return;
 
-            SetIconFromImage(Image.Load<Rgba32>(bytes));
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var image = ImageCodec.Decode(stream);
+            SetIconFromImage(image);
         }
 
-        internal virtual void SetIconFromImage(Image<Rgba32> iconImage) => setSDLIcon(iconImage);
+        internal virtual void SetIconFromImage(RgbaImage iconImage) => setSDLIcon(iconImage);
 
         #region Events
 
