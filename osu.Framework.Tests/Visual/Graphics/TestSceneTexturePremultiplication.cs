@@ -9,6 +9,7 @@ using NUnit.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.Textures;
@@ -16,8 +17,6 @@ using osu.Framework.IO.Stores;
 using osu.Framework.Platform;
 using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Tests.Visual.Graphics
 {
@@ -89,7 +88,7 @@ namespace osu.Framework.Tests.Visual.Graphics
                     {
                         var memoryStream = new MemoryStream();
 
-                        Image<Rgba32> image = new Image<Rgba32>(256, 1);
+                        using var image = new RgbaImage(256, 1);
 
                         for (int i = 0; i < 256; i++)
                             image[i, 0] = new Rgba32(255, 0, 0, (byte)i);
@@ -103,7 +102,7 @@ namespace osu.Framework.Tests.Visual.Graphics
                     {
                         var memoryStream = new MemoryStream();
 
-                        Image<Rgba32> image = new Image<Rgba32>(256, 1);
+                        using var image = new RgbaImage(256, 1);
 
                         for (int i = 0; i < 256; i++)
                             image[i, 0] = new Rgba32((byte)i, 0, (byte)(255 - i), 255);

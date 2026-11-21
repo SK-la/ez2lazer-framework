@@ -3,12 +3,11 @@
 
 using System;
 using System.Buffers;
+using System.IO;
 using System.Runtime.InteropServices;
 using NUnit.Framework;
 using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Textures;
-using ImageSharpImage = SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>;
-using ImageSharpRgba32 = SixLabors.ImageSharp.PixelFormats.Rgba32;
 
 namespace osu.Framework.Tests.Graphics
 {
@@ -24,16 +23,9 @@ namespace osu.Framework.Tests.Graphics
         }
 
         [Test]
-        public void TestFloatConversionMatchesImageSharpRgba32()
+        public void TestFloatConversionRoundsMidpointsAwayFromZero()
         {
-            for (int i = 0; i < 255; i++)
-            {
-                float value = (i + 0.5f) / 255;
-                var expected = new ImageSharpRgba32(value, value, value, value);
-                var actual = new Rgba32(value, value, value, value);
-
-                Assert.That(actual, Is.EqualTo(new Rgba32(expected.R, expected.G, expected.B, expected.A)), $"Channel conversion differed at {value}.");
-            }
+            Assert.That(new Rgba32(0.5f / 255, 1.5f / 255, 2.5f / 255, 3.5f / 255), Is.EqualTo(new Rgba32(1, 2, 3, 4)));
         }
 
         [Test]
@@ -70,17 +62,20 @@ namespace osu.Framework.Tests.Graphics
         }
 
         [Test]
-        public void TestImageSharpUploadBridgePreservesRgbaBytes()
+        public void TestPngEncodingAndDecodingPreservesRgbaBytes()
         {
-            var image = new ImageSharpImage(2, 1);
-            image[0, 0] = new ImageSharpRgba32(12, 34, 56, 0);
-            image[1, 0] = new ImageSharpRgba32(78, 90, 123, 255);
+            using var image = new RgbaImage(2, 1);
+            image[0, 0] = new Rgba32(12, 34, 56, 0);
+            image[1, 0] = new Rgba32(78, 90, 123, 255);
+            using var stream = new MemoryStream();
+            image.SaveAsPng(stream);
+            stream.Position = 0;
 
-            using var upload = new TextureUpload(image);
+            using var upload = new TextureUpload(stream);
 
             Assert.That(upload.Width, Is.EqualTo(2));
             Assert.That(upload.Height, Is.EqualTo(1));
-            Assert.That(upload.Data.ToArray(), Is.EqualTo(new[] { new Rgba32(12, 34, 56, 0), new Rgba32(78, 90, 123, 255) }));
+            Assert.That(upload.Data.ToArray(), Is.EqualTo(image.PixelSpan.ToArray()));
             Assert.That(MemoryMarshal.AsBytes(upload.Data).ToArray(), Is.EqualTo(new byte[] { 12, 34, 56, 0, 78, 90, 123, 255 }));
         }
 
