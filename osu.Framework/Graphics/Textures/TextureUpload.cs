@@ -88,8 +88,15 @@ namespace osu.Framework.Graphics.Textures
         /// </summary>
         /// <param name="stream">The image content.</param>
         public TextureUpload(Stream stream)
-            : this(LoadFromStream<ImageSharpRgba32>(stream))
         {
+            if (SkiaStaticImageDecoder.TryDecode(stream, out RgbaImage decodedImage))
+            {
+                rgbaImage = decodedImage;
+                return;
+            }
+
+            image = LoadFromStream<ImageSharpRgba32>(stream);
+            pixelMemory = image.CreateReadOnlyPixelMemory();
         }
 
         private static bool stbiNotFound;

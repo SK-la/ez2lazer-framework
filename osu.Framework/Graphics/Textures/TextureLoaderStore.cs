@@ -11,6 +11,8 @@ using System.Threading.Tasks;
 using osu.Framework.IO.Stores;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using RgbaImage = osu.Framework.Graphics.Imaging.RgbaImage;
+using SkiaStaticImageDecoder = osu.Framework.Graphics.Imaging.SkiaStaticImageDecoder;
 
 namespace osu.Framework.Graphics.Textures
 {
@@ -39,7 +41,7 @@ namespace osu.Framework.Graphics.Textures
                 using (var stream = store.GetStream(name))
                 {
                     if (stream != null)
-                        return new TextureUpload(ImageFromStream<Rgba32>(stream));
+                        return LoadTextureUpload(stream);
                 }
             }
             catch
@@ -67,6 +69,14 @@ namespace osu.Framework.Graphics.Textures
 
         protected virtual Image<TPixel> ImageFromStream<TPixel>(Stream stream) where TPixel : unmanaged, IPixel<TPixel>
             => TextureUpload.LoadFromStream<TPixel>(stream);
+
+        protected virtual TextureUpload LoadTextureUpload(Stream stream)
+        {
+            if (SkiaStaticImageDecoder.TryDecode(stream, out RgbaImage image))
+                return new TextureUpload(image);
+
+            return new TextureUpload(ImageFromStream<Rgba32>(stream));
+        }
 
         public IEnumerable<string> GetAvailableResources() => store.GetAvailableResources();
 

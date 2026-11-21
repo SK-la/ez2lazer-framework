@@ -18,6 +18,7 @@
     <ProjectReference Include="..\osu.Framework\osu.Framework.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="SkiaSharp.NativeAssets.iOS" Version="4.157.0" />
     <None Include="runtimes\**\*" Pack="true" PackagePath="runtimes" />
     <None Include="$(MSBuildThisFileDirectory)..\tools\AssemblyStripper.cs" Pack="true" PackagePath="build\tools\AssemblyStripper.cs" />
     <None Include="osu.Framework.iOS.Workarounds.targets" Pack="true" PackagePath="build\$(PackageId).targets" />
