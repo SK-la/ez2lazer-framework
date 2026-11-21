@@ -94,7 +94,18 @@ namespace osu.Framework.Tests.Graphics
             using var stream = new MemoryStream(new byte[24], writable: false);
             stream.Position = 3;
 
-            Assert.Throws<NotSupportedException>(() => ImageCodec.DecodeTexture(stream));
+            bool unsupported = false;
+
+            try
+            {
+                ImageCodec.DecodeTexture(stream);
+            }
+            catch (NotSupportedException)
+            {
+                unsupported = true;
+            }
+
+            Assert.That(unsupported, Is.True);
             Assert.That(stream.Position, Is.EqualTo(3));
             Assert.That(stream.CanRead, Is.True);
         }
