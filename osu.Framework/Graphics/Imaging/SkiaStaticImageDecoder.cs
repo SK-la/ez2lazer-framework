@@ -10,6 +10,34 @@ namespace osu.Framework.Graphics.Imaging
 {
     internal static unsafe class SkiaStaticImageDecoder
     {
+        public static bool IsGif(Stream stream)
+        {
+            if (!stream.CanRead || !stream.CanSeek)
+                return false;
+
+            long initialPosition = stream.Position;
+            Span<byte> header = stackalloc byte[6];
+            int read = 0;
+
+            try
+            {
+                while (read < header.Length)
+                {
+                    int count = stream.Read(header[read..]);
+                    if (count == 0)
+                        break;
+
+                    read += count;
+                }
+
+                return read == header.Length && (header.SequenceEqual("GIF87a"u8) || header.SequenceEqual("GIF89a"u8));
+            }
+            finally
+            {
+                stream.Position = initialPosition;
+            }
+        }
+
         public static bool TryDecode(Stream stream, [NotNullWhen(true)] out RgbaImage? image)
         {
             image = null;

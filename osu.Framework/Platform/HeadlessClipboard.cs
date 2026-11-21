@@ -1,7 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using SixLabors.ImageSharp;
+using osu.Framework.Graphics.Imaging;
 
 namespace osu.Framework.Platform
 {
@@ -14,22 +14,25 @@ namespace osu.Framework.Platform
     public class HeadlessClipboard : Clipboard
     {
         private string? clipboardText;
-        private Image? clipboardImage;
+        private RgbaImage? clipboardImage;
 
         public override string? GetText() => clipboardText;
 
         public override void SetText(string text)
         {
+            clipboardImage?.Dispose();
             clipboardImage = null;
             clipboardText = text;
         }
 
-        public override Image<TPixel>? GetImage<TPixel>() => clipboardImage?.CloneAs<TPixel>();
+        public override RgbaImage? GetImage() => clipboardImage?.Clone();
 
-        public override bool SetImage(Image image)
+        public override bool SetImage(RgbaImage image)
         {
+            var copy = image.Clone();
+            clipboardImage?.Dispose();
             clipboardText = null;
-            clipboardImage = image;
+            clipboardImage = copy;
             return true;
         }
     }

@@ -3,6 +3,7 @@
 
 using System;
 using System.Buffers;
+using System.IO;
 using System.Numerics;
 using System.Runtime.InteropServices;
 
@@ -102,6 +103,38 @@ namespace osu.Framework.Graphics.Imaging
         }
 
         public ReadOnlySpan<Rgba32> GetReadOnlyPixelRowSpan(int y) => GetPixelRowSpan(y);
+
+        public RgbaImage Clone() => new RgbaImage(Width, Height, PixelSpan);
+
+        public void FlipVertical()
+        {
+            Span<Rgba32> pixels = PixelSpan;
+
+            for (int y = 0; y < Height / 2; y++)
+            {
+                Span<Rgba32> top = pixels.Slice(y * Width, Width);
+                Span<Rgba32> bottom = pixels.Slice((Height - y - 1) * Width, Width);
+
+                for (int x = 0; x < Width; x++)
+                    (top[x], bottom[x]) = (bottom[x], top[x]);
+            }
+        }
+
+        public RgbaImage Crop(int x, int y, int width, int height)
+        {
+            if (x < 0 || y < 0 || width <= 0 || height <= 0 || x > Width - width || y > Height - height)
+                throw new ArgumentOutOfRangeException(nameof(width));
+
+            var result = new RgbaImage(width, height);
+            for (int row = 0; row < height; row++)
+                GetReadOnlyPixelRowSpan(y + row).Slice(x, width).CopyTo(result.GetPixelRowSpan(row));
+
+            return result;
+        }
+
+        public void SaveAsPng(Stream destination) => ImageCodec.Encode(this, destination, ImageFileFormat.Png);
+
+        public void SaveAsJpeg(Stream destination, int? quality = null) => ImageCodec.Encode(this, destination, ImageFileFormat.Jpeg, quality);
 
         public void Dispose()
         {
