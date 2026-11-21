@@ -7,18 +7,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.IO.Stores;
 using osu.Framework.Logging;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Formats.Bmp;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.Formats.Webp;
-using SixLabors.ImageSharp.Processing;
-using ImageSharpImage = SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>;
-using ImageSharpRgba32 = SixLabors.ImageSharp.PixelFormats.Rgba32;
 
 namespace osu.Framework.Benchmarks
 {
@@ -29,11 +21,11 @@ namespace osu.Framework.Benchmarks
 
         private static readonly InputCase[] input_cases =
         {
-            new InputCase("PNG-512x512", 512, 512, new PngEncoder()),
-            new InputCase("PNG-1024x576", 1024, 576, new PngEncoder()),
-            new InputCase("JPEG-1024x576", 1024, 576, new JpegEncoder { Quality = 90 }),
-            new InputCase("BMP-1024x576", 1024, 576, new BmpEncoder()),
-            new InputCase("WebP-1024x576", 1024, 576, new WebpEncoder { FileFormat = WebpFileFormatType.Lossless }),
+            new InputCase("PNG-512x512", "png-512.bin"),
+            new InputCase("PNG-1024x576", "png-1024.bin"),
+            new InputCase("JPEG-1024x576", "jpeg-1024.bin"),
+            new InputCase("BMP-1024x576", "bmp-1024.bin"),
+            new InputCase("WebP-1024x576", "webp-1024.bin"),
         };
 
         public static void Run()
@@ -58,80 +50,76 @@ namespace osu.Framework.Benchmarks
             Console.WriteLine("Input,Bytes,Route,P50ms,P90ms,P99ms,AllocatedP50KiB,AllocatedP90KiB,AllocatedP99KiB");
 
             using var resources = new DllResourceStore(typeof(osu.Framework.Tests.Program).Assembly);
-            using var sourceStream = resources.GetStream("Resources/Textures/h264-hd-screenshot.png")
-                                     ?? throw new FileNotFoundException("Image decoding benchmark source was not found.");
-            using var source = Image.Load<ImageSharpRgba32>(sourceStream);
 
-            foreach (InputCase inputCase in input_cases)
+            foreach (InputCase input in input_cases)
             {
-                byte[] encoded = encode(source, inputCase);
-                run(inputCase.Name, encoded);
+                using var inputStream = resources.GetStream($"Resources/Textures/Decoding/{input.EncodedFile}")
+                                        ?? throw new FileNotFoundException($"Image decoding fixture '{input.EncodedFile}' was not found.");
+                using var encodedBuffer = new MemoryStream();
+                inputStream.CopyTo(encodedBuffer);
+                run(input.Name, encodedBuffer.ToArray());
             }
-        }
-
-        private static byte[] encode(ImageSharpImage source, InputCase inputCase)
-        {
-            using var resized = source.Clone();
-            resized.Mutate(context => context.Resize(inputCase.Width, inputCase.Height));
-
-            using var stream = new MemoryStream();
-            resized.Save(stream, inputCase.Encoder);
-            return stream.ToArray();
         }
 
         private static void run(string inputName, byte[] encoded)
         {
-            using var legacyStore = new LegacyTextureLoaderStore(encoded);
-            using var productionStore = new TextureLoaderStore(new ByteArrayResourceStore(encoded));
-            var results = new[]
-            {
-                new Samples(samples_per_pass * 2),
-                new Samples(samples_per_pass * 2),
-            };
+            using var store = new TextureLoaderStore(new ByteArrayResourceStore(encoded));
+            var directSamples = new Samples(samples_per_pass * 2);
+            var productionSamples = new Samples(samples_per_pass * 2);
 
-            warmup(legacyStore);
-            warmup(productionStore);
+            warmup(encoded, store, direct: true);
+            warmup(encoded, store, direct: false);
 
             for (int pass = 0; pass < 2; pass++)
             {
                 for (int operation = 0; operation < 2; operation++)
                 {
-                    int route = pass == 0 ? operation : 1 - operation;
-                    TextureLoaderStore store = route == 0 ? legacyStore : productionStore;
+                    bool direct = pass == 0 ? operation == 0 : operation != 0;
+                    Samples samples = direct ? directSamples : productionSamples;
 
                     for (int sample = 0; sample < samples_per_pass; sample++)
-                        measure(store, results[route]);
+                        measure(encoded, store, direct, samples);
                 }
             }
 
-            writeResult(inputName, encoded.Length, "Legacy ImageSharp/StbiSharp", results[0]);
-            writeResult(inputName, encoded.Length, "TextureLoaderStore.Get", results[1]);
+            writeResult(inputName, encoded.Length, "Direct Skia codec", directSamples);
+            writeResult(inputName, encoded.Length, "TextureLoaderStore.Get", productionSamples);
         }
 
-        private static void decode(TextureLoaderStore store)
-        {
-            using var upload = store.Get("image");
-            if (upload == null)
-                throw new InvalidDataException("The production texture loader could not decode a benchmark image.");
-        }
-
-        private static void warmup(TextureLoaderStore store)
+        private static void warmup(byte[] encoded, TextureLoaderStore store, bool direct)
         {
             var timer = Stopwatch.StartNew();
 
             while (timer.ElapsedMilliseconds < warmup_duration_ms)
-                decode(store);
+                decode(encoded, store, direct);
         }
 
-        private static void measure(TextureLoaderStore store, Samples samples)
+        private static void measure(byte[] encoded, TextureLoaderStore store, bool direct, Samples samples)
         {
             long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             long start = Stopwatch.GetTimestamp();
-            decode(store);
+            decode(encoded, store, direct);
 
             int index = samples.Count++;
             samples.ElapsedMilliseconds[index] = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
             samples.AllocatedKiB[index] = (GC.GetAllocatedBytesForCurrentThread() - allocatedBefore) / 1024.0;
+        }
+
+        private static void decode(byte[] encoded, TextureLoaderStore store, bool direct)
+        {
+            if (direct)
+            {
+                using var stream = new MemoryStream(encoded, writable: false);
+                if (!SkiaStaticImageDecoder.TryDecode(stream, out RgbaImage? image))
+                    throw new InvalidDataException("Skia could not decode an image benchmark fixture.");
+
+                using var upload = new TextureUpload(image);
+                return;
+            }
+
+            using var productionUpload = store.Get("image");
+            if (productionUpload == null)
+                throw new InvalidDataException("The production texture loader could not decode an image benchmark fixture.");
         }
 
         private static void writeResult(string inputName, int encodedBytes, string route, Samples samples)
@@ -147,7 +135,7 @@ namespace osu.Framework.Benchmarks
         private static double percentile(double[] values, double percentile)
             => values[(int)Math.Ceiling(values.Length * percentile) - 1];
 
-        private readonly record struct InputCase(string Name, int Width, int Height, IImageEncoder Encoder);
+        private readonly record struct InputCase(string Name, string EncodedFile);
 
         private sealed class Samples
         {
@@ -179,17 +167,6 @@ namespace osu.Framework.Benchmarks
             public void Dispose()
             {
             }
-        }
-
-        private sealed class LegacyTextureLoaderStore : TextureLoaderStore
-        {
-            public LegacyTextureLoaderStore(byte[] data)
-                : base(new ByteArrayResourceStore(data))
-            {
-            }
-
-            protected override TextureUpload LoadTextureUpload(Stream stream)
-                => new TextureUpload(ImageFromStream<ImageSharpRgba32>(stream));
         }
     }
 }
