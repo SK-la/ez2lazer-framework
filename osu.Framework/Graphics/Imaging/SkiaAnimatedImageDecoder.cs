@@ -24,10 +24,12 @@ namespace osu.Framework.Graphics.Imaging
 
             try
             {
-                using var codec = SKCodec.Create(stream);
+                using var skStream = new SKManagedStream(stream, disposeManagedStream: false);
+                using var codec = SKCodec.Create(skStream);
                 if (codec == null || codec.FrameCount <= 0)
                     return null;
 
+                var frameInfos = codec.FrameInfo;
                 int frameCount = maxFrames.HasValue ? Math.Min(codec.FrameCount, Math.Max(1, maxFrames.Value)) : codec.FrameCount;
                 var info = new SKImageInfo(codec.Info.Width, codec.Info.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
                 using var canvas = new RgbaImage(info.Width, info.Height);
@@ -37,9 +39,13 @@ namespace osu.Framework.Graphics.Imaging
                 for (int frameIndex = 0; frameIndex < frameCount; frameIndex++)
                 {
                     SKCodecResult decodeResult;
+                    int prior = -1;
+                    if (frameIndex > 0 && frameInfos[frameIndex].RequiredFrame != -1
+                        && frameInfos[frameIndex - 1].DisposalMethod != SKCodecAnimationDisposalMethod.RestorePrevious)
+                        prior = frameIndex - 1;
 
                     fixed (Rgba32* pixels = canvas.PixelSpan)
-                        decodeResult = codec.GetPixels(info, (IntPtr)pixels, info.RowBytes, new SKCodecOptions(frameIndex, -1));
+                        decodeResult = codec.GetPixels(info, (IntPtr)pixels, info.RowBytes, new SKCodecOptions(frameIndex, prior));
 
                     if (decodeResult != SKCodecResult.Success)
                         return null;
@@ -57,7 +63,7 @@ namespace osu.Framework.Graphics.Imaging
                         throw;
                     }
 
-                    int duration = codec.FrameInfo[frameIndex].Duration;
+                    int duration = frameInfos[frameIndex].Duration;
                     durations[frameIndex] = singleFrame
                         ? Math.Max(duration, default_static_duration_ms)
                         : Math.Max(duration, 20);
