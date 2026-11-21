@@ -8,6 +8,7 @@ using NUnit.Framework;
 using osu.Framework.Development;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Shaders;
@@ -15,7 +16,6 @@ using osu.Framework.Graphics.Veldrid;
 using osu.Framework.IO.Stores;
 using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Tests.Graphics
 {
@@ -132,7 +132,7 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(image, Is.Not.Null);
 
             var pixels = new Rgba32[image!.Width * image.Height];
-            image.CopyPixelDataTo(pixels);
+            image.PixelSpan.CopyTo(pixels);
             return pixels;
         }
 

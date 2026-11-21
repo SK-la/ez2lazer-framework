@@ -7,14 +7,13 @@ using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.Graphics.UserInterface;
 using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Tests.Visual.UserInterface
 {
@@ -39,7 +38,7 @@ namespace osu.Framework.Tests.Visual.UserInterface
         {
             const int width = 128;
 
-            var image = new Image<Rgba32>(width, 1);
+            var image = new RgbaImage(width, 1);
 
             gradientTextureHorizontal = renderer.CreateTexture(width, 1, true);
 
@@ -51,7 +50,7 @@ namespace osu.Framework.Tests.Visual.UserInterface
 
             gradientTextureHorizontal.SetData(new TextureUpload(image));
 
-            image = new Image<Rgba32>(width, 1);
+            image = new RgbaImage(width, 1);
 
             gradientTextureVertical = renderer.CreateTexture(1, width, true);
 
@@ -63,7 +62,7 @@ namespace osu.Framework.Tests.Visual.UserInterface
 
             gradientTextureVertical.SetData(new TextureUpload(image));
 
-            image = new Image<Rgba32>(width, width);
+            image = new RgbaImage(width, width);
 
             gradientTextureBoth = renderer.CreateTexture(width, width, true);
 

@@ -9,13 +9,12 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Rendering.Dummy;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.IO.Stores;
 using osu.Framework.Testing;
 using osu.Framework.Text;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Tests.IO
 {
@@ -123,7 +122,7 @@ namespace osu.Framework.Tests.IO
             public int GetKerning(int leftCodepoint, int rightCodepoint) => 0;
 
             private TextureUpload getTexture(string name) => loaded.Task.IsCompletedSuccessfully && name == "Delayed/A"
-                ? new TextureUpload(new Image<Rgba32>(SixLabors.ImageSharp.Configuration.Default, 1, 1))
+                ? new TextureUpload(new RgbaImage(1, 1))
                 : null;
 
             TextureUpload IResourceStore<TextureUpload>.Get(string name) => getTexture(name);
