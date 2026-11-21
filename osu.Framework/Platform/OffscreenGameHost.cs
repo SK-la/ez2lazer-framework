@@ -8,14 +8,13 @@ using System.Threading.Tasks;
 using osu.Framework.Configuration;
 using osu.Framework.Development;
 using osu.Framework.Extensions.IEnumerableExtensions;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Veldrid;
 using osu.Framework.Input.Handlers;
 using osu.Framework.Logging;
 using osu.Framework.Statistics;
 using osu.Framework.Timing;
 using osuTK;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Platform
 {
@@ -174,9 +173,9 @@ namespace osu.Framework.Platform
         /// <summary>
         /// Reads the last drawn frame. The image must be disposed by the caller.
         /// </summary>
-        public Task<Image<Rgba32>> CaptureAsync()
+        public Task<RgbaImage> CaptureAsync()
         {
-            var source = new TaskCompletionSource<Image<Rgba32>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var source = new TaskCompletionSource<RgbaImage>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             DrawThread.Scheduler.Add(() =>
             {
