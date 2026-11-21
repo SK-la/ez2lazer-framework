@@ -16,6 +16,7 @@ using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Formats.Tiff;
 using SixLabors.ImageSharp.Formats.Webp;
+using SkiaSharp;
 using ImageSharpEncoder = SixLabors.ImageSharp.Formats.IImageEncoder;
 using ImageSharpImage = SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>;
 using ImageSharpRgba32 = SixLabors.ImageSharp.PixelFormats.Rgba32;
@@ -74,8 +75,6 @@ namespace osu.Framework.Tests.Graphics
             using var source = createImage(new ImageSharpRgba32(12, 34, 56, 255), new ImageSharpRgba32(78, 90, 123, 255));
             byte[][] unsupported =
             {
-                encode(source, new JpegEncoder()),
-                encode(source, new GifEncoder()),
                 encode(source, new TiffEncoder()),
             };
 
@@ -103,11 +102,34 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(skiaUpload!.Data.ToArray(), Is.EqualTo(new[] { new Rgba32(12, 34, 56, 0), new Rgba32(78, 90, 123, 167) }));
 
             byte[] jpeg = encode(source, new JpegEncoder());
-            using var legacyStore = new TrackingTextureLoaderStore(jpeg);
-            using var legacyUpload = legacyStore.Get("texture.jpg");
+            using var skiaJpegStore = new TrackingTextureLoaderStore(jpeg);
+            using var skiaJpegUpload = skiaJpegStore.Get("texture.jpg");
 
-            Assert.That(legacyUpload, Is.Not.Null);
-            Assert.That(legacyStore.UsedLegacyDecoder, Is.True);
+            Assert.That(skiaJpegUpload, Is.Not.Null);
+            Assert.That(skiaJpegStore.UsedLegacyDecoder, Is.False);
+
+            byte[] gif = encode(source, new GifEncoder());
+            using var skiaGifStore = new TrackingTextureLoaderStore(gif);
+            using var skiaGifUpload = skiaGifStore.Get("texture.gif");
+
+            Assert.That(skiaGifUpload, Is.Not.Null);
+            Assert.That(skiaGifStore.UsedLegacyDecoder, Is.False);
+
+            using var legacyGifStream = new MemoryStream(gif);
+            using var legacyGifImage = Image.Load<ImageSharpRgba32>(TextureUpload.DECODER_OPTIONS, legacyGifStream);
+            using var legacyGifUpload = new TextureUpload(legacyGifImage);
+            Assert.That(skiaGifUpload!.Data.ToArray(), Is.EqualTo(legacyGifUpload.Data.ToArray()));
+        }
+
+        [Test]
+        public void TestSkiaCodecDoesNotSupportTiff()
+        {
+            using var source = createImage(new ImageSharpRgba32(12, 34, 56, 255), new ImageSharpRgba32(78, 90, 123, 255));
+            using var stream = new MemoryStream(encode(source, new TiffEncoder()));
+
+            using var codec = SKCodec.Create(stream);
+
+            Assert.That(codec, Is.Null);
         }
 
         [Test]
