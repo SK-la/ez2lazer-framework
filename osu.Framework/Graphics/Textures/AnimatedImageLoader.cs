@@ -1,13 +1,10 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using System;
-using System.Collections.Generic;
 using System.IO;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Formats.Gif;
-using SixLabors.ImageSharp.PixelFormats;
+using osu.Framework.Graphics.Imaging;
+using SkiaAnimatedImageDecoder = osu.Framework.Graphics.Imaging.SkiaAnimatedImageDecoder;
+using SkiaStaticImageDecoder = osu.Framework.Graphics.Imaging.SkiaStaticImageDecoder;
 
 namespace osu.Framework.Graphics.Textures
 {
@@ -29,99 +26,25 @@ namespace osu.Framework.Graphics.Textures
             if (!stream.CanRead)
                 return null;
 
-            if (stream.CanSeek)
-                stream.Position = 0;
-
-            IImageFormat? format;
+            MemoryStream? copy = null;
 
             try
             {
-                format = Image.DetectFormat(stream);
-            }
-            catch
-            {
-                return null;
-            }
+                if (stream.CanSeek)
+                    stream.Position = 0;
+                else
+                {
+                    copy = new MemoryStream();
+                    stream.CopyTo(copy);
+                    copy.Position = 0;
+                    stream = copy;
+                }
 
-            if (stream.CanSeek)
-                stream.Position = 0;
+                if (SkiaStaticImageDecoder.IsGif(stream))
+                    return SkiaAnimatedImageDecoder.TryDecode(stream, maxFrames);
 
-            if (format.Name == GifFormat.Instance.Name)
-                return loadGif(stream, maxFrames);
-
-            try
-            {
-                using var image = Image.Load<Rgba32>(TextureUpload.DECODER_OPTIONS, stream);
-                var upload = new TextureUpload(image.Clone());
+                var upload = new TextureUpload(ImageCodec.Decode(stream));
                 return new AnimatedImageFrameLoadResult(new[] { upload }, new[] { default_static_duration_ms });
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static AnimatedImageFrameLoadResult? loadGif(Stream stream, int? maxFrames)
-        {
-            Image<Rgba32>? source = null;
-
-            try
-            {
-                var options = new DecoderOptions
-                {
-                    Configuration = TextureUpload.DECODER_OPTIONS.Configuration,
-                    MaxFrames = maxFrames.HasValue ? (uint)Math.Max(1, maxFrames.Value) : uint.MaxValue,
-                };
-                source = Image.Load<Rgba32>(options, stream);
-
-                if (source.Frames.Count <= 1)
-                {
-                    var single = new TextureUpload(source.Clone());
-                    double delay = Math.Max(source.Frames.RootFrame.Metadata.GetGifMetadata().FrameDelay * 10, default_static_duration_ms);
-                    return new AnimatedImageFrameLoadResult(new[] { single }, new[] { delay });
-                }
-
-                var (images, durations) = GifFrameCompositor.Compose(source, maxFrames);
-                List<TextureUpload>? uploads = null;
-                int convertedImageCount = 0;
-
-                try
-                {
-                    uploads = new List<TextureUpload>(images.Count);
-
-                    while (convertedImageCount < images.Count)
-                    {
-                        var upload = new TextureUpload(images[convertedImageCount]);
-
-                        try
-                        {
-                            uploads.Add(upload);
-                        }
-                        catch
-                        {
-                            upload.Dispose();
-                            convertedImageCount++;
-                            throw;
-                        }
-
-                        convertedImageCount++;
-                    }
-
-                    return new AnimatedImageFrameLoadResult(uploads, durations);
-                }
-                catch
-                {
-                    if (uploads != null)
-                    {
-                        foreach (var upload in uploads)
-                            upload.Dispose();
-                    }
-
-                    for (int i = convertedImageCount; i < images.Count; i++)
-                        images[i].Dispose();
-
-                    throw;
-                }
             }
             catch
             {
@@ -129,7 +52,7 @@ namespace osu.Framework.Graphics.Textures
             }
             finally
             {
-                source?.Dispose();
+                copy?.Dispose();
             }
         }
     }

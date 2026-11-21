@@ -3,41 +3,24 @@
 
 using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using osu.Framework.Allocation;
-using osu.Framework.Graphics.Textures;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Logging;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.PixelFormats;
 using static SDL.SDL3;
 
 namespace osu.Framework.Platform.SDL3
 {
     public class SDL3Clipboard : Clipboard
     {
-        /// <summary>
-        /// Supported formats for decoding images from the clipboard.
-        /// </summary>
-        // It's possible for a format to not have a registered decoder, but all default formats will have one:
-        // https://github.com/SixLabors/ImageSharp/discussions/1353#discussioncomment-9142056
-        private static IEnumerable<string> supportedImageMimeTypes => SixLabors.ImageSharp.Configuration.Default.ImageFormats.SelectMany(f => f.MimeTypes);
-
-        /// <summary>
-        /// Format used for encoding (saving) images to the clipboard.
-        /// </summary>
-        private readonly IImageFormat imageFormat;
-
-        public SDL3Clipboard(IImageFormat imageFormat)
+        private static readonly string[] supported_image_mime_types =
         {
-            this.imageFormat = imageFormat;
-        }
+            "image/png", "image/jpeg", "image/gif", "image/bmp", "image/x-bmp", "image/x-ms-bmp", "image/webp"
+        };
 
         // SDL cannot differentiate between string.Empty and no text (eg. empty clipboard or an image)
         // doesn't matter as text editors don't really allow copying empty strings.
@@ -46,11 +29,11 @@ namespace osu.Framework.Platform.SDL3
 
         public override void SetText(string text) => SDL_SetClipboardText(text).LogErrorIfFailed();
 
-        public override Image<TPixel>? GetImage<TPixel>()
+        public override RgbaImage? GetImage()
         {
-            foreach (string mimeType in supportedImageMimeTypes)
+            foreach (string mimeType in supported_image_mime_types)
             {
-                if (tryGetData<TPixel>(mimeType, out var image))
+                if (tryGetData(mimeType, out var image))
                 {
                     Logger.Log($"Decoded {mimeType} from clipboard.");
                     return image;
@@ -60,7 +43,7 @@ namespace osu.Framework.Platform.SDL3
             return null;
         }
 
-        public override bool SetImage(Image image)
+        public override bool SetImage(RgbaImage image)
         {
             ReadOnlyMemory<byte> memory;
 
@@ -68,7 +51,7 @@ namespace osu.Framework.Platform.SDL3
 
             using (var stream = new MemoryStream())
             {
-                image.Save(stream, imageFormat);
+                ImageCodec.Encode(image, stream, ImageFileFormat.Png);
 
                 // The buffer is allowed to escape the lifetime of the MemoryStream.
                 // https://learn.microsoft.com/en-us/dotnet/api/system.io.memorystream.getbuffer?view=net-8.0
@@ -76,10 +59,10 @@ namespace osu.Framework.Platform.SDL3
                 memory = new ReadOnlyMemory<byte>(stream.GetBuffer(), 0, (int)stream.Length);
             }
 
-            return trySetData(imageFormat.DefaultMimeType, () => memory);
+            return trySetData("image/png", () => memory);
         }
 
-        private static unsafe bool tryGetData<TPixel>(string mimeType, out Image<TPixel>? data) where TPixel : unmanaged, IPixel<TPixel>
+        private static unsafe bool tryGetData(string mimeType, out RgbaImage? data)
         {
             if (!SDL_HasClipboardData(mimeType))
             {
@@ -100,7 +83,8 @@ namespace osu.Framework.Platform.SDL3
             try
             {
                 var nativeMemory = new ReadOnlySpan<byte>((void*)pointer, (int)nativeSize);
-                data = Image.Load<TPixel>(TextureUpload.DECODER_OPTIONS, nativeMemory);
+                using var stream = new MemoryStream(nativeMemory.ToArray(), writable: false);
+                data = ImageCodec.Decode(stream);
                 return true;
             }
             catch (Exception e)

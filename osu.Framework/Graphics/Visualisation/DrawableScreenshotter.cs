@@ -3,14 +3,13 @@
 
 using System;
 using osu.Framework.Allocation;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Shaders;
 using osu.Framework.Platform;
 using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Graphics.Visualisation
 {
@@ -21,10 +20,10 @@ namespace osu.Framework.Graphics.Visualisation
     {
         public readonly Drawable Target;
 
-        private readonly Action<Image<Rgba32>?> onImageReceived;
+        private readonly Action<RgbaImage?> onImageReceived;
         private bool didRender;
 
-        public DrawableScreenshotter(Drawable target, Action<Image<Rgba32>?> onImageReceived)
+        public DrawableScreenshotter(Drawable target, Action<RgbaImage?> onImageReceived)
         {
             this.onImageReceived = onImageReceived;
 

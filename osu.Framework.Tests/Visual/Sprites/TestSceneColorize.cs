@@ -7,12 +7,11 @@ using NUnit.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.Textures;
 using osuTK;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Tests.Visual.Sprites
 {
@@ -104,7 +103,7 @@ namespace osu.Framework.Tests.Visual.Sprites
         private static Texture createFixtureTexture(IRenderer renderer)
         {
             const int size = 128;
-            var image = new Image<Rgba32>(size, size);
+            var image = new RgbaImage(size, size);
 
             for (int y = 0; y < size; y++)
             {

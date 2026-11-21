@@ -1,4 +1,4 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 #nullable disable
@@ -26,6 +26,7 @@ using osu.Framework.Extensions.IEnumerableExtensions;
 using osu.Framework.Extensions.TypeExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.OpenGL;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Rendering.Deferred;
@@ -43,8 +44,6 @@ using osu.Framework.Statistics;
 using osu.Framework.Threading;
 using osu.Framework.Timing;
 using osuTK;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Rectangle = System.Drawing.Rectangle;
 using Size = System.Drawing.Size;
 
@@ -365,7 +364,6 @@ namespace osu.Framework.Platform
         /// </summary>
         public void Collect()
         {
-            SixLabors.ImageSharp.Configuration.Default.MemoryAllocator.ReleaseRetainedResources();
             GC.Collect();
         }
 
@@ -597,16 +595,16 @@ namespace osu.Framework.Platform
         }
 
         /// <summary>
-        /// Takes a screenshot of the game. The returned <see cref="Image{TPixel}"/> must be disposed by the caller when applicable.
+        /// Takes a screenshot of the game. The returned <see cref="RgbaImage"/> must be disposed by the caller when applicable.
         /// </summary>
-        /// <returns>The screenshot as an <see cref="Image{TPixel}"/>.</returns>
-        public async Task<Image<Rgba32>> TakeScreenshotAsync()
+        /// <returns>The screenshot as an <see cref="RgbaImage"/>.</returns>
+        public async Task<RgbaImage> TakeScreenshotAsync()
         {
             if (Window == null) throw new InvalidOperationException($"{nameof(Window)} has not been set!");
 
             using (var completionEvent = new ManualResetEventSlim(false))
             {
-                Image<Rgba32> image = null;
+                RgbaImage image = null;
 
                 DrawThread.Scheduler.Add(() =>
                 {

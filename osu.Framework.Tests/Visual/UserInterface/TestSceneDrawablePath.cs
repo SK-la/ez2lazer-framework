@@ -8,6 +8,7 @@ using NUnit.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Lines;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Shapes;
@@ -16,8 +17,6 @@ using osu.Framework.Input.Events;
 using osu.Framework.Utils;
 using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Tests.Visual.UserInterface
 {
@@ -31,7 +30,7 @@ namespace osu.Framework.Tests.Visual.UserInterface
         [BackgroundDependencyLoader]
         private void load(IRenderer renderer)
         {
-            var image = new Image<Rgba32>(texture_width, 1);
+            var image = new RgbaImage(texture_width, 1);
 
             for (int i = 0; i < texture_width; ++i)
             {

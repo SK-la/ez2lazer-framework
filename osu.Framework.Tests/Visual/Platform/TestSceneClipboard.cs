@@ -6,12 +6,11 @@ using osu.Framework.Allocation;
 using osu.Framework.Development;
 using osu.Framework.Extensions;
 using osu.Framework.Graphics;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.Platform;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Tests.Visual.Platform
 {
@@ -26,8 +25,8 @@ namespace osu.Framework.Tests.Visual.Platform
         [Resolved]
         private Clipboard clipboard { get; set; } = null!;
 
-        private Image<Rgba32>? originalImage;
-        private Image<Rgba32>? clipboardImage;
+        private RgbaImage? originalImage;
+        private RgbaImage? clipboardImage;
 
         // empty text doesn't really matter, since it doesn't actually make sense (text editors generally don't allow copying nothing)
         // it's here to just show how it behaves
@@ -37,7 +36,7 @@ namespace osu.Framework.Tests.Visual.Platform
         {
             AddStep("set clipboard text", () => clipboard.SetText(text));
             AddAssert("clipboard text is expected", () => clipboard.GetText(), () => Is.EqualTo(text));
-            AddAssert("clipboard image is null", () => clipboard.GetImage<Rgba32>(), () => Is.Null);
+            AddAssert("clipboard image is null", () => clipboard.GetImage(), () => Is.Null);
         }
 
         [Test]
@@ -69,7 +68,7 @@ namespace osu.Framework.Tests.Visual.Platform
 
             AddStep("retrieve image from clipboard", () =>
             {
-                var image = clipboard.GetImage<Rgba32>();
+                var image = clipboard.GetImage();
                 clipboardImage = image!.Clone();
 
                 var texture = renderer.CreateTexture(image.Width, image.Height);

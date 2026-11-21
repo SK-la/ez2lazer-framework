@@ -1,13 +1,10 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
-using osu.Framework.Graphics.Textures;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Bmp;
+using osu.Framework.Graphics.Imaging;
 
 namespace osu.Framework.Platform.Windows
 {
@@ -57,12 +54,6 @@ namespace osu.Framework.Platform.Windows
         private const int gmem_zeroinit = 0x40;
         private const int ghnd = gmem_movable | gmem_zeroinit;
 
-        // The bitmap file header should not be included in clipboard.
-        // See https://docs.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats for more details.
-        private const int bitmap_file_header_length = 14;
-
-        private static readonly byte[] bmp_header_field = { 0x42, 0x4D };
-
         public override string? GetText()
         {
             return getClipboard(cf_unicodetext, bytes => Encoding.Unicode.GetString(bytes).TrimEnd('\0'));
@@ -76,31 +67,14 @@ namespace osu.Framework.Platform.Windows
             setClipboard(source, bytes, cf_unicodetext);
         }
 
-        public override Image<TPixel>? GetImage<TPixel>()
+        public override RgbaImage? GetImage() => getClipboard(cf_dib, bytes => DibImageCodec.Decode(bytes));
+
+        public override bool SetImage(RgbaImage image)
         {
-            return getClipboard(cf_dib, bytes =>
-            {
-                byte[] buff = new byte[bytes.Length + bitmap_file_header_length];
-
-                bmp_header_field.CopyTo(buff, 0);
-                bytes.CopyTo(buff, bitmap_file_header_length);
-
-                return Image.Load<TPixel>(TextureUpload.DECODER_OPTIONS, buff);
-            });
-        }
-
-        public override bool SetImage(Image image)
-        {
-            using (var stream = new MemoryStream())
-            {
-                var encoder = image.Configuration.ImageFormatsManager.GetEncoder(BmpFormat.Instance);
-                image.Save(stream, encoder);
-
-                int bitmapDataLength = (int)stream.Length - bitmap_file_header_length;
-                IntPtr unmanagedPointer = Marshal.AllocHGlobal(bitmapDataLength);
-                Marshal.Copy(stream.GetBuffer(), bitmap_file_header_length, unmanagedPointer, bitmapDataLength);
-                return setClipboard(unmanagedPointer, bitmapDataLength, cf_dib);
-            }
+            byte[] bytes = DibImageCodec.Encode(image);
+            IntPtr unmanagedPointer = Marshal.AllocHGlobal(bytes.Length);
+            Marshal.Copy(bytes, 0, unmanagedPointer, bytes.Length);
+            return setClipboard(unmanagedPointer, bytes.Length, cf_dib);
         }
 
         private static bool setClipboard(IntPtr pointer, int bytes, uint format)

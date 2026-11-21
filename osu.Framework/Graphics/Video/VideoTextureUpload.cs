@@ -2,10 +2,10 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using osu.Framework.Graphics.Textures;
 using FFmpeg.AutoGen;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
-using SixLabors.ImageSharp.PixelFormats;
+using osu.Framework.Graphics.Textures;
 
 namespace osu.Framework.Graphics.Video
 {
@@ -15,12 +15,12 @@ namespace osu.Framework.Graphics.Video
 
         public int GetPlaneWidth(uint plane)
         {
-            return (plane == 0) ? Frame->width : (Frame->width + 1) / 2;
+            return (plane == 0) ? Frame -> width : (Frame -> width + 1) / 2;
         }
 
         public int GetPlaneHeight(uint plane)
         {
-            return (plane == 0) ? Frame->height : (Frame->height + 1) / 2;
+            return (plane == 0) ? Frame -> height : (Frame -> height + 1) / 2;
         }
 
         public ReadOnlySpan<Rgba32> Data => ReadOnlySpan<Rgba32>.Empty;

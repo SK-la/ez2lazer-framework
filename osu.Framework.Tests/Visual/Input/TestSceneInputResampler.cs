@@ -6,6 +6,7 @@
 using System;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Lines;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Sprites;
@@ -15,8 +16,6 @@ using osu.Framework.Input.Events;
 using osu.Framework.Testing;
 using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Tests.Visual.Input
 {
@@ -33,7 +32,7 @@ namespace osu.Framework.Tests.Visual.Input
         {
             const int width = 2;
             Texture gradientTexture = renderer.CreateTexture(width, 1, true);
-            var image = new Image<Rgba32>(width, 1);
+            var image = new RgbaImage(width, 1);
 
             for (int i = 0; i < width; ++i)
             {

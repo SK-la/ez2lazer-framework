@@ -13,7 +13,6 @@ using osu.Framework.Input.Handlers.Tablet;
 using osu.Framework.Input.Handlers.Touch;
 using osu.Framework.Platform.SDL2;
 using osu.Framework.Platform.SDL3;
-using SixLabors.ImageSharp.Formats.Png;
 
 namespace osu.Framework.Platform
 {
@@ -38,7 +37,7 @@ namespace osu.Framework.Platform
 
         protected override Clipboard CreateClipboard()
             => FrameworkEnvironment.UseSDL3
-                ? new SDL3Clipboard(PngFormat.Instance) // PNG works well on linux
+                ? new SDL3Clipboard() // PNG works well on linux
                 : new SDL2Clipboard();
 
         protected override IEnumerable<InputHandler> CreateAvailableInputHandlers()

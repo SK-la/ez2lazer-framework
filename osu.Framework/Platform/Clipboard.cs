@@ -1,8 +1,7 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using osu.Framework.Graphics.Imaging;
 
 namespace osu.Framework.Platform
 {
@@ -25,14 +24,13 @@ namespace osu.Framework.Platform
         /// <summary>
         /// Retrieve an image from the clipboard.
         /// </summary>
-        public abstract Image<TPixel>? GetImage<TPixel>()
-            where TPixel : unmanaged, IPixel<TPixel>;
+        public abstract RgbaImage? GetImage();
 
         /// <summary>
         /// Copy the image to the clipboard.
         /// </summary>
         /// <param name="image">The image to copy to the clipboard</param>
         /// <returns>Whether the image was successfully copied or not</returns>
-        public abstract bool SetImage(Image image);
+        public abstract bool SetImage(RgbaImage image);
     }
 }

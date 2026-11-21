@@ -8,7 +8,6 @@ using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Rendering.Vertices;
 using osu.Framework.Statistics;
 using osuTK.Graphics.ES30;
-using SixLabors.ImageSharp.Memory;
 
 namespace osu.Framework.Graphics.OpenGL.Buffers
 {
@@ -153,8 +152,9 @@ namespace osu.Framework.Graphics.OpenGL.Buffers
 
             if (!InUse)
             {
-                memoryOwner = SixLabors.ImageSharp.Configuration.Default.MemoryAllocator.Allocate<T>(Size, AllocationOptions.Clean);
-                vertexMemory = memoryOwner.Memory;
+                memoryOwner = MemoryPool<T>.Shared.Rent(Size);
+                vertexMemory = memoryOwner.Memory[..Size];
+                vertexMemory.Span.Clear();
 
                 Renderer.RegisterVertexBufferUse(this);
             }

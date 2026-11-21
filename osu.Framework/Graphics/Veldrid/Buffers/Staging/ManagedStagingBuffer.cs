@@ -4,7 +4,6 @@
 using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
-using SixLabors.ImageSharp.Memory;
 using Veldrid;
 
 namespace osu.Framework.Graphics.Veldrid.Buffers.Staging
@@ -25,8 +24,9 @@ namespace osu.Framework.Graphics.Veldrid.Buffers.Staging
             Count = count;
             SizeInBytes = (uint)(Unsafe.SizeOf<T>() * count);
 
-            memoryOwner = SixLabors.ImageSharp.Configuration.Default.MemoryAllocator.Allocate<T>((int)Count, AllocationOptions.Clean);
-            vertexMemory = memoryOwner.Memory;
+            memoryOwner = MemoryPool<T>.Shared.Rent(checked((int)Count));
+            vertexMemory = memoryOwner.Memory[..checked((int)Count)];
+            vertexMemory.Span.Clear();
         }
 
         public uint SizeInBytes { get; }

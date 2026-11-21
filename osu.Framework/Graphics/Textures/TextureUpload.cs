@@ -5,21 +5,9 @@
 
 using System;
 using System.IO;
-using System.Runtime.InteropServices;
-using JetBrains.Annotations;
-using osu.Framework.Extensions.ImageExtensions;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
-using osu.Framework.Logging;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Formats.Bmp;
-using SixLabors.ImageSharp.Formats.Gif;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.Formats.Webp;
-using SixLabors.ImageSharp.PixelFormats;
-using StbiSharp;
 
 namespace osu.Framework.Graphics.Textures
 {
@@ -39,27 +27,20 @@ namespace osu.Framework.Graphics.Textures
         /// </summary>
         public RectangleI Bounds { get; set; }
 
-        public ReadOnlySpan<Rgba32> Data => pixelMemory.Span;
+        public ReadOnlySpan<Rgba32> Data => rgbaImage == null ? ReadOnlySpan<Rgba32>.Empty : rgbaImage.PixelSpan;
 
-        public int Width => image?.Width ?? 0;
+        public int Width => rgbaImage?.Width ?? 0;
 
-        public int Height => image?.Height ?? 0;
+        public int Height => rgbaImage?.Height ?? 0;
 
         /// <summary>
         /// The backing texture. A handle is kept to avoid early GC.
         /// </summary>
-        private readonly Image<Rgba32> image;
+        private readonly RgbaImage rgbaImage;
 
-        private ReadOnlyPixelMemory<Rgba32> pixelMemory;
-
-        /// <summary>
-        /// Create an upload from a <see cref="TextureUpload"/>. This is the preferred method.
-        /// </summary>
-        /// <param name="image">The texture to upload.</param>
-        public TextureUpload(Image<Rgba32> image)
+        public TextureUpload(RgbaImage image)
         {
-            this.image = image;
-            pixelMemory = image.CreateReadOnlyPixelMemory();
+            rgbaImage = image ?? throw new ArgumentNullException(nameof(image));
         }
 
         /// <summary>
@@ -69,62 +50,8 @@ namespace osu.Framework.Graphics.Textures
         /// </summary>
         /// <param name="stream">The image content.</param>
         public TextureUpload(Stream stream)
-            : this(LoadFromStream<Rgba32>(stream))
         {
-        }
-
-        private static bool stbiNotFound;
-
-        internal static readonly DecoderOptions DECODER_OPTIONS = new DecoderOptions
-        {
-            Configuration = new SixLabors.ImageSharp.Configuration(
-                new PngConfigurationModule(),
-                new JpegConfigurationModule(),
-                new GifConfigurationModule(),
-                new BmpConfigurationModule(),
-                new WebpConfigurationModule()
-            )
-        };
-
-        internal static Image<TPixel> LoadFromStream<TPixel>(Stream stream) where TPixel : unmanaged, IPixel<TPixel>
-        {
-            if (loadUsingStbi(stream, out Image<TPixel> loadPixelData))
-                return loadPixelData;
-
-            return Image.Load<TPixel>(DECODER_OPTIONS, stream);
-        }
-
-        private static bool loadUsingStbi<TPixel>(Stream stream, [CanBeNull] out Image<TPixel> image) where TPixel : unmanaged, IPixel<TPixel>
-        {
-            image = null;
-            if (stbiNotFound)
-                return false;
-
-            long initialPos = stream.Position;
-
-            try
-            {
-                using (var buffer = SixLabors.ImageSharp.Configuration.Default.MemoryAllocator.Allocate<byte>((int)stream.Length))
-                {
-                    stream.ReadExactly(buffer.Memory.Span);
-
-                    using (var stbiImage = Stbi.LoadFromMemory(buffer.Memory.Span, 4))
-                    {
-                        image = Image.LoadPixelData(MemoryMarshal.Cast<byte, TPixel>(stbiImage.Data), stbiImage.Width, stbiImage.Height);
-                        return true;
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                if (e is DllNotFoundException)
-                    stbiNotFound = true;
-
-                Logger.Log($"Texture could not be loaded via STB; falling back to ImageSharp: {e.Message}");
-                stream.Position = initialPos;
-            }
-
-            return false;
+            rgbaImage = ImageCodec.Decode(stream);
         }
 
         /// <summary>
@@ -149,8 +76,7 @@ namespace osu.Framework.Graphics.Textures
             if (disposed)
                 return;
 
-            image?.Dispose();
-            pixelMemory.Dispose();
+            rgbaImage?.Dispose();
 
             disposed = true;
         }
