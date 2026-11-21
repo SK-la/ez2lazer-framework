@@ -39,6 +39,22 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(result, Is.Not.Null);
             Assert.That(result!.Frames.Count, Is.EqualTo(2));
             Assert.That(result.FrameDurationMs.Count, Is.EqualTo(2));
+            Assert.That(stream.CanRead, Is.True);
+        }
+
+        [Test]
+        public void TestTruncatedGifLeavesCallerStreamOpen()
+        {
+            using var source = GifTestResources.OpenSampleFlameGifStream();
+            byte[] truncated = new byte[32];
+            source.ReadExactly(truncated);
+            using var stream = new MemoryStream(truncated, writable: false);
+
+            using var result = AnimatedImageLoader.LoadFromStream(stream);
+
+            Assert.That(result, Is.Null);
+            Assert.That(stream.Position, Is.Zero);
+            Assert.That(stream.ReadByte(), Is.EqualTo(truncated[0]));
         }
 
         [Test]
