@@ -2,15 +2,12 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.IO.Stores;
 using osu.Framework.Logging;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using ImageSharpRgba32 = SixLabors.ImageSharp.PixelFormats.Rgba32;
 
 namespace osu.Framework.Benchmarks
 {
@@ -50,103 +47,54 @@ namespace osu.Framework.Benchmarks
 
         private static void run(string inputName, int maxFrames, byte[] encoded)
         {
-            var legacySamples = new Samples(samples_per_pass * 2);
+            var directSamples = new Samples(samples_per_pass * 2);
             var productionSamples = new Samples(samples_per_pass * 2);
 
-            warmup(encoded, maxFrames, legacy: true);
-            warmup(encoded, maxFrames, legacy: false);
+            warmup(encoded, maxFrames, direct: true);
+            warmup(encoded, maxFrames, direct: false);
 
             for (int pass = 0; pass < 2; pass++)
             {
                 for (int operation = 0; operation < 2; operation++)
                 {
-                    bool legacy = pass == 0 ? operation == 0 : operation != 0;
-                    Samples samples = legacy ? legacySamples : productionSamples;
+                    bool direct = pass == 0 ? operation == 0 : operation != 0;
+                    Samples samples = direct ? directSamples : productionSamples;
 
                     for (int sample = 0; sample < samples_per_pass; sample++)
-                        measure(encoded, maxFrames, legacy, samples);
+                        measure(encoded, maxFrames, direct, samples);
                 }
             }
 
-            writeResult(inputName, maxFrames, "Legacy ImageSharp/GifFrameCompositor", legacySamples);
+            writeResult(inputName, maxFrames, "Direct SKCodec", directSamples);
             writeResult(inputName, maxFrames, "AnimatedImageLoader.LoadFromStream", productionSamples);
         }
 
-        private static void warmup(byte[] encoded, int maxFrames, bool legacy)
+        private static void warmup(byte[] encoded, int maxFrames, bool direct)
         {
             var timer = Stopwatch.StartNew();
             while (timer.ElapsedMilliseconds < warmup_duration_ms)
-                decode(encoded, maxFrames, legacy);
+                decode(encoded, maxFrames, direct);
         }
 
-        private static void measure(byte[] encoded, int maxFrames, bool legacy, Samples samples)
+        private static void measure(byte[] encoded, int maxFrames, bool direct, Samples samples)
         {
             long start = Stopwatch.GetTimestamp();
-            decode(encoded, maxFrames, legacy);
+            decode(encoded, maxFrames, direct);
             int index = samples.Count++;
             samples.ElapsedMilliseconds[index] = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
         }
 
-        private static void decode(byte[] encoded, int maxFrames, bool legacy)
+        private static void decode(byte[] encoded, int maxFrames, bool direct)
         {
             using var stream = new MemoryStream(encoded, writable: false);
+            AnimatedImageFrameLoadResult? result = direct
+                ? SkiaAnimatedImageDecoder.TryDecode(stream, maxFrames)
+                : AnimatedImageLoader.LoadFromStream(stream, maxFrames);
 
-            if (!legacy)
+            using (result)
             {
-                using var result = AnimatedImageLoader.LoadFromStream(stream, maxFrames);
                 if (result == null)
-                    throw new InvalidDataException("The production animation loader could not decode the GIF.");
-
-                return;
-            }
-
-            var options = new DecoderOptions
-            {
-                Configuration = TextureUpload.DECODER_OPTIONS.Configuration,
-                MaxFrames = (uint)Math.Max(1, maxFrames),
-            };
-            using var source = Image.Load<ImageSharpRgba32>(options, stream);
-
-            if (source.Frames.Count <= 1)
-            {
-                using var upload = new TextureUpload(source.Clone());
-                return;
-            }
-
-            var (images, durations) = GifFrameCompositor.Compose(source, maxFrames);
-            var uploads = new List<TextureUpload>(images.Count);
-            int convertedCount = 0;
-
-            try
-            {
-                while (convertedCount < images.Count)
-                {
-                    var upload = new TextureUpload(images[convertedCount]);
-
-                    try
-                    {
-                        uploads.Add(upload);
-                    }
-                    catch
-                    {
-                        upload.Dispose();
-                        throw;
-                    }
-
-                    convertedCount++;
-                }
-
-                using var result = new AnimatedImageFrameLoadResult(uploads.ToArray(), durations);
-            }
-            catch
-            {
-                foreach (TextureUpload upload in uploads)
-                    upload.Dispose();
-
-                for (int i = convertedCount; i < images.Count; i++)
-                    images[i].Dispose();
-
-                throw;
+                    throw new InvalidDataException("Skia could not decode the GIF benchmark input.");
             }
         }
 
