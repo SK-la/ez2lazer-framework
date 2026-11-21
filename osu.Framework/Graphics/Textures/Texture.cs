@@ -24,6 +24,20 @@ namespace osu.Framework.Graphics.Textures
         public string AssetName = string.Empty;
 
         /// <summary>
+        /// One opaque pixel taken from the upload that created this texture.
+        /// Present only after a CPU-side image upload; video frames do not set it.
+        /// </summary>
+        public bool HasBackdropSample { get; private set; }
+
+        public Colour4 BackdropSample { get; private set; }
+
+        internal void SetBackdropSample(Colour4 colour)
+        {
+            BackdropSample = colour;
+            HasBackdropSample = true;
+        }
+
+        /// <summary>
         /// A lookup key used by <see cref="TextureStore"/>s.
         /// </summary>
         internal string LookupKey = string.Empty;
