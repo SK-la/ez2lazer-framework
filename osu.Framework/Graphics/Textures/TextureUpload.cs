@@ -8,6 +8,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using JetBrains.Annotations;
 using osu.Framework.Extensions.ImageExtensions;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Logging;
@@ -20,6 +21,8 @@ using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.PixelFormats;
 using StbiSharp;
+using FrameworkRgba32 = osu.Framework.Graphics.Imaging.Rgba32;
+using ImageSharpRgba32 = SixLabors.ImageSharp.PixelFormats.Rgba32;
 
 namespace osu.Framework.Graphics.Textures
 {
@@ -39,27 +42,43 @@ namespace osu.Framework.Graphics.Textures
         /// </summary>
         public RectangleI Bounds { get; set; }
 
-        public ReadOnlySpan<Rgba32> Data => pixelMemory.Span;
+        public ReadOnlySpan<FrameworkRgba32> Data
+        {
+            get
+            {
+                if (rgbaImage != null)
+                    return rgbaImage.PixelSpan;
 
-        public int Width => image?.Width ?? 0;
+                return image == null ? ReadOnlySpan<FrameworkRgba32>.Empty : MemoryMarshal.Cast<ImageSharpRgba32, FrameworkRgba32>(pixelMemory.Span);
+            }
+        }
 
-        public int Height => image?.Height ?? 0;
+        public int Width => image?.Width ?? rgbaImage?.Width ?? 0;
+
+        public int Height => image?.Height ?? rgbaImage?.Height ?? 0;
 
         /// <summary>
         /// The backing texture. A handle is kept to avoid early GC.
         /// </summary>
-        private readonly Image<Rgba32> image;
+        private readonly Image<ImageSharpRgba32> image;
 
-        private ReadOnlyPixelMemory<Rgba32> pixelMemory;
+        private readonly RgbaImage rgbaImage;
+
+        private ReadOnlyPixelMemory<ImageSharpRgba32> pixelMemory;
 
         /// <summary>
         /// Create an upload from a <see cref="TextureUpload"/>. This is the preferred method.
         /// </summary>
         /// <param name="image">The texture to upload.</param>
-        public TextureUpload(Image<Rgba32> image)
+        public TextureUpload(Image<ImageSharpRgba32> image)
         {
             this.image = image;
             pixelMemory = image.CreateReadOnlyPixelMemory();
+        }
+
+        public TextureUpload(RgbaImage image)
+        {
+            rgbaImage = image ?? throw new ArgumentNullException(nameof(image));
         }
 
         /// <summary>
@@ -69,7 +88,7 @@ namespace osu.Framework.Graphics.Textures
         /// </summary>
         /// <param name="stream">The image content.</param>
         public TextureUpload(Stream stream)
-            : this(LoadFromStream<Rgba32>(stream))
+            : this(LoadFromStream<ImageSharpRgba32>(stream))
         {
         }
 
@@ -150,6 +169,7 @@ namespace osu.Framework.Graphics.Textures
                 return;
 
             image?.Dispose();
+            rgbaImage?.Dispose();
             pixelMemory.Dispose();
 
             disposed = true;

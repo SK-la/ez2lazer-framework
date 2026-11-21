@@ -2,8 +2,8 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Graphics.Textures
 {
