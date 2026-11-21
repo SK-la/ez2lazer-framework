@@ -36,7 +36,7 @@ namespace osu.Framework.Platform.MacOS
 
         public override bool SetImage(RgbaImage image)
         {
-            byte[] tiff = MacOSClipboardImageCodec.EncodeTiff(image);
+            byte[] tiff = TiffImageCodec.Encode(image);
 
             using (NSAutoreleasePool.Init())
             {

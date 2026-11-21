@@ -704,7 +704,7 @@ namespace osu.Framework.Platform.SDL3
                 try
                 {
                     ms.Position = 0;
-                    using var image = ImageCodec.Decode(ms);
+                    using var image = ImageCodec.DecodeIcon(ms);
                     SetIconFromImage(image);
                 }
                 catch

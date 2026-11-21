@@ -51,7 +51,7 @@ namespace osu.Framework.Graphics.Textures
         /// <param name="stream">The image content.</param>
         public TextureUpload(Stream stream)
         {
-            rgbaImage = ImageCodec.Decode(stream);
+            rgbaImage = ImageCodec.DecodeTexture(stream);
         }
 
         /// <summary>

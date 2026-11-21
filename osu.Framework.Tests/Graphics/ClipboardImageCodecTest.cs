@@ -6,7 +6,9 @@ using System.IO;
 using NUnit.Framework;
 using osu.Framework.Graphics.Imaging;
 using osu.Framework.Platform;
-using osu.Framework.Platform.MacOS;
+using osu.Framework.Platform.Apple;
+using osu.Framework.Platform.Apple.Native;
+using osu.Framework.Platform.MacOS.Native;
 using osu.Framework.Platform.Windows;
 
 namespace osu.Framework.Tests.Graphics
@@ -57,16 +59,32 @@ namespace osu.Framework.Tests.Graphics
         }
 
         [Test]
-        public void TestMacOsTiffRoundTrip()
+        public void TestTiffRoundTripPreservesStraightAlpha()
+        {
+            using var source = createImage();
+            using var stream = new MemoryStream(TiffImageCodec.Encode(source));
+            using var decoded = TiffImageCodec.Decode(stream);
+
+            assertPixelsEqual(source, decoded);
+            Assert.That(stream.CanRead, Is.True);
+        }
+
+        [Test]
+        public void TestMacOsReadsTiffClipboardImage()
         {
             if (!OperatingSystem.IsMacOS())
                 Assert.Ignore("ImageIO clipboard TIFF codec is only available on macOS.");
 
             using var source = createImage();
-            byte[] encoded = MacOSClipboardImageCodec.EncodeTiff(source);
-            using var decoded = MacOSClipboardImageCodec.DecodeTiff(encoded);
 
-            assertPixelsEqual(source, decoded);
+            using (NSAutoreleasePool.Init())
+            {
+                var data = NSData.FromBytes(TiffImageCodec.Encode(source));
+                using var image = NSImage.InitWithData(data);
+                Assert.That(image.Handle, Is.Not.EqualTo(IntPtr.Zero));
+                using var decoded = AppleTextureLoaderStore.ImageFromCGImage(image.CGImage);
+                assertPixelsEqual(source, decoded);
+            }
         }
 
         private static RgbaImage createImage()

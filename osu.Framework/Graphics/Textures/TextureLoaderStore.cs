@@ -65,10 +65,19 @@ namespace osu.Framework.Graphics.Textures
 
         public Stream GetStream(string name) => store.GetStream(name);
 
-        protected virtual RgbaImage ImageFromStream(Stream stream) => ImageCodec.Decode(stream);
+        protected virtual RgbaImage ImageFromStream(Stream stream) => LegacyImageDecoder.DecodeTexture(stream);
 
         protected virtual TextureUpload LoadTextureUpload(Stream stream)
         {
+            using var copy = stream.CanSeek ? null : new MemoryStream();
+
+            if (copy != null)
+            {
+                stream.CopyTo(copy);
+                copy.Position = 0;
+                stream = copy;
+            }
+
             if (SkiaStaticImageDecoder.TryDecode(stream, out RgbaImage image))
                 return new TextureUpload(image);
 

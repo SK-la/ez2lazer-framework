@@ -19,6 +19,9 @@ namespace osu.Framework.Android.Graphics.Textures
 
         protected override RgbaImage ImageFromStream(Stream stream)
         {
+            if (LegacyImageDecoder.TryDecodeStbi(stream, out RgbaImage? image))
+                return image;
+
             using var bitmap = BitmapFactory.DecodeStream(stream);
             if (bitmap == null)
                 throw new ArgumentException($"An image could not be created from {nameof(stream)}.");
