@@ -9,6 +9,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
+using osu.Framework.Graphics.Primitives;
+using osu.Framework.Graphics.Rendering.Dummy;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.IO.Stores;
 using osu.Framework.Logging;
@@ -27,6 +29,7 @@ namespace osu.Framework.Benchmarks
             new InputCase("JPEG-1024x576", "Resources/Textures/Decoding/jpeg-1024.bin"),
             new InputCase("BMP-1024x576", "Resources/Textures/Decoding/bmp-1024.bin"),
             new InputCase("WebP-1024x576", "Resources/Textures/Decoding/webp-1024.bin"),
+            new InputCase("WebP-zeta-320", "Resources/Textures/zeta.webp"),
             new InputCase("GIF-preview", "Resources/Textures/sample-flame.gif"),
             new InputCase("TGA-128x128", "Resources/ImageDecoding/rle-128.tga"),
         };
@@ -70,6 +73,43 @@ namespace osu.Framework.Benchmarks
             }
 
             BenchmarkAnimatedImageDecoding.Run(resources);
+            benchmarkSvg(resources);
+        }
+
+        private static void benchmarkSvg(IResourceStore<byte[]> resources)
+        {
+            const string resource_name = "Resources/Textures/ln-azimuth.svg";
+            byte[] encoded = resources.Get(resource_name)
+                             ?? throw new FileNotFoundException($"SVG benchmark fixture '{resource_name}' was not found.");
+
+            foreach (int size in new[] { 32, 128, 512 })
+            {
+                var targetSize = new Vector2I(size);
+                string name = $"ln-azimuth-{size}";
+
+                using (var loader = new TextureLoaderStore(new ByteArrayResourceStore(encoded), targetSize))
+                {
+                    Measure($"SVG-first-{size}", encoded.Length, 1, () =>
+                    {
+                        using var upload = loader.Get(name + ".svg");
+                        if (upload == null)
+                            throw new InvalidDataException($"Could not decode '{resource_name}'.");
+                    });
+                }
+
+                using var textureStore = new TextureStore(
+                    new DummyRenderer(),
+                    new TextureLoaderStore(new ByteArrayResourceStore(encoded), targetSize));
+
+                if (textureStore.Get(name + ".svg") == null)
+                    throw new InvalidDataException($"Could not decode '{resource_name}'.");
+
+                Measure($"SVG-cache-{size}", encoded.Length, 1, () =>
+                {
+                    if (textureStore.Get(name + ".svg") == null)
+                        throw new InvalidDataException($"Could not retrieve cached '{resource_name}'.");
+                });
+            }
         }
 
         internal static void Measure(string inputName, int encodedBytes, int frameCount, [InstantHandle] Action decode)

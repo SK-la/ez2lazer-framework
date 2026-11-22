@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -105,6 +106,22 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(SkiaStaticImageDecoder.TryDecode(stream, out RgbaImage? image), Is.False);
             Assert.That(image, Is.Null);
             Assert.That(stream.Position, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void TestWebpSeparateAlphaPlanePreservesTransparency()
+        {
+            using var resources = new DllResourceStore(typeof(StaticImageDecoderTest).Assembly);
+            using var stream = resources.GetStream("Resources/Textures/zeta.webp");
+            Assert.That(stream, Is.Not.Null);
+
+            using var image = ImageCodec.Decode(stream!);
+
+            Assert.That(image.Width, Is.EqualTo(320));
+            Assert.That(image.Height, Is.EqualTo(320));
+            Assert.That(image.PixelSpan.ToArray().Any(pixel => pixel.A == 0), Is.True);
+            Assert.That(image.PixelSpan.ToArray().Any(pixel => pixel.A is > 0 and < 255), Is.True);
+            Assert.That(image.PixelSpan.ToArray().Any(pixel => pixel.A == 255), Is.True);
         }
 
         [Test]

@@ -5,6 +5,7 @@ using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Runtime.InteropServices;
+using osu.Framework.Graphics.Primitives;
 using Sdcb.SimdCodecs.Pnm;
 using Sdcb.SimdCodecs.Qoi;
 using SkiaSharp;
@@ -25,6 +26,15 @@ namespace osu.Framework.Graphics.Imaging
     public static unsafe class ImageCodec
     {
         public static RgbaImage Decode(Stream stream)
+            => decode(stream, null);
+
+        /// <summary>
+        /// Decodes an image stream, using <paramref name="svgTargetSize"/> as the maximum output dimensions for SVG input.
+        /// </summary>
+        public static RgbaImage Decode(Stream stream, Vector2I svgTargetSize)
+            => decode(stream, svgTargetSize);
+
+        private static RgbaImage decode(Stream stream, Vector2I? svgTargetSize)
         {
             Stream input = stream;
             MemoryStream? copy = null;
@@ -42,6 +52,9 @@ namespace osu.Framework.Graphics.Imaging
                 if (SkiaStaticImageDecoder.TryDecode(input, out RgbaImage? image))
                     return image;
 
+                if (SvgImageDecoder.TryDecode(input, svgTargetSize, out RgbaImage? svgImage))
+                    return svgImage;
+
                 throw new NotSupportedException("Skia does not support this image format or could not decode the image.");
             }
             finally
@@ -51,19 +64,25 @@ namespace osu.Framework.Graphics.Imaging
         }
 
         internal static RgbaImage DecodeTexture(Stream stream)
+            => DecodeTexture(stream, null);
+
+        internal static RgbaImage DecodeTexture(Stream stream, Vector2I? svgTargetSize)
         {
             if (!stream.CanSeek)
             {
                 using var copy = new MemoryStream();
                 stream.CopyTo(copy);
                 copy.Position = 0;
-                return DecodeTexture(copy);
+                return DecodeTexture(copy, svgTargetSize);
             }
 
             long initialPosition = stream.Position;
 
             if (SkiaStaticImageDecoder.TryDecode(stream, out RgbaImage? image))
                 return image;
+
+            if (SvgImageDecoder.TryDecode(stream, svgTargetSize, out RgbaImage? svgImage))
+                return svgImage;
 
             stream.Position = initialPosition;
             return LegacyImageDecoder.DecodeTexture(stream);
@@ -81,6 +100,9 @@ namespace osu.Framework.Graphics.Imaging
 
                 if (SkiaStaticImageDecoder.TryDecode(input, out RgbaImage? image))
                     return image;
+
+                if (SvgImageDecoder.TryDecode(input, null, out RgbaImage? svgImage))
+                    return svgImage;
 
                 ReadOnlySpan<byte> bytes = input.GetBuffer().AsSpan(0, (int)input.Length);
 
