@@ -104,6 +104,18 @@ namespace osu.Framework.Tests.Graphics
         }
 
         [Test]
+        public void TestSvgWithoutTargetSizeClampsIntrinsicDimensionsPreservingAspectRatio()
+        {
+            const string svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8192\" height=\"4\"><rect width=\"8192\" height=\"4\" fill=\"#fff\"/></svg>";
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(svg));
+
+            using var image = ImageCodec.Decode(stream);
+
+            Assert.That(image.Width, Is.EqualTo(4096));
+            Assert.That(image.Height, Is.EqualTo(2));
+        }
+
+        [Test]
         public void TestSvgRejectsExternalResources()
         {
             const string svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><image href=\"https://example.com/image.png\"/></svg>";

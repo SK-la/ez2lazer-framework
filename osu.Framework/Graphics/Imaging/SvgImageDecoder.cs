@@ -17,6 +17,7 @@ namespace osu.Framework.Graphics.Imaging
         private const string svg_namespace = "http://www.w3.org/2000/svg";
         private const float default_viewport_width = 300;
         private const float default_viewport_height = 150;
+        private const int max_intrinsic_dimension = 4096;
 
         public static bool TryDecode(Stream stream, Vector2I? targetSize, [NotNullWhen(true)] out RgbaImage? image)
         {
@@ -353,10 +354,14 @@ namespace osu.Framework.Graphics.Imaging
 
         private static Vector2I calculateOutputSize(SvgDocumentInfo documentInfo, Vector2I? targetSize)
         {
-            if (targetSize is not Vector2I target)
-                return new Vector2I(checked((int)MathF.Ceiling(documentInfo.Width)), checked((int)MathF.Ceiling(documentInfo.Height)));
+            Vector2I target = targetSize ?? new Vector2I(
+                (int)MathF.Min(MathF.Ceiling(documentInfo.Width), max_intrinsic_dimension),
+                (int)MathF.Min(MathF.Ceiling(documentInfo.Height), max_intrinsic_dimension));
 
             float scale = MathF.Min(target.X / documentInfo.Width, target.Y / documentInfo.Height);
+            if (targetSize == null)
+                scale = MathF.Min(scale, 1);
+
             return new Vector2I(
                 Math.Clamp(checked((int)MathF.Ceiling(documentInfo.Width * scale)), 1, target.X),
                 Math.Clamp(checked((int)MathF.Ceiling(documentInfo.Height * scale)), 1, target.Y));
