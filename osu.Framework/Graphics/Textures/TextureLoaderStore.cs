@@ -29,6 +29,8 @@ namespace osu.Framework.Graphics.Textures
             this.store.AddExtension(@"png");
             this.store.AddExtension(@"jpg");
             this.store.AddExtension(@"gif");
+            this.store.AddExtension(@"tif");
+            this.store.AddExtension(@"tiff");
             this.store.AddExtension(@"svg");
         }
 
@@ -90,8 +92,22 @@ namespace osu.Framework.Graphics.Textures
                 stream = copy;
             }
 
+            long initialPosition = stream.Position;
+
             if (SkiaStaticImageDecoder.TryDecode(stream, out RgbaImage image))
                 return new TextureUpload(image);
+
+            if (TiffImageCodec.IsTiff(stream))
+            {
+                try
+                {
+                    return new TextureUpload(TiffImageCodec.Decode(stream));
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+                {
+                    stream.Position = initialPosition;
+                }
+            }
 
             if (SvgImageDecoder.TryDecode(stream, svgTargetSize, out RgbaImage svgImage))
                 return new TextureUpload(svgImage);

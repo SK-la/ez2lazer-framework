@@ -52,6 +52,9 @@ namespace osu.Framework.Graphics.Imaging
                 if (SkiaStaticImageDecoder.TryDecode(input, out RgbaImage? image))
                     return image;
 
+                if (TiffImageCodec.IsTiff(input))
+                    return TiffImageCodec.Decode(input);
+
                 if (SvgImageDecoder.TryDecode(input, svgTargetSize, out RgbaImage? svgImage))
                     return svgImage;
 
@@ -81,6 +84,18 @@ namespace osu.Framework.Graphics.Imaging
             if (SkiaStaticImageDecoder.TryDecode(stream, out RgbaImage? image))
                 return image;
 
+            if (TiffImageCodec.IsTiff(stream))
+            {
+                try
+                {
+                    return TiffImageCodec.Decode(stream);
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+                {
+                    stream.Position = initialPosition;
+                }
+            }
+
             if (SvgImageDecoder.TryDecode(stream, svgTargetSize, out RgbaImage? svgImage))
                 return svgImage;
 
@@ -100,6 +115,9 @@ namespace osu.Framework.Graphics.Imaging
 
                 if (SkiaStaticImageDecoder.TryDecode(input, out RgbaImage? image))
                     return image;
+
+                if (TiffImageCodec.IsTiff(input))
+                    return TiffImageCodec.Decode(input);
 
                 if (SvgImageDecoder.TryDecode(input, null, out RgbaImage? svgImage))
                     return svgImage;
@@ -207,6 +225,12 @@ namespace osu.Framework.Graphics.Imaging
 
         public static void Encode(RgbaImage image, Stream destination, ImageFileFormat format, int? quality = null)
         {
+            if (format == ImageFileFormat.Tiff)
+            {
+                destination.Write(TiffImageCodec.Encode(image));
+                return;
+            }
+
             SKEncodedImageFormat encodedFormat = format switch
             {
                 ImageFileFormat.Png => SKEncodedImageFormat.Png,

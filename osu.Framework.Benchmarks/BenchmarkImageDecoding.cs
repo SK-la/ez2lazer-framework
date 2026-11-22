@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering.Dummy;
 using osu.Framework.Graphics.Textures;
@@ -74,6 +75,7 @@ namespace osu.Framework.Benchmarks
 
             BenchmarkAnimatedImageDecoding.Run(resources);
             benchmarkSvg(resources);
+            benchmarkTiff(resources);
         }
 
         private static void benchmarkSvg(IResourceStore<byte[]> resources)
@@ -110,6 +112,33 @@ namespace osu.Framework.Benchmarks
                         throw new InvalidDataException($"Could not retrieve cached '{resource_name}'.");
                 });
             }
+        }
+
+        private static void benchmarkTiff(IResourceStore<byte[]> resources)
+        {
+            foreach (string name in new[] { "color", "gray" })
+            {
+                string resourceName = $"Resources/Textures/bricks-{name}.tiff";
+                byte[] encoded = resources.Get(resourceName)
+                                 ?? throw new FileNotFoundException($"TIFF benchmark fixture '{resourceName}' was not found.");
+
+                Measure($"TIFF-read-{name}", encoded.Length, 1, () =>
+                {
+                    using var stream = new MemoryStream(encoded, writable: false);
+                    using var image = ImageCodec.Decode(stream);
+                });
+            }
+
+            byte[] color = resources.Get("Resources/Textures/bricks-color.tiff")
+                           ?? throw new FileNotFoundException("The TIFF write benchmark fixture was not found.");
+            using var sourceStream = new MemoryStream(color, writable: false);
+            using var source = ImageCodec.Decode(sourceStream);
+
+            Measure("TIFF-write-color", color.Length, 1, () =>
+            {
+                using var destination = new MemoryStream();
+                ImageCodec.Encode(source, destination, ImageFileFormat.Tiff);
+            });
         }
 
         internal static void Measure(string inputName, int encodedBytes, int frameCount, [InstantHandle] Action decode)
