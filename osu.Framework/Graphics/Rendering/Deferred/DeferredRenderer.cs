@@ -131,8 +131,11 @@ namespace osu.Framework.Graphics.Rendering.Deferred
         void IVeldridRenderer.UpdateTexture(Texture texture, int x, int y, int width, int height, int level, IntPtr data, int rowLengthInBytes)
             => Graphics.UpdateTexture(texturePool, texture, x, y, width, height, level, data, rowLengthInBytes);
 
-        void IVeldridRenderer.EnqueueTextureUpload(VeldridTexture texture)
+        void IVeldridRenderer.EnqueueTextureUpload(IVeldridTexture texture)
             => EnqueueTextureUpload(texture);
+
+        void IVeldridRenderer.UpdateTextureArrayLayer(Texture texture, uint layer, int x, int y, int width, int height, ReadOnlySpan<byte> data)
+            => Graphics.UpdateTextureArrayLayer(texturePool, texture, layer, x, y, width, height, data);
 
         void IVeldridRenderer.GenerateMipmaps(VeldridTexture texture)
             => Graphics.Commands.GenerateMipmaps(texture.GetResourceList().Single().Texture);
@@ -206,10 +209,16 @@ namespace osu.Framework.Graphics.Rendering.Deferred
         protected override IShader CreateShader(string name, IShaderPart[] parts, ShaderCompilationStore compilationStore)
             => new DeferredShader(this, new VeldridShader(this, name, parts.Cast<VeldridShaderPart>().ToArray(), compilationStore));
 
-        public override IFrameBuffer CreateFrameBuffer(TexturePixelFormat textureFormat = TexturePixelFormat.R8G8B8A8Float, RenderBufferFormat[]? renderBufferFormats = null, TextureFilteringMode filteringMode = TextureFilteringMode.Linear)
+        public override IFrameBuffer CreateFrameBuffer(TexturePixelFormat textureFormat =
+                                                           TexturePixelFormat.R8G8B8A8Float,
+                                                       RenderBufferFormat[]? renderBufferFormats = null,
+                                                       TextureFilteringMode filteringMode = TextureFilteringMode.Linear)
             => new DeferredFrameBuffer(this, textureFormat, renderBufferFormats?.ToPixelFormats(), filteringMode);
 
-        protected override INativeTexture CreateNativeTexture(int width, int height, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
+        protected override INativeTexture CreateNativeTexture(int width,
+                                                              int height,
+                                                              bool manualMipmaps = false,
+                                                              TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
                                                               Color4? initialisationColour = null)
             => new VeldridTexture(this, width, height, TexturePixelFormat.R8G8B8A8Float, manualMipmaps, filteringMode, initialisationColour);
 

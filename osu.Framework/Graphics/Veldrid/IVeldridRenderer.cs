@@ -90,7 +90,9 @@ namespace osu.Framework.Graphics.Veldrid
         /// Enqueues as texture to be uploaded.
         /// </summary>
         /// <param name="texture">The texture.</param>
-        void EnqueueTextureUpload(VeldridTexture texture);
+        void EnqueueTextureUpload(IVeldridTexture texture);
+
+        void UpdateTextureArrayLayer(Texture texture, uint layer, int x, int y, int width, int height, ReadOnlySpan<byte> data);
 
         /// <summary>
         /// Generates mipmaps for the given texture.
