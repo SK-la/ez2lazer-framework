@@ -33,6 +33,7 @@ namespace osu.Framework.IO.Stores
         /// </summary>
         private readonly ConcurrentDictionary<(string, int), ITexturedCharacterGlyph> namespacedGlyphCache = new ConcurrentDictionary<(string, int), ITexturedCharacterGlyph>();
 
+        // Concurrent lookups stay lock-free. This lock serialises atlas allocation with cache eviction.
         private readonly ConcurrentDictionary<(string, int), ITexturedCharacterGlyph> arrayGlyphCache = new ConcurrentDictionary<(string, int), ITexturedCharacterGlyph>();
 
         private readonly Lock arrayGlyphCacheLock = new Lock();
@@ -239,7 +240,9 @@ namespace osu.Framework.IO.Stores
         private void evictNullGlyphCache()
         {
             evictNullGlyphCacheEntries(namespacedGlyphCache);
-            evictNullGlyphCacheEntries(arrayGlyphCache);
+
+            lock (arrayGlyphCacheLock)
+                evictNullGlyphCacheEntries(arrayGlyphCache);
 
             static void evictNullGlyphCacheEntries(ConcurrentDictionary<(string, int), ITexturedCharacterGlyph> cache)
             {
@@ -287,8 +290,14 @@ namespace osu.Framework.IO.Stores
             foreach (var key in arrayGlyphCache.Keys)
             {
                 if (fontNamePredicate(key.Item1 ?? string.Empty))
-                    arrayGlyphCache.TryRemove(key, out _);
+                {
+                    lock (arrayGlyphCacheLock)
+                        arrayGlyphCache.TryRemove(key, out _);
+                }
             }
+
+            lock (arrayGlyphCacheLock)
+                glyphTexturePool?.ReclaimUnusedRegions();
         }
 
         public ITexturedCharacterGlyph Get(string fontName, char character) => Get(fontName, (int)character);
@@ -388,7 +397,15 @@ namespace osu.Framework.IO.Stores
             finally
             {
                 if (disposing && Interlocked.Exchange(ref glyphTexturePoolReleased, 1) == 0)
+                {
+                    lock (arrayGlyphCacheLock)
+                    {
+                        arrayGlyphCache.Clear();
+                        glyphTexturePool?.ReclaimUnusedRegions();
+                    }
+
                     glyphTexturePool?.Dispose();
+                }
             }
         }
 

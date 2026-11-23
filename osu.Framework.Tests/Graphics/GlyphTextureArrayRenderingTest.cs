@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using NUnit.Framework;
 using osu.Framework.Development;
 using osu.Framework.Graphics;
@@ -162,6 +163,95 @@ namespace osu.Framework.Tests.Graphics
                 renderer.DisposeOffline();
                 ThreadSafety.IsDrawThread = wasDrawThread;
             }
+        }
+
+        [Test]
+        public void TestReleasedGlyphRegionsAreReusedWithoutOverwritingLiveGlyphs()
+        {
+            if (!OperatingSystem.IsWindows())
+                Assert.Ignore("This integration test exercises the immediate D3D11 renderer.");
+
+            bool wasDrawThread = ThreadSafety.IsDrawThread;
+            ThreadSafety.IsDrawThread = true;
+
+            var renderer = new VeldridRenderer();
+            GlyphTexturePool? glyphPool = null;
+            TextureUpload? smallUpload = null;
+            TextureUpload? largeUpload = null;
+
+            try
+            {
+                renderer.InitialiseOffline(target_size, target_size);
+                glyphPool = GlyphTexturePool.CreateForTesting(renderer, 32, 1);
+                smallUpload = new TextureUpload(new RgbaImage(glyph_size / 2, glyph_size / 2, new Rgba32(255, 255, 255)));
+                largeUpload = new TextureUpload(new RgbaImage(24, 24, new Rgba32(255, 255, 255)));
+
+                var glyphs = new List<GlyphRegionReference>();
+                for (int i = 0; i < 4; i++)
+                    glyphs.Add(addGlyphReference(glyphPool, smallUpload));
+
+                Assert.That(glyphPool.TryAdd(smallUpload, out _), Is.False, "A live glyph region must not be reused.");
+                Assert.That(glyphs[0].HoldsGlyph, Is.True);
+                Assert.That(isGlyphAlive(glyphs[0]), Is.True);
+
+                foreach (GlyphRegionReference glyph in glyphs)
+                    glyph.Release();
+
+                collectFullGarbage();
+
+                foreach (GlyphRegionReference glyph in glyphs)
+                    Assert.That(isGlyphAlive(glyph), Is.False);
+
+                glyphPool.ReclaimUnusedRegions();
+
+                Assert.That(glyphPool.TryAdd(largeUpload, out _), Is.True, "Adjacent released regions should merge for a larger glyph.");
+            }
+            finally
+            {
+                smallUpload?.Dispose();
+                largeUpload?.Dispose();
+                glyphPool?.Dispose();
+
+                if (renderer.IsInitialised)
+                    renderer.DisposeOffline();
+
+                ThreadSafety.IsDrawThread = wasDrawThread;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static GlyphRegionReference addGlyphReference(GlyphTexturePool glyphPool, TextureUpload upload)
+        {
+            Assert.That(glyphPool.TryAdd(upload, out GlyphAtlasRegion? glyph), Is.True);
+            return new GlyphRegionReference(glyph!);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool isGlyphAlive(GlyphRegionReference glyphReference)
+            => glyphReference.WeakRegion.TryGetTarget(out _);
+
+        private static void collectFullGarbage()
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+
+        private sealed class GlyphRegionReference
+        {
+            private GlyphAtlasRegion? region;
+
+            public bool HoldsGlyph => region != null;
+
+            public WeakReference<GlyphAtlasRegion> WeakRegion { get; }
+
+            public GlyphRegionReference(GlyphAtlasRegion region)
+            {
+                this.region = region;
+                WeakRegion = new WeakReference<GlyphAtlasRegion>(region);
+            }
+
+            public void Release() => region = null;
         }
     }
 }
