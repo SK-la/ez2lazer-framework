@@ -53,6 +53,8 @@ namespace osu.Framework.Graphics.Sprites
 
         private IShader defaultTextureShader;
 
+        private ShaderManager glyphArrayShaderManager;
+
         internal IShader GlyphArrayTextureShader { get; private set; }
 
         internal bool UsesDefaultTextureShader => ReferenceEquals(TextureShader, defaultTextureShader);
@@ -84,11 +86,12 @@ namespace osu.Framework.Graphics.Sprites
         private void load(ShaderManager shaders)
         {
             localisedText = localisation.GetLocalisedBindableString(text);
+            glyphArrayShaderManager = shaders;
 
             defaultTextureShader = shaders.Load(VertexShaderDescriptor.TEXTURE_2, FragmentShaderDescriptor.TEXTURE);
             TextureShader = defaultTextureShader;
             if (ShouldUseGlyphTextureArray)
-                GlyphArrayTextureShader = shaders.Load(VertexShaderDescriptor.GLYPH_TEXTURE_ARRAY, FragmentShaderDescriptor.GLYPH_TEXTURE_ARRAY);
+                ensureGlyphArrayShader();
 
             // Pre-cache the characters in the texture store
             foreach (var rune in localisedText.Value.EnumerateRunes())
@@ -111,6 +114,9 @@ namespace osu.Framework.Graphics.Sprites
             {
                 invalidate(true, true);
             }
+
+            if (ShouldUseGlyphTextureArray)
+                ensureGlyphArrayShader();
 
             if (charactersCache.IsValid && glyphTextureArrayModeInitialised && glyphTextureArrayRequestedMode != ShouldUseGlyphTextureArray)
                 invalidate(true, true);
@@ -503,6 +509,9 @@ namespace osu.Framework.Graphics.Sprites
 
             bool useGlyphTextureArray = ShouldUseGlyphTextureArray;
 
+            if (useGlyphTextureArray)
+                ensureGlyphArrayShader();
+
             if (charactersCache.IsValid && glyphTextureArrayModeInitialised && glyphTextureArrayRequestedMode != useGlyphTextureArray)
                 invalidate(true, true);
 
@@ -572,6 +581,12 @@ namespace osu.Framework.Graphics.Sprites
             }
 
             return true;
+        }
+
+        private void ensureGlyphArrayShader()
+        {
+            if (GlyphArrayTextureShader == null && glyphArrayShaderManager != null)
+                GlyphArrayTextureShader = glyphArrayShaderManager.Load(VertexShaderDescriptor.GLYPH_TEXTURE_ARRAY, FragmentShaderDescriptor.GLYPH_TEXTURE_ARRAY);
         }
 
         private readonly LayoutValue<Vector2> shadowOffsetCache = new LayoutValue<Vector2>(Invalidation.DrawInfo, InvalidationSource.Parent);
