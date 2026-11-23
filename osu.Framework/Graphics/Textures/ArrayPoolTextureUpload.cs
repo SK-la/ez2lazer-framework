@@ -5,8 +5,8 @@
 
 using System;
 using System.Buffers;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Graphics.Textures
 {
@@ -15,6 +15,7 @@ namespace osu.Framework.Graphics.Textures
         private readonly ArrayPool<Rgba32> arrayPool;
 
         private readonly Rgba32[] data;
+        private readonly int pixelCount;
 
         /// <summary>
         /// Create an empty raw texture with an efficient shared memory backing.
@@ -25,7 +26,8 @@ namespace osu.Framework.Graphics.Textures
         public ArrayPoolTextureUpload(int width, int height, ArrayPool<Rgba32> arrayPool = null)
         {
             this.arrayPool = arrayPool ?? ArrayPool<Rgba32>.Shared;
-            data = this.arrayPool.Rent(width * height);
+            pixelCount = checked(width * height);
+            data = this.arrayPool.Rent(pixelCount);
         }
 
         public void Dispose()
@@ -33,9 +35,9 @@ namespace osu.Framework.Graphics.Textures
             arrayPool.Return(data);
         }
 
-        public Span<Rgba32> RawData => data;
+        public Span<Rgba32> RawData => data.AsSpan(0, pixelCount);
 
-        public ReadOnlySpan<Rgba32> Data => data;
+        public ReadOnlySpan<Rgba32> Data => RawData;
 
         public int Level { get; set; }
 

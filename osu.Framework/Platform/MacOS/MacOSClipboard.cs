@@ -1,12 +1,11 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using System.IO;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Platform.Apple;
 using osu.Framework.Platform.Apple.Native;
 using osu.Framework.Platform.MacOS.Native;
-using SixLabors.ImageSharp;
 
 namespace osu.Framework.Platform.MacOS
 {
@@ -20,7 +19,7 @@ namespace osu.Framework.Platform.MacOS
             return nsString.ToString();
         }
 
-        public override Image<TPixel>? GetImage<TPixel>()
+        public override RgbaImage? GetImage()
         {
             using (NSAutoreleasePool.Init())
             {
@@ -29,20 +28,19 @@ namespace osu.Framework.Platform.MacOS
                     return null;
 
                 var cgImage = nsImage.CGImage;
-                return AppleTextureLoaderStore.ImageFromCGImage<TPixel>(cgImage);
+                return AppleTextureLoaderStore.ImageFromCGImage(cgImage);
             }
         }
 
         public override void SetText(string text) => setToPasteboard(NSString.FromString(text).Handle);
 
-        public override bool SetImage(Image image)
+        public override bool SetImage(RgbaImage image)
         {
-            using var stream = new MemoryStream();
-            image.SaveAsTiff(stream);
+            byte[] tiff = TiffImageCodec.Encode(image);
 
             using (NSAutoreleasePool.Init())
             {
-                var nsData = NSData.FromBytes(stream.ToArray());
+                var nsData = NSData.FromBytes(tiff);
                 using var nsImage = NSImage.InitWithData(nsData);
                 return setToPasteboard(nsImage.Handle);
             }

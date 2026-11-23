@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Graphics.Textures;
@@ -38,6 +39,22 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(result, Is.Not.Null);
             Assert.That(result!.Frames.Count, Is.EqualTo(2));
             Assert.That(result.FrameDurationMs.Count, Is.EqualTo(2));
+            Assert.That(stream.CanRead, Is.True);
+        }
+
+        [Test]
+        public void TestTruncatedGifLeavesCallerStreamOpen()
+        {
+            using var source = GifTestResources.OpenSampleFlameGifStream();
+            byte[] truncated = new byte[32];
+            source.ReadExactly(truncated);
+            using var stream = new MemoryStream(truncated, writable: false);
+
+            using var result = AnimatedImageLoader.LoadFromStream(stream);
+
+            Assert.That(result, Is.Null);
+            Assert.That(stream.Position, Is.Zero);
+            Assert.That(stream.ReadByte(), Is.EqualTo(truncated[0]));
         }
 
         [Test]
@@ -55,7 +72,15 @@ namespace osu.Framework.Tests.Graphics
             using var stream = store.GetStream("Resources/Fonts/Roboto/Roboto-Regular_0.png");
             Assert.That(stream, Is.Not.Null);
 
-            using var result = AnimatedImageLoader.LoadFromStream(stream!);
+            using var encoded = new MemoryStream();
+            stream!.CopyTo(encoded);
+            byte[] data = encoded.ToArray();
+
+            using (var decodeStream = new MemoryStream(data))
+            using (var image = osu.Framework.Graphics.Imaging.ImageCodec.Decode(decodeStream))
+                Assert.That(image.PixelCount, Is.GreaterThan(0));
+
+            using var result = AnimatedImageLoader.LoadFromStream(new MemoryStream(data));
             Assert.That(result, Is.Not.Null);
             Assert.That(result!.Frames.Count, Is.EqualTo(1));
         }

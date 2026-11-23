@@ -3,11 +3,11 @@
 
 using System;
 using System.IO;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.IO.Stores;
 using osu.Framework.Platform.Apple;
 using osu.Framework.Platform.Apple.Native;
 using osu.Framework.Platform.MacOS.Native;
-using SixLabors.ImageSharp;
 
 namespace osu.Framework.Platform.MacOS
 {
@@ -18,7 +18,7 @@ namespace osu.Framework.Platform.MacOS
         {
         }
 
-        protected override unsafe Image<TPixel> ImageFromStream<TPixel>(Stream stream)
+        protected override unsafe RgbaImage ImageFromStream(Stream stream)
         {
             using (NSAutoreleasePool.Init())
             {
@@ -30,10 +30,10 @@ namespace osu.Framework.Platform.MacOS
 
                 using var nsImage = NSImage.InitWithData(nativeData);
                 if (nsImage.Handle == IntPtr.Zero)
-                    throw new ArgumentException($"{nameof(Image)} could not be created from {nameof(stream)}.");
+                    throw new ArgumentException($"An image could not be created from {nameof(stream)}.");
 
                 var cgImage = nsImage.CGImage;
-                return ImageFromCGImage<TPixel>(cgImage);
+                return ImageFromCGImage(cgImage);
             }
         }
     }

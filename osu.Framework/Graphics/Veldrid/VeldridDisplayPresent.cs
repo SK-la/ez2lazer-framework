@@ -3,10 +3,9 @@
 
 using System;
 using System.Runtime.InteropServices;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Shaders;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Veldrid;
 
 namespace osu.Framework.Graphics.Veldrid
@@ -237,7 +236,7 @@ namespace osu.Framework.Graphics.Veldrid
                 applyPq: false);
         }
 
-        public Image<Rgba32> TakeScreenshot()
+        public RgbaImage TakeScreenshot()
         {
             if (color == null || framebuffer == null)
                 throw new InvalidOperationException("Display present target is not allocated.");
@@ -253,7 +252,7 @@ namespace osu.Framework.Graphics.Veldrid
             device.Device.SubmitCommands(commands, fence);
             device.Device.WaitForFence(fence);
 
-            return device.ExtractTexture<Bgra32>(copy, flipVertical: !device.IsUvOriginTopLeft);
+            return device.ExtractTexture(copy, flipVertical: !device.IsUvOriginTopLeft);
         }
 
         public void Dispose()

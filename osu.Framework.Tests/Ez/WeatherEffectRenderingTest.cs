@@ -13,14 +13,13 @@ using osu.Framework.Allocation;
 using osu.Framework.Configuration;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Testing;
 using osu.Framework.Testing.Drawables.Steps;
 using osu.Framework.Tests.Visual.Ez;
 using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Tests.Ez
 {
@@ -341,18 +340,19 @@ namespace osu.Framework.Tests.Ez
                 return completion.Task.WaitAsync(TimeSpan.FromSeconds(20));
             }
 
-            private async Task<Image<Rgba32>> capture(string name, Action change)
+            private async Task<RgbaImage> capture(string name, Action change)
             {
                 await onUpdate(change).ConfigureAwait(false);
                 if (name == "debug-controls")
                     await Task.Delay(1000).ConfigureAwait(false);
                 using var previous = await Host.TakeScreenshotAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
                 var image = await Host.TakeScreenshotAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
-                await image.SaveAsPngAsync(Path.Combine(output, $"{name}.png")).ConfigureAwait(false);
+                using (var destination = File.Create(Path.Combine(output, $"{name}.png")))
+                    image.SaveAsPng(destination);
                 return image;
             }
 
-            private static double difference(Image<Rgba32> a, Image<Rgba32> b, float left, float top, float width, float height)
+            private static double difference(RgbaImage a, RgbaImage b, float left, float top, float width, float height)
             {
                 long sum = 0;
                 int count = 0;

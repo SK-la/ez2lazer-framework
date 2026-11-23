@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering.Vertices;
 using osu.Framework.Graphics.Shaders;
@@ -10,8 +11,6 @@ using osu.Framework.Platform;
 using osu.Framework.Threading;
 using osuTK;
 using osuTK.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.Graphics.Rendering
 {
@@ -408,12 +407,12 @@ namespace osu.Framework.Graphics.Rendering
         /// <summary>
         /// Returns an image containing the current content of the backbuffer, i.e. takes a screenshot.
         /// </summary>
-        protected internal Image<Rgba32> TakeScreenshot();
+        protected internal RgbaImage TakeScreenshot();
 
         /// <summary>
         /// Returns an image containing the content of a framebuffer.
         /// </summary>
-        Image<Rgba32>? ExtractFrameBufferData(IFrameBuffer frameBuffer);
+        RgbaImage? ExtractFrameBufferData(IFrameBuffer frameBuffer);
 
         /// <summary>
         /// Creates a new <see cref="IShaderPart"/>.

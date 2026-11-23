@@ -9,15 +9,12 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Configuration;
 using osu.Framework.Extensions.EnumExtensions;
-using osu.Framework.Extensions.ImageExtensions;
 using osu.Framework.Graphics;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Logging;
 using osu.Framework.Threading;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using Image = SixLabors.ImageSharp.Image;
-using Point = System.Drawing.Point;
 using static SDL2.SDL;
+using Point = System.Drawing.Point;
 
 namespace osu.Framework.Platform.SDL2
 {
@@ -459,22 +456,32 @@ namespace osu.Framework.Platform.SDL2
         /// <summary>
         /// Attempts to set the window's icon to the specified image.
         /// </summary>
-        /// <param name="image">An <see cref="Image{Rgba32}"/> to set as the window icon.</param>
-        private unsafe void setSDLIcon(Image<Rgba32> image)
+        /// <param name="image">An <see cref="RgbaImage"/> to set as the window icon.</param>
+        private unsafe void setSDLIcon(RgbaImage image)
         {
-            var pixelMemory = image.CreateReadOnlyPixelMemory();
-            var imageSize = image.Size;
+            Rgba32[] pixels = image.PixelSpan.ToArray();
+            int imageWidth = image.Width;
+            int imageHeight = image.Height;
 
             ScheduleCommand(() =>
             {
-                var pixelSpan = pixelMemory.Span;
+                var pixelSpan = pixels.AsSpan();
 
-                IntPtr surface;
                 fixed (Rgba32* ptr = pixelSpan)
-                    surface = SDL_CreateRGBSurfaceFrom(new IntPtr(ptr), imageSize.Width, imageSize.Height, 32, imageSize.Width * 4, 0xff, 0xff00, 0xff0000, 0xff000000);
+                {
+                    IntPtr surface = SDL_CreateRGBSurfaceFrom(new IntPtr(ptr), imageWidth, imageHeight, 32, imageWidth * 4, 0xff, 0xff00, 0xff0000, 0xff000000);
+                    if (surface == IntPtr.Zero)
+                        return;
 
-                SDL_SetWindowIcon(SDLWindowHandle, surface);
-                SDL_FreeSurface(surface);
+                    try
+                    {
+                        SDL_SetWindowIcon(SDLWindowHandle, surface);
+                    }
+                    finally
+                    {
+                        SDL_FreeSurface(surface);
+                    }
+                }
             });
         }
 
@@ -623,7 +630,9 @@ namespace osu.Framework.Platform.SDL2
 
                 try
                 {
-                    SetIconFromImage(Image.Load<Rgba32>(ms.GetBuffer()));
+                    ms.Position = 0;
+                    using var image = ImageCodec.DecodeIcon(ms);
+                    SetIconFromImage(image);
                 }
                 catch
                 {
@@ -640,10 +649,12 @@ namespace osu.Framework.Platform.SDL2
             if (bytes == null)
                 return;
 
-            SetIconFromImage(Image.Load<Rgba32>(bytes));
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var image = ImageCodec.Decode(stream);
+            SetIconFromImage(image);
         }
 
-        internal virtual void SetIconFromImage(Image<Rgba32> iconImage) => setSDLIcon(iconImage);
+        internal virtual void SetIconFromImage(RgbaImage iconImage) => setSDLIcon(iconImage);
 
         #region Events
 

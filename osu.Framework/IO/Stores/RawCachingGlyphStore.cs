@@ -10,12 +10,10 @@ using System.IO;
 using System.Linq;
 using osu.Framework.Extensions;
 using osu.Framework.Extensions.ObjectExtensions;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.Platform;
 using SharpFNT;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Advanced;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace osu.Framework.IO.Stores
 {
@@ -95,7 +93,8 @@ namespace osu.Framework.IO.Stores
                             {
                                 return pageLookup[page] = new PageInfo
                                 {
-                                    Size = new Size(width, height),
+                                    Width = width,
+                                    Height = height,
                                     Filename = existing
                                 };
                             }
@@ -104,9 +103,9 @@ namespace osu.Framework.IO.Stores
                 }
 
                 using (var convert = GetPageImage(page))
-                using (var buffer = SixLabors.ImageSharp.Configuration.Default.MemoryAllocator.Allocate<byte>(convert.Width * convert.Height))
+                using (var buffer = MemoryPool<byte>.Shared.Rent(checked(convert.Width * convert.Height)))
                 {
-                    var output = buffer.Memory.Span;
+                    var output = buffer.Memory.Span[..checked(convert.Width * convert.Height)];
                     var source = convert.Data;
 
                     for (int i = 0; i < output.Length; i++)
@@ -119,11 +118,12 @@ namespace osu.Framework.IO.Stores
                     accessFilename += FormattableString.Invariant($"#{convert.Width}#{convert.Height}");
 
                     using (var outStream = CacheStorage.CreateFileSafely(accessFilename))
-                        outStream.Write(buffer.Memory.Span);
+                        outStream.Write(output);
 
                     return pageLookup[page] = new PageInfo
                     {
-                        Size = new Size(convert.Width, convert.Height),
+                        Width = convert.Width,
+                        Height = convert.Height,
                         Filename = accessFilename
                     };
                 }
@@ -134,43 +134,46 @@ namespace osu.Framework.IO.Stores
         {
             Debug.Assert(CacheStorage != null);
 
-            int pageWidth = page.Size.Width;
+            int pageWidth = page.Width;
 
-            int characterByteRegion = pageWidth * character.Height;
+            int readableHeight = Math.Max(0, Math.Min(character.Height, page.Height - character.Y));
+            int readableWidth = Math.Max(0, Math.Min(character.Width, pageWidth - character.X));
+            int characterByteRegion = checked(pageWidth * readableHeight);
             byte[] readBuffer = ArrayPool<byte>.Shared.Rent(characterByteRegion);
+            RgbaImage? image = null;
 
             try
             {
-                var image = new Image<Rgba32>(SixLabors.ImageSharp.Configuration.Default, character.Width, character.Height);
+                image = new RgbaImage(character.Width, character.Height, new Rgba32(255, 255, 255, 0));
 
                 if (!pageStreamHandles.TryGetValue(page.Filename, out var source))
                     source = pageStreamHandles[page.Filename] = CacheStorage.GetStream(page.Filename);
 
                 // consider to use System.IO.RandomAccess in .NET 6
                 source.Seek(pageWidth * character.Y, SeekOrigin.Begin);
-                source.ReadExactly(readBuffer.AsSpan(0, characterByteRegion));
-
-                // the spritesheet may have unused pixels trimmed
-                int readableHeight = Math.Min(character.Height, page.Size.Height - character.Y);
-                int readableWidth = Math.Min(character.Width, pageWidth - character.X);
+                if (characterByteRegion > 0)
+                    source.ReadExactly(readBuffer.AsSpan(0, characterByteRegion));
 
                 for (int y = 0; y < character.Height; y++)
                 {
-                    var pixelRowMemory = image.DangerousGetPixelRowMemory(y);
-                    var span = pixelRowMemory.Span;
+                    var span = image.GetPixelRowSpan(y);
                     int readOffset = y * pageWidth + character.X;
 
-                    for (int x = 0; x < character.Width; x++)
+                    if (y < readableHeight)
                     {
-                        span[x] = new Rgba32(255, 255, 255, x < readableWidth && y < readableHeight ? readBuffer[readOffset + x] : (byte)0);
+                        for (int x = 0; x < readableWidth; x++)
+                            span[x] = new Rgba32(255, 255, 255, readBuffer[readOffset + x]);
                     }
                 }
 
-                return new TextureUpload(image);
+                var upload = new TextureUpload(image);
+                image = null;
+                return upload;
             }
             finally
             {
                 ArrayPool<byte>.Shared.Return(readBuffer);
+                image?.Dispose();
             }
         }
 
@@ -188,7 +191,8 @@ namespace osu.Framework.IO.Stores
         private record PageInfo
         {
             public string Filename { get; set; } = string.Empty;
-            public Size Size { get; set; }
+            public int Width { get; set; }
+            public int Height { get; set; }
         }
     }
 }
