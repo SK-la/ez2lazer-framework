@@ -5,18 +5,20 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Development;
 using osu.Framework.Extensions.IEnumerableExtensions;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shaders;
+using osu.Framework.Graphics.Textures;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.IO.Stores;
 using osu.Framework.Layout;
 using osu.Framework.Localisation;
-using osu.Framework.Utils;
 using osu.Framework.Text;
+using osu.Framework.Utils;
 using osuTK;
 using osuTK.Graphics;
 
@@ -49,6 +51,20 @@ namespace osu.Framework.Graphics.Sprites
         /// If overriding, set in a <see cref="BackgroundDependencyLoaderAttribute"/> method or later.</remarks>
         public IShader TextureShader { get; protected set; }
 
+        private IShader defaultTextureShader;
+
+        internal IShader GlyphArrayTextureShader { get; private set; }
+
+        internal bool UsesDefaultTextureShader => ReferenceEquals(TextureShader, defaultTextureShader);
+
+        internal bool ShouldUseGlyphTextureArray => UsesDefaultTextureShader && store?.UsesGlyphTextureArray == true;
+
+        internal bool UsesGlyphTextureArrayLayout { get; private set; }
+
+        private bool glyphTextureArrayRequestedMode;
+
+        private bool glyphTextureArrayModeInitialised;
+
         public SpriteText()
         {
             current.BindValueChanged(text =>
@@ -69,12 +85,16 @@ namespace osu.Framework.Graphics.Sprites
         {
             localisedText = localisation.GetLocalisedBindableString(text);
 
-            TextureShader = shaders.Load(VertexShaderDescriptor.TEXTURE_2, FragmentShaderDescriptor.TEXTURE);
+            defaultTextureShader = shaders.Load(VertexShaderDescriptor.TEXTURE_2, FragmentShaderDescriptor.TEXTURE);
+            TextureShader = defaultTextureShader;
+            if (ShouldUseGlyphTextureArray)
+                GlyphArrayTextureShader = shaders.Load(VertexShaderDescriptor.GLYPH_TEXTURE_ARRAY, FragmentShaderDescriptor.GLYPH_TEXTURE_ARRAY);
 
             // Pre-cache the characters in the texture store
             foreach (var rune in localisedText.Value.EnumerateRunes())
             {
-                _ = store.Get(font.FontName, rune.Value) ?? store.Get(null, rune.Value);
+                _ = store.GetForSpriteText(font.FontName, rune.Value, ShouldUseGlyphTextureArray)
+                    ?? store.GetForSpriteText(null, rune.Value, ShouldUseGlyphTextureArray);
             }
         }
 
@@ -91,6 +111,9 @@ namespace osu.Framework.Graphics.Sprites
             {
                 invalidate(true, true);
             }
+
+            if (charactersCache.IsValid && glyphTextureArrayModeInitialised && glyphTextureArrayRequestedMode != ShouldUseGlyphTextureArray)
+                invalidate(true, true);
 
             return base.UpdateSubTree();
         }
@@ -478,8 +501,16 @@ namespace osu.Framework.Graphics.Sprites
             if (store == null)
                 return;
 
+            bool useGlyphTextureArray = ShouldUseGlyphTextureArray;
+
+            if (charactersCache.IsValid && glyphTextureArrayModeInitialised && glyphTextureArrayRequestedMode != useGlyphTextureArray)
+                invalidate(true, true);
+
             if (charactersCache.IsValid)
                 return;
+
+            glyphTextureArrayRequestedMode = useGlyphTextureArray;
+            glyphTextureArrayModeInitialised = true;
 
             IsTruncated = false;
 
@@ -495,10 +526,22 @@ namespace osu.Framework.Graphics.Sprites
                 if (string.IsNullOrEmpty(displayedText))
                     return;
 
-                TextBuilder textBuilder = getTextBuilder();
+                TextBuilder textBuilder = getTextBuilder(useGlyphTextureArray);
 
                 textBuilder.Reset();
                 textBuilder.AddText(displayedText);
+
+                bool useGlyphArrayLayout = useGlyphTextureArray && allCharactersUseGlyphArray();
+
+                if (useGlyphTextureArray && !useGlyphArrayLayout)
+                {
+                    textBuilder = getTextBuilder(false);
+                    textBuilder.Reset();
+                    textBuilder.AddText(displayedText);
+                }
+
+                UsesGlyphTextureArrayLayout = useGlyphArrayLayout;
+
                 textBounds = textBuilder.Bounds;
 
                 if (textBuilder is TruncatingTextBuilder truncatingTextBuilder)
@@ -518,6 +561,17 @@ namespace osu.Framework.Graphics.Sprites
                 if (store != null)
                     glyphsBuiltAtGeneration = store.LoadGeneration;
             }
+        }
+
+        private bool allCharactersUseGlyphArray()
+        {
+            foreach (TextBuilderGlyph character in charactersBacking)
+            {
+                if (character.Texture is not GlyphAtlasRegion)
+                    return false;
+            }
+
+            return true;
         }
 
         private readonly LayoutValue<Vector2> shadowOffsetCache = new LayoutValue<Vector2>(Invalidation.DrawInfo, InvalidationSource.Parent);
@@ -565,6 +619,9 @@ namespace osu.Framework.Graphics.Sprites
 
         private readonly LayoutValue<TextBuilder> textBuilderCache = new LayoutValue<TextBuilder>(Invalidation.DrawSize, InvalidationSource.Parent);
 
+        private SpriteTextGlyphLookupStore glyphArrayLookupStore;
+        private ITexturedGlyphLookupStore textBuilderLookupStore;
+
         /// <summary>
         /// Invalidates the current <see cref="TextBuilder"/>, causing a new one to be created next time it's required via <see cref="CreateTextBuilder"/>.
         /// </summary>
@@ -599,13 +656,45 @@ namespace osu.Framework.Graphics.Sprites
                 excludeCharacters, FallbackCharacter, FixedWidthReferenceCharacter);
         }
 
-        private TextBuilder getTextBuilder()
+        private TextBuilder getTextBuilder(bool useGlyphTextureArray)
         {
-            if (!textBuilderCache.IsValid)
-                textBuilderCache.Value = CreateTextBuilder(store);
+            ITexturedGlyphLookupStore lookupStore = useGlyphTextureArray
+                ? glyphArrayLookupStore ??= new SpriteTextGlyphLookupStore(store)
+                : store;
+
+            if (!textBuilderCache.IsValid || textBuilderLookupStore != lookupStore)
+            {
+                textBuilderCache.Invalidate();
+                textBuilderCache.Value = CreateTextBuilder(lookupStore);
+                textBuilderLookupStore = lookupStore;
+            }
 
             return textBuilderCache.Value;
         }
+
+#nullable enable
+        private sealed class SpriteTextGlyphLookupStore : ITexturedGlyphLookupStore
+        {
+            private readonly FontStore fontStore;
+
+            public SpriteTextGlyphLookupStore(FontStore fontStore)
+            {
+                this.fontStore = fontStore;
+            }
+
+            public ITexturedCharacterGlyph? Get(string? fontName, char character)
+                => fontStore.GetForSpriteText(fontName, character, true);
+
+            public ITexturedCharacterGlyph? Get(string? fontName, int codepoint)
+                => fontStore.GetForSpriteText(fontName, codepoint, true);
+
+            public Task<ITexturedCharacterGlyph?> GetAsync(string fontName, char character)
+                => Task.FromResult(Get(fontName, character));
+
+            public Task<ITexturedCharacterGlyph?> GetAsync(string fontName, int codepoint)
+                => Task.FromResult(Get(fontName, codepoint));
+        }
+#nullable disable
 
         public override string ToString() => $@"""{displayedText}"" " + base.ToString();
 
