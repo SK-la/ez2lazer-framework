@@ -38,7 +38,7 @@ namespace osu.Framework.IO.Stores
 
         private readonly Lock arrayGlyphCacheLock = new Lock();
 
-        private GlyphTexturePool glyphTexturePool;
+        private volatile GlyphTexturePool glyphTexturePool;
 
         private int glyphTexturePoolReleased;
 
@@ -86,7 +86,7 @@ namespace osu.Framework.IO.Stores
             glyphTexturePool = GlyphTexturePool.Create(renderer);
         }
 
-        internal bool UsesGlyphTextureArray => glyphTexturePool != null;
+        internal bool UsesGlyphTextureArray => ensureGlyphTexturePool() != null;
 
         internal int GlyphTextureArrayFallbackCount => glyphTexturePool?.FallbackCount ?? 0;
 
@@ -95,6 +95,20 @@ namespace osu.Framework.IO.Stores
         internal void EnableGlyphTextureArrayForVisualTest()
         {
             glyphTexturePool ??= GlyphTexturePool.CreateForVisualTest(glyphRenderer);
+        }
+
+        private GlyphTexturePool ensureGlyphTexturePool()
+        {
+            if (glyphTexturePool != null || Volatile.Read(ref glyphTexturePoolReleased) != 0 || !GlyphTexturePool.IsEnabled(glyphRenderer))
+                return glyphTexturePool;
+
+            lock (arrayGlyphCacheLock)
+            {
+                if (glyphTexturePool == null && glyphTexturePoolReleased == 0)
+                    glyphTexturePool = GlyphTexturePool.Create(glyphRenderer);
+
+                return glyphTexturePool;
+            }
         }
 
         public override void AddTextureSource(IResourceStore<TextureUpload> store)
@@ -306,7 +320,7 @@ namespace osu.Framework.IO.Stores
             => get(fontName, codepoint, useGlyphTextureArray: false);
 
         internal ITexturedCharacterGlyph GetForSpriteText(string fontName, int codepoint, bool useGlyphTextureArray)
-            => get(fontName, codepoint, useGlyphTextureArray && glyphTexturePool != null);
+            => get(fontName, codepoint, useGlyphTextureArray && ensureGlyphTexturePool() != null);
 
         private ITexturedCharacterGlyph get(string fontName, int codepoint, bool useGlyphTextureArray)
         {

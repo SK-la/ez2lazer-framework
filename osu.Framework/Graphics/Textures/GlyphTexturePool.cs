@@ -48,16 +48,24 @@ namespace osu.Framework.Graphics.Textures
         public int GlyphCount => Volatile.Read(ref glyphCount);
 
         public static bool IsEnabled(IRenderer renderer)
-            => Environment.GetEnvironmentVariable("EZ2LAZER_GLYPH_TEXTURE_ARRAY") == "1"
-               && renderer is VeldridRenderer { SurfaceType: Platform.GraphicsSurfaceType.Direct3D11 };
+            => Environment.GetEnvironmentVariable("EZ2LAZER_GLYPH_TEXTURE_ARRAY") != "0"
+               && supportsTextureArrays(renderer);
 
         public static GlyphTexturePool? Create(IRenderer renderer)
             => create(renderer, forceEnable: false);
 
         internal static GlyphTexturePool? CreateForVisualTest(IRenderer renderer)
-            => renderer is VeldridRenderer { SurfaceType: Platform.GraphicsSurfaceType.Direct3D11 }
+            => supportsTextureArrays(renderer)
                 ? create(renderer, forceEnable: true)
                 : null;
+
+        private static bool supportsTextureArrays(IRenderer renderer)
+        {
+            if (renderer is not VeldridRenderer veldridRenderer || !veldridRenderer.IsInitialised)
+                return false;
+
+            return veldridRenderer.SurfaceType is Platform.GraphicsSurfaceType.Direct3D11 or Platform.GraphicsSurfaceType.Metal or Platform.GraphicsSurfaceType.Vulkan;
+        }
 
         private static GlyphTexturePool? create(IRenderer renderer, bool forceEnable)
         {

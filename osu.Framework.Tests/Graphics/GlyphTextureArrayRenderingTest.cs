@@ -23,6 +23,7 @@ using osuTK.Graphics;
 namespace osu.Framework.Tests.Graphics
 {
     [TestFixture]
+    [NonParallelizable]
     public class GlyphTextureArrayRenderingTest
     {
         private const int target_size = 64;
@@ -30,13 +31,49 @@ namespace osu.Framework.Tests.Graphics
         private const int glyph_region_size = 8;
         private const int layer_count = 2;
 
+        [Test]
+        public void TestGlyphArrayIsEnabledByDefaultAndCanBeDisabled()
+        {
+            const string environment_variable = "EZ2LAZER_GLYPH_TEXTURE_ARRAY";
+            string? previousSetting = Environment.GetEnvironmentVariable(environment_variable);
+            bool wasDrawThread = ThreadSafety.IsDrawThread;
+            ThreadSafety.IsDrawThread = true;
+
+            var renderer = new VeldridRenderer();
+            FontStore? defaultFontStore = null;
+            FontStore? disabledFontStore = null;
+
+            try
+            {
+                Environment.SetEnvironmentVariable(environment_variable, null);
+                defaultFontStore = new FontStore(renderer, useAtlas: false);
+
+                if (!tryInitialiseRenderer(renderer))
+                    return;
+
+                Assert.That(defaultFontStore.UsesGlyphTextureArray, Is.True);
+
+                Environment.SetEnvironmentVariable(environment_variable, "0");
+                disabledFontStore = new FontStore(renderer, useAtlas: false);
+                Assert.That(disabledFontStore.UsesGlyphTextureArray, Is.False);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(environment_variable, previousSetting);
+                disabledFontStore?.Dispose();
+                defaultFontStore?.Dispose();
+
+                if (renderer.IsInitialised)
+                    renderer.DisposeOffline();
+
+                ThreadSafety.IsDrawThread = wasDrawThread;
+            }
+        }
+
         [TestCase(0u, byte.MaxValue)]
         [TestCase(1u, (byte)0)]
         public void TestGlyphArrayLayerSample(uint layer, byte coverage)
         {
-            if (!OperatingSystem.IsWindows())
-                Assert.Ignore("This integration test exercises the immediate D3D11 renderer.");
-
             bool wasDrawThread = ThreadSafety.IsDrawThread;
             ThreadSafety.IsDrawThread = true;
 
@@ -50,7 +87,9 @@ namespace osu.Framework.Tests.Graphics
 
             try
             {
-                renderer.InitialiseOffline(target_size, target_size);
+                if (!tryInitialiseRenderer(renderer))
+                    return;
+
                 glyphTexture = new VeldridGlyphTextureArray(renderer, glyph_size, glyph_size, layer_count);
                 var glyphAtlas = new Texture(glyphTexture, WrapMode.None, WrapMode.None);
                 var glyph = new GlyphAtlasRegion(glyphAtlas, new RectangleI(4, 4, glyph_region_size, glyph_region_size), (int)layer);
@@ -106,9 +145,6 @@ namespace osu.Framework.Tests.Graphics
         [Test]
         public void TestOutlineGlyphPoolUsesMultipleLayersWithinCapacity()
         {
-            if (!OperatingSystem.IsWindows())
-                Assert.Ignore("This integration test exercises the immediate D3D11 renderer.");
-
             bool wasDrawThread = ThreadSafety.IsDrawThread;
             ThreadSafety.IsDrawThread = true;
 
@@ -120,7 +156,9 @@ namespace osu.Framework.Tests.Graphics
 
             try
             {
-                renderer.InitialiseOffline(target_size, target_size);
+                if (!tryInitialiseRenderer(renderer))
+                    return;
+
                 fontStore.EnableGlyphTextureArrayForVisualTest();
                 font.LoadAsync().GetAwaiter().GetResult();
 
@@ -160,7 +198,10 @@ namespace osu.Framework.Tests.Graphics
             {
                 fontStore.Dispose();
                 font.Dispose();
-                renderer.DisposeOffline();
+
+                if (renderer.IsInitialised)
+                    renderer.DisposeOffline();
+
                 ThreadSafety.IsDrawThread = wasDrawThread;
             }
         }
@@ -168,9 +209,6 @@ namespace osu.Framework.Tests.Graphics
         [Test]
         public void TestReleasedGlyphRegionsAreReusedWithoutOverwritingLiveGlyphs()
         {
-            if (!OperatingSystem.IsWindows())
-                Assert.Ignore("This integration test exercises the immediate D3D11 renderer.");
-
             bool wasDrawThread = ThreadSafety.IsDrawThread;
             ThreadSafety.IsDrawThread = true;
 
@@ -181,7 +219,9 @@ namespace osu.Framework.Tests.Graphics
 
             try
             {
-                renderer.InitialiseOffline(target_size, target_size);
+                if (!tryInitialiseRenderer(renderer))
+                    return;
+
                 glyphPool = GlyphTexturePool.CreateForTesting(renderer, 32, 1);
                 smallUpload = new TextureUpload(new RgbaImage(glyph_size / 2, glyph_size / 2, new Rgba32(255, 255, 255)));
                 largeUpload = new TextureUpload(new RgbaImage(24, 24, new Rgba32(255, 255, 255)));
@@ -229,6 +269,20 @@ namespace osu.Framework.Tests.Graphics
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static bool isGlyphAlive(GlyphRegionReference glyphReference)
             => glyphReference.WeakRegion.TryGetTarget(out _);
+
+        private static bool tryInitialiseRenderer(VeldridRenderer renderer)
+        {
+            try
+            {
+                renderer.InitialiseOffline(target_size, target_size);
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Assert.Ignore($"No immediate Veldrid graphics device is available: {exception.Message}");
+                return false;
+            }
+        }
 
         private static void collectFullGarbage()
         {
