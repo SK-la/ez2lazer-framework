@@ -25,7 +25,15 @@ namespace osu.Framework.IO.Stores
 
         protected override void Dispose(bool disposing)
         {
-            font.Dispose();
+            try
+            {
+                base.Dispose(disposing);
+            }
+            finally
+            {
+                if (disposing)
+                    font.Dispose();
+            }
         }
 
         /// <summary>

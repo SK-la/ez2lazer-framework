@@ -30,6 +30,8 @@ namespace osu.Framework.IO.Stores
 
         public float? Baseline => Font.Baseline;
 
+        internal bool HasColourGlyphs => Font.HasColourGlyphs;
+
         private readonly bool selfContained;
         private int isDisposed;
 
