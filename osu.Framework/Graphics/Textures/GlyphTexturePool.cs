@@ -20,6 +20,7 @@ namespace osu.Framework.Graphics.Textures
         private const int glyph_padding = 4;
         private const int reclamation_retry_interval = 128;
 
+        private static readonly bool env_allows_glyph_array = Environment.GetEnvironmentVariable("EZ2LAZER_GLYPH_TEXTURE_ARRAY") != "0";
         private static readonly Lock pool_lock = new Lock();
         private static readonly ConditionalWeakTable<IRenderer, GlyphTexturePool> pools = new ConditionalWeakTable<IRenderer, GlyphTexturePool>();
 
@@ -48,8 +49,7 @@ namespace osu.Framework.Graphics.Textures
         public int GlyphCount => Volatile.Read(ref glyphCount);
 
         public static bool IsEnabled(IRenderer renderer)
-            => Environment.GetEnvironmentVariable("EZ2LAZER_GLYPH_TEXTURE_ARRAY") != "0"
-               && supportsTextureArrays(renderer);
+            => env_allows_glyph_array && supportsTextureArrays(renderer);
 
         public static GlyphTexturePool? Create(IRenderer renderer)
             => create(renderer, forceEnable: false);

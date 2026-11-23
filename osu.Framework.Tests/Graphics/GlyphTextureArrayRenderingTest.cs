@@ -32,36 +32,36 @@ namespace osu.Framework.Tests.Graphics
         private const int layer_count = 2;
 
         [Test]
-        public void TestGlyphArrayIsEnabledByDefaultAndCanBeDisabled()
+        public void TestGlyphArrayUsesEnvironmentSettingCapturedAtFirstLookup()
         {
             const string environment_variable = "EZ2LAZER_GLYPH_TEXTURE_ARRAY";
             string? previousSetting = Environment.GetEnvironmentVariable(environment_variable);
+            bool expectedEnabled = previousSetting != "0";
             bool wasDrawThread = ThreadSafety.IsDrawThread;
             ThreadSafety.IsDrawThread = true;
 
             var renderer = new VeldridRenderer();
-            FontStore? defaultFontStore = null;
-            FontStore? disabledFontStore = null;
+            FontStore? firstFontStore = null;
+            FontStore? secondFontStore = null;
 
             try
             {
-                Environment.SetEnvironmentVariable(environment_variable, null);
-                defaultFontStore = new FontStore(renderer, useAtlas: false);
+                firstFontStore = new FontStore(renderer, useAtlas: false);
 
                 if (!tryInitialiseRenderer(renderer))
                     return;
 
-                Assert.That(defaultFontStore.UsesGlyphTextureArray, Is.True);
+                Assert.That(firstFontStore.UsesGlyphTextureArray, Is.EqualTo(expectedEnabled));
 
-                Environment.SetEnvironmentVariable(environment_variable, "0");
-                disabledFontStore = new FontStore(renderer, useAtlas: false);
-                Assert.That(disabledFontStore.UsesGlyphTextureArray, Is.False);
+                Environment.SetEnvironmentVariable(environment_variable, expectedEnabled ? "0" : null);
+                secondFontStore = new FontStore(renderer, useAtlas: false);
+                Assert.That(secondFontStore.UsesGlyphTextureArray, Is.EqualTo(expectedEnabled));
             }
             finally
             {
                 Environment.SetEnvironmentVariable(environment_variable, previousSetting);
-                disabledFontStore?.Dispose();
-                defaultFontStore?.Dispose();
+                secondFontStore?.Dispose();
+                firstFontStore?.Dispose();
 
                 if (renderer.IsInitialised)
                     renderer.DisposeOffline();
