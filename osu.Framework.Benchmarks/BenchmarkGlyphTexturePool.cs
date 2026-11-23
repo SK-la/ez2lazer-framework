@@ -129,7 +129,7 @@ namespace osu.Framework.Benchmarks
                 void testLayout(int glyphsPerPageRun)
                 {
                     var vertices = new GlyphVertex[glyph_count * vertices_per_glyph];
-                    var pageIndices = new int[glyph_count];
+                    int[] pageIndices = new int[glyph_count];
                     var expected = new Rgba32[frame_size * frame_size];
                     buildGrid(device, pages, colourPage, glyphsPerPageRun, vertices, pageIndices, expected);
 
@@ -321,7 +321,7 @@ namespace osu.Framework.Benchmarks
             using var font = new OutlineFont(resources, "Fonts/Roboto/Roboto") { Resolution = cell_size };
             font.LoadAsync().GetAwaiter().GetResult();
             var variation = font.DecodeFontVariation(new FontVariation { NamedInstance = "Roboto-Regular" });
-            var pages = new byte[page_count][];
+            byte[][] pages = new byte[page_count][];
             for (int i = 0; i < pages.Length; i++)
                 pages[i] = new byte[page_size * page_size];
 
@@ -333,6 +333,7 @@ namespace osu.Framework.Benchmarks
                     uint glyphIndex = font.GetGlyphIndex(character);
                     if (glyphIndex == 0)
                         throw new InvalidOperationException($"Missing source glyph: {character}.");
+
                     using var glyph = font.RasterizeGlyph(glyphIndex, variation)
                                       ?? throw new InvalidOperationException($"Failed to render source glyph: {character}.");
                     if (glyph.Width > cell_size || glyph.Height > cell_size)
