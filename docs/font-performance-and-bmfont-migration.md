@@ -104,7 +104,7 @@ Windows D3D11，AMD Radeon RX 6800，Release，`ez2lazer.game.resources 2026.111
    都实现了 alpha coverage 直出 R8；其他存储继续使用 RGBA 路径，彩色 outline 字体不进入直出路径。直接 alpha 对照测试通过。Debug 离屏样本确认 R8
    模式下热滚动分配约 273–296 bytes/frame，传统路径约 43.8–44.0 KB/frame；样本量不足以形成性能结论，尚需 Release 多轮及冷字形 p95/p99 基准。
 4. **按响应预算安排预热。** 先测首屏与窗口外字形各占多少时间，再对比可见字形优先、受预算约束的后台预热。验证多任务去重、字体切换、旧请求取消和首次完整显示。基于采样再决定是否缓存
-   kerning、复用字体 face、增加持久字形缓存或调整固定数组容量。
+   kerning、复用字体 face、增加持久字形缓存或调整固定数组容量。**当前状态：** `FontStore.PreloadGlyphsAsync()` 提供调用方排序、按时长分批让出线程及取消支持；单测验证重复输入去重和预取消。调用方应把可见字形排前，并在字体切换时取消旧令牌。尚未接入游戏默认启动或保存预热状态。
 5. **逐族替换。** 先提交可分发且通过视觉验证的替代字体，然后切换默认注册，最后从发布包删除旧资产。每族记录首屏完整显示时间、滚动
    p95/p99、托管分配、进程 private bytes、字体 face 和流数量、纹理峰值、缺字、回退数与资源包体积。只有数据能解释变化且满足该场景延迟和内存预算时，才推进该族的切换。
 6. **独立跟踪文本对象重建。** `FPSCounterTooltip.Update()` 每 100 ms 清空并重建线程文本行，和 Drawable
@@ -135,7 +135,7 @@ foreach ($fontPreload in @(4000, 0)) {
 
 ## 复跑 Roboto 字体来源对照
 
-基准使用 Framework 内的 Roboto variable TTF，并与测试资源中的 `Roboto-Regular` BMFont 对照。两种模式使用相同默认拉丁语料、21 px、Roboto Regular、离屏窗口及帧采样；自定义语料可传入相同的 UTF-8 文本文件。每次命令启动独立进程并创建新的临时缓存目录。建议交替运行来源以减轻进程顺序影响：
+基准使用 Framework 内的 Roboto variable TTF，并与测试资源中的 `Roboto-Regular` BMFont 对照。两种模式使用相同拉丁语料、21 px、Roboto Regular、离屏窗口及帧采样；自定义语料可传入相同的 UTF-8 文本文件。每次命令启动独立进程并创建新的临时缓存目录。建议交替运行来源以减轻进程顺序影响：
 
 ```powershell
 dotnet build osu.Framework.Benchmarks/osu.Framework.Benchmarks.csproj -c Release
@@ -155,6 +155,14 @@ if ($null -eq $previousGlyphMode) {
 ```
 
 `outline` 从 Framework 资源加载 variable TTF 的 `Roboto-Regular` named instance；`bmfont` 使用 `osu.Framework.Tests` 中的预栅格化字形页。基准在启动时逐码点验证两者都覆盖语料，并报告字体存储设置与行构造、首次布局、热滚动、托管分配、纹理和批次指标。比较时固定同一 GPU、图形后端和 `EZ2LAZER_GLYPH_TEXTURE_ARRAY` 设置；数组与传统路径应分开成组测量。该基准用于观察来源管线成本，不替代字形视觉、字宽和基线等价性验证。
+
+响应预算诊断可以在字体来源后追加 `none`、`visible` 或 `all`；默认值为 `all`。不传标题文件时，三种模式共享 28 行、80 个唯一拉丁字符的语料，`visible` 预热前 24 行。例：
+
+```powershell
+dotnet $benchmark --sprite-text-roboto outline none
+dotnet $benchmark --sprite-text-roboto outline visible
+dotnet $benchmark --sprite-text-roboto outline all
+```
 
 ### Roboto 首轮烟测
 
@@ -178,3 +186,9 @@ dotnet $benchmark --sprite-text-roboto-metrics '<path-to-UTF-8-titles.txt>'
 2026-11-24 的默认语料结果：80/80 字符有覆盖；TTF/BMFont baseline 分别为 84/80；80 个字符至少一项 X/Y offset、advance 或 baseline 相差超过 0.01；72 个字符纹理尺寸不同，79 个字符的共同纹理区域含 alpha 差异。比较了 161,654 个重叠像素，平均绝对 alpha 差异为 17.436/255，最大值 255；语料中的相邻 kerning 配对无差异。
 
 alpha 比较按字形纹理左上角对齐，仅统计两张纹理共同宽高内的像素；不同的 glyph offset 仍需结合实际排版与截图检查。该诊断证明当前两份 fixture 并非度量/栅格等价，不能据此推断其中哪份正确，也不能在 BMFont 来源未核验前作为严格同源性能结论。后续需要核对 BMFont 生成工具、源文件版本、字号和导出参数，再决定是否以它作为迁移验收基准。
+
+### 响应预算预热首轮测量
+
+2026-11-25，Windows Debug、D3D11、AMD Radeon RX 6800、R8 数组、TTF，三种模式各启动一个独立进程。无预热/可见 72 字/全量 80 字的字体预热及行构造阶段分别为 7.99/6.46/6.32 秒；首次使用帧 p99 为 1487/1158/1928 ms，热滚动 p50 为 0.696/0.736/0.904 ms，p99 为 21.587/7.620/9.684 ms。极端首用帧和模式间无稳定单调关系，Debug 离屏启动样本不能支撑响应收益判断；不据此做自动全量预热或缓存策略决策。
+
+`FontStore.PreloadGlyphsAsync(fontName, codepoints, maximumBatchDuration, cancellationToken)` 把同步字形查询放到后台线程，按传入顺序处理，达到批次时长后让出执行，并可由调用方在字体切换时取消。建议先构造可见区域优先的码点序列，并在目标应用中分别记录布局完成和最后一个可见字形上传完成；当前 Framework 基准尚不能测出这两个应用级时点。

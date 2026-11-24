@@ -39,6 +39,8 @@ namespace osu.Framework.IO.Stores
 
         private readonly Lock arrayGlyphCacheLock = new Lock();
 
+        private readonly SemaphoreSlim glyphPreloadLock = new SemaphoreSlim(1, 1);
+
         private volatile GlyphTexturePool glyphTexturePool;
 
         private int glyphTexturePoolReleased;
@@ -424,6 +426,56 @@ namespace osu.Framework.IO.Stores
 
         public Task<ITexturedCharacterGlyph> GetAsync(string fontName, char character) => Task.Run(() => Get(fontName, character));
         public Task<ITexturedCharacterGlyph> GetAsync(string fontName, int codepoint) => Task.Run(() => Get(fontName, codepoint));
+
+        /// <summary>
+        /// Preloads glyphs in the supplied order, yielding between batches to keep background work responsive.
+        /// </summary>
+        /// <param name="fontName">The font family name used for glyph lookup.</param>
+        /// <param name="codepoints">The glyphs to preload. Put immediately visible glyphs first.</param>
+        /// <param name="maximumBatchDuration">The maximum time spent processing each batch before yielding.</param>
+        /// <param name="cancellationToken">Cancels pending work between glyphs.</param>
+        /// <returns>The number of requested glyphs found and preloaded.</returns>
+        public Task<int> PreloadGlyphsAsync(string fontName, IEnumerable<int> codepoints, TimeSpan maximumBatchDuration, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(fontName);
+            ArgumentNullException.ThrowIfNull(codepoints);
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(maximumBatchDuration, TimeSpan.Zero);
+
+            return Task.Run(async () =>
+            {
+                await glyphPreloadLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+                try
+                {
+                    var seen = new HashSet<int>();
+                    var batchTimer = Stopwatch.StartNew();
+                    int preloaded = 0;
+
+                    foreach (int codepoint in codepoints)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        if (!seen.Add(codepoint))
+                            continue;
+
+                        if (GetForSpriteText(fontName, codepoint, useGlyphTextureArray: true) != null)
+                            preloaded++;
+
+                        if (batchTimer.Elapsed >= maximumBatchDuration)
+                        {
+                            await Task.Delay(1, cancellationToken).ConfigureAwait(false);
+                            batchTimer.Restart();
+                        }
+                    }
+
+                    return preloaded;
+                }
+                finally
+                {
+                    glyphPreloadLock.Release();
+                }
+            }, cancellationToken);
+        }
 
         protected override void Dispose(bool disposing)
         {

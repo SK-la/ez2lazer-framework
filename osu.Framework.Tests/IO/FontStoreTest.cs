@@ -53,10 +53,11 @@ namespace osu.Framework.Tests.IO
         [Test]
         public async Task TestRawCachingCoverageMatchesTextureAlpha()
         {
-            using var glyphStore = new RawCachingGlyphStore(fontResourceStore, "Roboto-Regular") { CacheStorage = storage };
+            using var glyphStore = new RawCachingGlyphStore(fontResourceStore, "Roboto-Regular");
+            glyphStore.CacheStorage = storage;
             await glyphStore.LoadFontAsync().ConfigureAwait(false);
 
-            using TextureUpload rgba = ((IResourceStore<TextureUpload>)glyphStore).Get("Roboto-Regular/A");
+            using TextureUpload rgba = await ((IResourceStore<TextureUpload>)glyphStore).GetAsync("Roboto-Regular/A", CancellationToken.None).ConfigureAwait(false);
             GlyphCoverageUpload coverage = glyphStore.GetCoverage('A')!;
 
             Assert.That(coverage.Width, Is.EqualTo(rgba.Width));
@@ -65,6 +66,23 @@ namespace osu.Framework.Tests.IO
 
             for (int i = 0; i < coverage.Data.Length; i++)
                 Assert.That(coverage.Data[i], Is.EqualTo(rgba.Data[i].A), $"Coverage mismatch at pixel {i}.");
+        }
+
+        [Test]
+        public async Task TestBudgetedGlyphPreloadDeduplicatesAndHonoursCancellation()
+        {
+            using var glyphStore = new RawCachingGlyphStore(fontResourceStore, "Roboto-Regular");
+            glyphStore.CacheStorage = storage;
+            await glyphStore.LoadFontAsync().ConfigureAwait(false);
+            using var fontStore = new FontStore(new DummyRenderer(), glyphStore, scaleAdjust: 100);
+
+            int preloaded = await fontStore.PreloadGlyphsAsync("Roboto-Regular", new[] { (int)'A', 'A', 'B' }, TimeSpan.FromMilliseconds(1)).ConfigureAwait(false);
+            Assert.That(preloaded, Is.EqualTo(2));
+
+            using var cancellation = new CancellationTokenSource();
+            await cancellation.CancelAsync().ConfigureAwait(false);
+            Task preloadTask = fontStore.PreloadGlyphsAsync("Roboto-Regular", new[] { (int)'C' }, TimeSpan.FromMilliseconds(1), cancellation.Token);
+            Assert.ThrowsAsync<TaskCanceledException>(async () => await preloadTask.ConfigureAwait(false));
         }
 
         [Test]

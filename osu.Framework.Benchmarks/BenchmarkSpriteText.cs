@@ -37,6 +37,7 @@ namespace osu.Framework.Benchmarks
         private const int sample_frames = 360;
         private const int row_count = 28;
         private const int row_height = 28;
+        private const int visible_row_count = 24;
         private static readonly string[] default_roboto_titles =
         {
             "Roboto Regular 0123456789", "The quick brown fox jumps over the lazy dog", "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -70,10 +71,23 @@ namespace osu.Framework.Benchmarks
 
         public static void RunRoboto(string[] args)
         {
-            if (args.Length is < 1 or > 2 || (args[0] != "outline" && args[0] != "bmfont"))
-                throw new ArgumentException("Usage: --sprite-text-roboto <outline|bmfont> [UTF-8 titles file]");
+            if (args.Length is < 1 or > 3 || (args[0] != "outline" && args[0] != "bmfont"))
+                throw new ArgumentException("Usage: --sprite-text-roboto <outline|bmfont> [UTF-8 titles file] [none|visible|all]");
 
             bool useOutline = args[0] == "outline";
+            string preloadMode = "all";
+            string? titlesFile = null;
+
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (args[i] is "none" or "visible" or "all")
+                    preloadMode = args[i];
+                else if (titlesFile == null)
+                    titlesFile = args[i];
+                else
+                    throw new ArgumentException("Only one titles file and one preload mode may be provided.");
+            }
+
             Assembly resourceAssembly = useOutline
                 ? typeof(Game).Assembly
                 : Assembly.LoadFrom(Path.Combine(AppContext.BaseDirectory, "osu.Framework.Tests.dll"));
@@ -82,16 +96,25 @@ namespace osu.Framework.Benchmarks
                 useOutline ? "Resources" : "Resources.Fonts.Roboto");
 
             using var resources = new ResourceStore<byte[]>(fontResources);
-            string[] titles = args.Length == 2
-                ? File.ReadAllLines(args[1]).Where(title => !string.IsNullOrWhiteSpace(title)).ToArray()
+            string[] titles = titlesFile != null
+                ? File.ReadAllLines(titlesFile).Where(title => !string.IsNullOrWhiteSpace(title)).ToArray()
                 : default_roboto_titles;
+
+            if (titlesFile == null)
+            {
+                char[] characters = default_roboto_titles.SelectMany(title => title.EnumerateRunes())
+                                                         .Select(rune => (char)rune.Value)
+                                                         .Distinct()
+                                                         .ToArray();
+                titles = characters.Chunk(3).Select(chunk => new string(chunk)).ToArray();
+            }
 
             if (titles.Length == 0)
                 throw new ArgumentException("The titles file must contain at least one title.");
 
             using var storage = new TemporaryNativeStorage($"roboto-sprite-text-{Guid.NewGuid():N}");
             using var host = new BenchmarkHost(storage.GetFullPath(string.Empty));
-            host.Run(new TitleListGame(host, resources, titles, 0, useRoboto: true, useOutline, storage));
+            host.Run(new TitleListGame(host, resources, titles, 0, useRoboto: true, useOutline, storage, preloadMode));
         }
 
         public static void ReportRobotoMetrics(string[] args)
@@ -142,8 +165,8 @@ namespace osu.Framework.Benchmarks
             {
                 CharacterGlyph? outlineGlyph = outlineStore.Get(codepoint);
                 CharacterGlyph? bitmapGlyph = bitmapStore.Get(codepoint);
-                using var outlineTexture = outlineStore.Get($"Roboto-Regular/{codepoint:x}");
-                using var bitmapTexture = bitmapStore.Get($"Roboto-Regular/{codepoint:x}");
+                using TextureUpload? outlineTexture = outlineStore.Get($"Roboto-Regular/{codepoint:x}");
+                using TextureUpload? bitmapTexture = bitmapStore.Get($"Roboto-Regular/{codepoint:x}");
 
                 if (outlineGlyph == null || bitmapGlyph == null || outlineTexture == null || bitmapTexture == null)
                 {
@@ -278,6 +301,7 @@ namespace osu.Framework.Benchmarks
             private readonly bool useRoboto;
             private readonly bool useOutline;
             private readonly TemporaryNativeStorage? cacheStorage;
+            private readonly string robotoPreloadMode;
             private readonly Container rows = new Container { RelativeSizeAxes = Axes.Both };
             private bool firstUseRecorded;
             private bool scrollRecordingStarted;
@@ -289,7 +313,8 @@ namespace osu.Framework.Benchmarks
                                  int preloadCount,
                                  bool useRoboto = false,
                                  bool useOutline = false,
-                                 TemporaryNativeStorage? cacheStorage = null)
+                                 TemporaryNativeStorage? cacheStorage = null,
+                                 string robotoPreloadMode = "all")
             {
                 this.host = host;
                 this.resources = resources;
@@ -298,6 +323,7 @@ namespace osu.Framework.Benchmarks
                 this.useRoboto = useRoboto;
                 this.useOutline = useOutline;
                 this.cacheStorage = cacheStorage;
+                this.robotoPreloadMode = robotoPreloadMode;
             }
 
             [BackgroundDependencyLoader]
@@ -309,24 +335,22 @@ namespace osu.Framework.Benchmarks
                 string[] workloadTitles = titles;
                 FontUsage fontUsage = FrameworkFont.Regular.With(size: 21);
                 int[] codepoints;
+                int[] observedCodepoints;
                 int preloadedGlyphCount = 0;
 
                 if (useRoboto)
                 {
-                    IGlyphStore robotoGlyphStore;
                     IResourceStore<TextureUpload> robotoTextureStore;
 
                     if (useOutline)
                     {
                         var outlineFont = new OutlineFont(resources, "Fonts/Roboto/Roboto") { Resolution = 100 };
                         var outlineGlyphStore = new OutlineGlyphStore(outlineFont, new FontVariation { NamedInstance = "Roboto-Regular" }, "Roboto-Regular");
-                        robotoGlyphStore = outlineGlyphStore;
                         robotoTextureStore = outlineGlyphStore;
                     }
                     else
                     {
                         var bitmapGlyphStore = new RawCachingGlyphStore(resources, "Roboto-Regular") { CacheStorage = cacheStorage };
-                        robotoGlyphStore = bitmapGlyphStore;
                         robotoTextureStore = bitmapGlyphStore;
                     }
 
@@ -334,13 +358,23 @@ namespace osu.Framework.Benchmarks
                     fontUsage = new FontUsage("Roboto", 21, "Regular");
                     codepoints = workloadTitles.SelectMany(title => title.EnumerateRunes().ToArray()).Select(rune => rune.Value).Distinct().ToArray();
 
-                    foreach (int codepoint in codepoints)
+                    int[] preloadCodepoints = robotoPreloadMode switch
                     {
-                        if (!robotoGlyphStore.HasGlyph(codepoint))
-                            throw new InvalidOperationException($"Roboto fixture does not cover U+{codepoint:X}.");
-                    }
+                        "none" => Array.Empty<int>(),
+                        "visible" => workloadTitles.Take(visible_row_count)
+                                                   .SelectMany(title => title.EnumerateRunes().ToArray())
+                                                   .Select(rune => rune.Value)
+                                                   .Distinct()
+                                                   .ToArray(),
+                        _ => codepoints
+                    };
 
-                    Console.WriteLine($"Roboto source: {(useOutline ? "variable TTF" : "pre-rasterized BMFont")}; glyphs: {codepoints.Length}; array={useArray}.");
+                    foreach (int codepoint in preloadCodepoints)
+                        Fonts.GetForSpriteText(fontUsage.FontName, codepoint, useArray);
+
+                    observedCodepoints = preloadCodepoints;
+                    Console.WriteLine(
+                        $"Roboto source: {(useOutline ? "variable TTF" : "pre-rasterized BMFont")}; glyphs: {codepoints.Length}; preloaded={preloadCodepoints.Length} ({robotoPreloadMode}); array={useArray}.");
                 }
                 else
                 {
@@ -383,9 +417,11 @@ namespace osu.Framework.Benchmarks
                         if (!cjk.HasGlyph(codepoint) && !hangul.HasGlyph(codepoint) && !basic.HasGlyph(codepoint))
                             throw new InvalidOperationException($"Noto fixtures do not cover U+{codepoint:X}.");
                     }
+
+                    observedCodepoints = codepoints;
                 }
 
-                var textures = codepoints.Select(codepoint => Fonts.GetForSpriteText(fontUsage.FontName, codepoint, useArray)!.Texture).ToArray();
+                var textures = observedCodepoints.Select(codepoint => Fonts.GetForSpriteText(fontUsage.FontName, codepoint, useArray)!.Texture).ToArray();
                 int textureCount = textures.Select(texture => texture.NativeTexture).Distinct().Count();
                 int layerCount = textures.OfType<GlyphAtlasRegion>().Select(region => region.Layer).Distinct().Count();
                 Console.WriteLine(
