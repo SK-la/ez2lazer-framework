@@ -28,8 +28,8 @@ namespace osu.Framework.Tests.Visual.Platform
 
         private SpriteText statusText = null!;
 
-        [SetUp]
-        public void SetUp() => Schedule(() =>
+        [BackgroundDependencyLoader]
+        private void load()
         {
             Child = new FillFlowContainer
             {
@@ -76,7 +76,7 @@ namespace osu.Framework.Tests.Visual.Platform
             };
 
             refreshStatus();
-        });
+        }
 
         protected override void Update()
         {
