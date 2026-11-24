@@ -13,7 +13,19 @@ namespace osu.Framework.Benchmarks
         {
             if (args.Length > 0 && args[0] == "--sprite-text-cjk")
             {
-                BenchmarkCjkSpriteText.Run(args[1..]);
+                BenchmarkSpriteTextRunner.Run(args[1..]);
+                return;
+            }
+
+            if (args.Length > 0 && args[0] == "--sprite-text-roboto")
+            {
+                BenchmarkSpriteTextRunner.RunRoboto(args[1..]);
+                return;
+            }
+
+            if (args.Length > 0 && args[0] == "--sprite-text-roboto-metrics")
+            {
+                BenchmarkSpriteTextRunner.ReportRobotoMetrics(args[1..]);
                 return;
             }
 

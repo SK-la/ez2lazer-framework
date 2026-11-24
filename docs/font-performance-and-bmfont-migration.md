@@ -129,3 +129,49 @@ foreach ($fontPreload in @(4000, 0)) {
 ```
 
 检查输出中的原生纹理数、数组层数和容量回退数。开关在进程首次初始化时读取。4000 个预热字形是压力输入，只有确认可见标题用到多个存储页时才能用来解释跨页性能。
+
+## 复跑 Roboto 字体来源对照
+
+基准使用 Framework 内的 Roboto variable TTF，并与测试资源中的 `Roboto-Regular` BMFont 对照。两种模式使用相同默认拉丁语料、21 px、Roboto Regular、离屏窗口及帧采样；自定义语料可传入相同的 UTF-8 文本文件。每次命令启动独立进程并创建新的临时缓存目录。建议交替运行来源以减轻进程顺序影响：
+
+```powershell
+dotnet build osu.Framework.Benchmarks/osu.Framework.Benchmarks.csproj -c Release
+$benchmark = 'osu.Framework.Benchmarks/bin/Release/net11.0/osu.Framework.Benchmarks.dll'
+$previousGlyphMode = $env:EZ2LAZER_GLYPH_TEXTURE_ARRAY
+foreach ($arrayMode in @('1', '0')) {
+    $env:EZ2LAZER_GLYPH_TEXTURE_ARRAY = $arrayMode
+    foreach ($fontSource in @('outline', 'bmfont', 'bmfont', 'outline')) {
+        dotnet $benchmark --sprite-text-roboto $fontSource
+    }
+}
+if ($null -eq $previousGlyphMode) {
+    Remove-Item Env:EZ2LAZER_GLYPH_TEXTURE_ARRAY
+} else {
+    $env:EZ2LAZER_GLYPH_TEXTURE_ARRAY = $previousGlyphMode
+}
+```
+
+`outline` 从 Framework 资源加载 variable TTF 的 `Roboto-Regular` named instance；`bmfont` 使用 `osu.Framework.Tests` 中的预栅格化字形页。基准在启动时逐码点验证两者都覆盖语料，并报告字体存储设置与行构造、首次布局、热滚动、托管分配、纹理和批次指标。比较时固定同一 GPU、图形后端和 `EZ2LAZER_GLYPH_TEXTURE_ARRAY` 设置；数组与传统路径应分开成组测量。该基准用于观察来源管线成本，不替代字形视觉、字宽和基线等价性验证。
+
+### Roboto 首轮烟测
+
+2026-11-24，Windows Debug、D3D11、AMD Radeon RX 6800，960×720，21 px，5 条默认拉丁语料、80 个不同标量、28 行。数组模式每个来源交替运行 2 个独立进程；传统路径每个来源运行 3 个独立进程。所有进程均覆盖 80/80 标量并正常退出，数组模式为 28/28 行使用数组且零容量回退，传统模式为 0/28 行使用数组。数组峰值跟踪纹理约 32 MiB，传统路径约 64 MiB。
+
+- 字体存储设置、字形预取和行构造总分配：TTF 约 5.3 MB（数组）/5.5 MB（传统）；BMFont 约 11.8 MB/12.0 MB。该阶段包含各来源自己的加载、栅格化或页面缓存成本，不能等同于每帧分配。
+- 热滚动 p50：TTF 1.91–2.00 ms（数组）/2.13–2.78 ms（传统）；BMFont 2.14 ms/2.02–2.73 ms。每组样本很少，区间重叠。
+- 首次布局 p99 在所有来源和布局中都有 150 ms 以上尖峰，说明该短样本受启动或调度离群值影响，不能用于尾延迟结论。当前结果只验证基准路径、资源覆盖和模式切换，不构成 TTF/BMFont 性能胜负判断。
+- 字体文件 SHA-256 已核对：Framework 与测试目录中的 Roboto TTF 相同。BMFont fixture 与 TTF 的家族及 Regular 字重命名相符，但其生成版本和原始字库文件尚未核验。
+
+### Roboto 度量与栅格诊断
+
+此诊断独立于帧性能采样，直接比较两个 glyph store 的原始度量、相邻字距及纹理 alpha。默认语料与性能基准一致，也可传入 UTF-8 标题文件：
+
+```powershell
+$benchmark = 'osu.Framework.Benchmarks/bin/Release/net11.0/osu.Framework.Benchmarks.dll'
+dotnet $benchmark --sprite-text-roboto-metrics
+dotnet $benchmark --sprite-text-roboto-metrics '<path-to-UTF-8-titles.txt>'
+```
+
+2026-11-24 的默认语料结果：80/80 字符有覆盖；TTF/BMFont baseline 分别为 84/80；80 个字符至少一项 X/Y offset、advance 或 baseline 相差超过 0.01；72 个字符纹理尺寸不同，79 个字符的共同纹理区域含 alpha 差异。比较了 161,654 个重叠像素，平均绝对 alpha 差异为 17.436/255，最大值 255；语料中的相邻 kerning 配对无差异。
+
+alpha 比较按字形纹理左上角对齐，仅统计两张纹理共同宽高内的像素；不同的 glyph offset 仍需结合实际排版与截图检查。该诊断证明当前两份 fixture 并非度量/栅格等价，不能据此推断其中哪份正确，也不能在 BMFont 来源未核验前作为严格同源性能结论。后续需要核对 BMFont 生成工具、源文件版本、字号和导出参数，再决定是否以它作为迁移验收基准。
