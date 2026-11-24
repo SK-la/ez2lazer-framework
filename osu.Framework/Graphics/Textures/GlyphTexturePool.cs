@@ -16,7 +16,7 @@ namespace osu.Framework.Graphics.Textures
     internal sealed class GlyphTexturePool : IDisposable
     {
         private const int default_page_size = 2048;
-        private const int default_page_count = 4;
+        private const int default_page_count = 8;
         private const int glyph_padding = 4;
         private const int reclamation_retry_interval = 128;
 
@@ -67,7 +67,7 @@ namespace osu.Framework.Graphics.Textures
             if (renderer is not VeldridRenderer veldridRenderer || !veldridRenderer.IsInitialised)
                 return false;
 
-            return veldridRenderer.SurfaceType is Platform.GraphicsSurfaceType.Direct3D11 or Platform.GraphicsSurfaceType.Metal;
+            return veldridRenderer.SurfaceType == Platform.GraphicsSurfaceType.Direct3D11;
         }
 
         private static GlyphTexturePool? create(IRenderer renderer, bool forceEnable)
