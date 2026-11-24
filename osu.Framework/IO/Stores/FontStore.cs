@@ -436,7 +436,11 @@ namespace osu.Framework.IO.Stores
         {
             foreach (Rgba32 pixel in pixels)
             {
-                if (pixel.R != pixel.G || pixel.G != pixel.B)
+                // RGB values in fully transparent pixels do not affect the rendered glyph.
+                if (pixel.A == 0)
+                    continue;
+
+                if (pixel.R != byte.MaxValue || pixel.G != byte.MaxValue || pixel.B != byte.MaxValue)
                     return false;
             }
 

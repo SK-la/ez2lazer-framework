@@ -72,6 +72,7 @@ namespace osu.Framework.Tests.Graphics
         }
 
         [TestCase(0u, byte.MaxValue)]
+        [TestCase(0u, (byte)127)]
         [TestCase(1u, (byte)0)]
         public void TestGlyphArrayLayerSample(uint layer, byte coverage)
         {
@@ -80,22 +81,20 @@ namespace osu.Framework.Tests.Graphics
 
             var renderer = new VeldridRenderer();
             VeldridGlyphTextureArray? glyphTexture = null;
-            byte[] coveredGlyph = new byte[glyph_region_size * glyph_region_size];
-            Array.Fill(coveredGlyph, byte.MaxValue);
-            byte[] transparentGlyph = new byte[glyph_region_size * glyph_region_size];
+            byte[] glyphCoverage = new byte[glyph_region_size * glyph_region_size];
+            Array.Fill(glyphCoverage, coverage);
             IFrameBuffer? target = null;
             ShaderManager? shaders = null;
 
             try
             {
-                if (!tryInitialiseRenderer(renderer, requireGlyphArraySupport: false))
+                if (!tryInitialiseRenderer(renderer))
                     return;
 
                 glyphTexture = new VeldridGlyphTextureArray(renderer, glyph_size, glyph_size, layer_count);
                 var glyphAtlas = new Texture(glyphTexture, WrapMode.None, WrapMode.None);
                 var glyph = new GlyphAtlasRegion(glyphAtlas, new RectangleI(4, 4, glyph_region_size, glyph_region_size), (int)layer);
-                glyphTexture.SetRegionData(0, 4, 4, glyph_region_size, glyph_region_size, coveredGlyph);
-                glyphTexture.SetRegionData(1, 4, 4, glyph_region_size, glyph_region_size, transparentGlyph);
+                glyphTexture.SetRegionData(layer, 4, 4, glyph_region_size, glyph_region_size, glyphCoverage);
                 renderer.BeginFrame(new Vector2(target_size));
 
                 shaders = new ShaderManager(renderer, new NamespacedResourceStore<byte[]>(
@@ -242,6 +241,51 @@ namespace osu.Framework.Tests.Graphics
                 Assert.That(arrayGlyph.YOffset, Is.EqualTo(ordinaryGlyph.YOffset));
                 Assert.That(arrayGlyph.XAdvance, Is.EqualTo(ordinaryGlyph.XAdvance));
                 Assert.That(arrayGlyph.Baseline, Is.EqualTo(ordinaryGlyph.Baseline));
+
+                using TextureUpload upload = glyphStore.Get("Roboto-Regular/a");
+                Rgba32[] pixels = upload.Data.ToArray();
+                Assert.That(Array.Exists(pixels, static pixel => pixel.A > 0 && pixel.R != pixel.G), Is.False);
+                Assert.That(Array.Exists(pixels, static pixel => pixel.A == 0 && pixel.R != pixel.G), Is.True);
+            }
+            finally
+            {
+                fontStore?.Dispose();
+                glyphStore?.Dispose();
+
+                if (renderer.IsInitialised)
+                    renderer.DisposeOffline();
+
+                ThreadSafety.IsDrawThread = wasDrawThread;
+            }
+        }
+
+        [Test]
+        public void TestColourBitmapGlyphStoreUsesLegacyTexture()
+        {
+            bool wasDrawThread = ThreadSafety.IsDrawThread;
+            ThreadSafety.IsDrawThread = true;
+
+            var renderer = new VeldridRenderer();
+            TintedGlyphStore? glyphStore = null;
+            FontStore? fontStore = null;
+
+            try
+            {
+                if (!tryInitialiseRenderer(renderer))
+                    return;
+
+                fontStore = new FontStore(renderer, useAtlas: false);
+                fontStore.EnableGlyphTextureArrayForVisualTest();
+
+                var resources = new NamespacedResourceStore<byte[]>(new DllResourceStore(typeof(GlyphTextureArrayRenderingTest).Assembly), "Resources");
+                glyphStore = new TintedGlyphStore(resources, "Fonts/Roboto/Roboto-Regular");
+                glyphStore.LoadFontAsync().GetAwaiter().GetResult();
+                fontStore.AddTextureSource(glyphStore);
+
+                var glyph = fontStore.GetForSpriteText(null, 'a', useGlyphTextureArray: true) as TexturedCharacterGlyph;
+
+                Assert.That(glyph, Is.Not.Null);
+                Assert.That(glyph!.Texture, Is.TypeOf<Texture>());
             }
             finally
             {
@@ -345,6 +389,31 @@ namespace osu.Framework.Tests.Graphics
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
+        }
+
+        private sealed class TintedGlyphStore : GlyphStore
+        {
+            public TintedGlyphStore(ResourceStore<byte[]> store, string assetName)
+                : base(store, assetName)
+            {
+            }
+
+            protected override TextureUpload GetPageImage(int page)
+            {
+                using TextureUpload original = base.GetPageImage(page);
+                var tintedImage = new RgbaImage(original.Width, original.Height);
+
+                for (int y = 0; y < original.Height; y++)
+                {
+                    ReadOnlySpan<Rgba32> sourceRow = original.Data.Slice(y * original.Width, original.Width);
+                    Span<Rgba32> targetRow = tintedImage.GetPixelRowSpan(y);
+
+                    for (int x = 0; x < original.Width; x++)
+                        targetRow[x] = new Rgba32(byte.MaxValue, 0, 0, sourceRow[x].A);
+                }
+
+                return new TextureUpload(tintedImage);
+            }
         }
 
         private sealed class GlyphRegionReference
