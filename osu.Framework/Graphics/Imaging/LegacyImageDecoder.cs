@@ -6,6 +6,7 @@ using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.InteropServices;
+using Sdcb.SimdCodecs.Qoi;
 using StbiSharp;
 
 namespace osu.Framework.Graphics.Imaging
@@ -74,6 +75,14 @@ namespace osu.Framework.Graphics.Imaging
 
             try
             {
+                if (encoded.Length >= 4 && encoded[..4].SequenceEqual("qoif"u8))
+                {
+                    var info = QoiDecoder.ReadInfo(encoded);
+                    image = new RgbaImage(info.Width, info.Height);
+                    QoiDecoder.DecodeTo(encoded, MemoryMarshal.AsBytes(image.PixelSpan));
+                    return true;
+                }
+
                 using var decoded = Stbi.LoadFromMemory(encoded, 4);
                 int width = decoded.Width;
                 int height = decoded.Height;
