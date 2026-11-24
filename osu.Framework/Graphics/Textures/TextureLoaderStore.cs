@@ -9,6 +9,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using osu.Framework.Graphics.Imaging;
+using osu.Framework.Graphics.Primitives;
 using osu.Framework.IO.Stores;
 using SkiaStaticImageDecoder = osu.Framework.Graphics.Imaging.SkiaStaticImageDecoder;
 
@@ -20,6 +21,7 @@ namespace osu.Framework.Graphics.Textures
     public class TextureLoaderStore : IResourceStore<TextureUpload>
     {
         private readonly ResourceStore<byte[]> store;
+        private readonly Vector2I? svgTargetSize;
 
         public TextureLoaderStore(IResourceStore<byte[]> store)
         {
@@ -27,6 +29,18 @@ namespace osu.Framework.Graphics.Textures
             this.store.AddExtension(@"png");
             this.store.AddExtension(@"jpg");
             this.store.AddExtension(@"gif");
+            this.store.AddExtension(@"tif");
+            this.store.AddExtension(@"tiff");
+            this.store.AddExtension(@"svg");
+        }
+
+        public TextureLoaderStore(IResourceStore<byte[]> store, Vector2I svgTargetSize)
+            : this(store)
+        {
+            if (svgTargetSize.X <= 0 || svgTargetSize.Y <= 0)
+                throw new ArgumentOutOfRangeException(nameof(svgTargetSize));
+
+            this.svgTargetSize = svgTargetSize;
         }
 
         public Task<TextureUpload> GetAsync(string name, CancellationToken cancellationToken = default) =>
@@ -78,8 +92,25 @@ namespace osu.Framework.Graphics.Textures
                 stream = copy;
             }
 
+            long initialPosition = stream.Position;
+
             if (SkiaStaticImageDecoder.TryDecode(stream, out RgbaImage image))
                 return new TextureUpload(image);
+
+            if (TiffImageCodec.IsTiff(stream))
+            {
+                try
+                {
+                    return new TextureUpload(TiffImageCodec.Decode(stream));
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+                {
+                    stream.Position = initialPosition;
+                }
+            }
+
+            if (SvgImageDecoder.TryDecode(stream, svgTargetSize, out RgbaImage svgImage))
+                return new TextureUpload(svgImage);
 
             return new TextureUpload(ImageFromStream(stream));
         }

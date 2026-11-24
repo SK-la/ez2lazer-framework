@@ -98,9 +98,12 @@ namespace osu.Framework.Text
             }
 
             if (error != FT_Err_Ok) throw new FreeTypeException(error);
+        }
 
-            // Enable OT-SVG (e.g. Noto Color Emoji) when plutosvgft is present for this RID.
-            NativePlutoSvgFt.TryRegister(library);
+        private static unsafe bool ensurePlutoSvgHooksRegistered()
+        {
+            lock (library_lock)
+                return NativePlutoSvgFt.TryRegister(library);
         }
 
         /// <summary>
@@ -438,6 +441,9 @@ namespace osu.Framework.Text
 
                 var faceFlags = (FT_FACE_FLAG)native->face_flags.Value;
                 HasColourGlyphs = faceFlags.HasFlagFast(FT_FACE_FLAG_COLOR) || faceFlags.HasFlagFast(FT_FACE_FLAG_SVG);
+
+                if (faceFlags.HasFlagFast(FT_FACE_FLAG_SVG))
+                    ensurePlutoSvgHooksRegistered();
 
                 if (((FT_FACE_FLAG)native->face_flags.Value).HasFlagFast(FT_FACE_FLAG_MULTIPLE_MASTERS))
                 {
@@ -934,11 +940,19 @@ namespace osu.Framework.Text
             {
                 setVariation(face, variation);
 
+                if (((FT_FACE_FLAG)native->face_flags.Value).HasFlagFast(FT_FACE_FLAG_SVG))
+                    ensurePlutoSvgHooksRegistered();
+
                 // Prefer colour bitmap / OT-SVG. Fall back to outline rasterization.
                 FT_Error error = FT_Load_Glyph(native, glyphIndex, combineLoadFlags(FT_LOAD_COLOR, FT_LOAD_NO_HINTING, FT_LOAD_RENDER));
 
-                // Missing SVG hooks → treat as soft failure and try monochrome outlines.
-                if (error == FT_Err_Missing_SVG_Hooks || error != 0)
+                if (error == FT_Err_Missing_SVG_Hooks)
+                {
+                    if (ensurePlutoSvgHooksRegistered())
+                        error = FT_Load_Glyph(native, glyphIndex, combineLoadFlags(FT_LOAD_COLOR, FT_LOAD_NO_HINTING, FT_LOAD_RENDER));
+                }
+
+                if (error != 0)
                     error = FT_Load_Glyph(native, glyphIndex, combineLoadFlags(FT_LOAD_NO_BITMAP, FT_LOAD_NO_HINTING, FT_LOAD_RENDER));
 
                 if (error != 0) throw new FreeTypeException(error);

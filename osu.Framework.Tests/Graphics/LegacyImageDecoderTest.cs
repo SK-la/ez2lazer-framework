@@ -41,6 +41,43 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(upload.Data.ToArray(), Is.EqualTo(new[] { new Rgba32(10, 20, 30, 40) }));
         }
 
+        [TestCase(0)]
+        [TestCase(3)]
+        public void TestTextureUploadPreservesQoiRgbaContract(int initialPosition)
+        {
+            using var stream = new MemoryStream();
+            stream.Write(new byte[initialPosition]);
+            stream.Write(createQoi());
+            stream.Position = initialPosition;
+
+            using var upload = new TextureUpload(stream);
+
+            Assert.That(upload.Width, Is.EqualTo(1));
+            Assert.That(upload.Height, Is.EqualTo(1));
+            Assert.That(upload.Data.ToArray(), Is.EqualTo(new[] { new Rgba32(10, 20, 30, 40) }));
+            Assert.That(stream.CanRead, Is.True);
+        }
+
+        [Test]
+        public void TestTruncatedQoiLeavesNoImageAndRestoresStreamPosition()
+        {
+            using var stream = new MemoryStream();
+            stream.Write(new byte[3]);
+            stream.Write(createQoi().AsSpan(0, 16));
+            stream.Position = 3;
+
+            bool decoded = LegacyImageDecoder.TryDecodeStbi(stream, out RgbaImage? image);
+
+            using (image)
+            {
+                Assert.That(decoded, Is.False);
+                Assert.That(image, Is.Null);
+            }
+
+            Assert.That(stream.Position, Is.EqualTo(3));
+            Assert.That(stream.CanRead, Is.True);
+        }
+
         [Test]
         public void TestDecodeTgaIcon()
         {
