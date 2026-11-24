@@ -88,7 +88,7 @@ namespace osu.Framework.Tests.Graphics
 
             try
             {
-                if (!tryInitialiseRenderer(renderer))
+                if (!tryInitialiseRenderer(renderer, requireGlyphArraySupport: false))
                     return;
 
                 glyphTexture = new VeldridGlyphTextureArray(renderer, glyph_size, glyph_size, layer_count);
@@ -112,6 +112,8 @@ namespace osu.Framework.Tests.Graphics
                 shader.Bind();
                 renderer.SetActiveBatch(renderer.GlyphArrayBatch);
 
+                // The shader requires the legacy sampler even when all vertices use the glyph array.
+                Assert.That(renderer.WhitePixel.Bind(1, WrapMode.None, WrapMode.None), Is.True);
                 renderer.DrawGlyphArrayQuad(renderer.GlyphArrayBatch, glyph, glyph.Layer, useLegacyTexture: false,
                     new Quad(0, 0, target_size, target_size),
                     ColourInfo.SingleColour(Color4.White), Vector2.Zero);
