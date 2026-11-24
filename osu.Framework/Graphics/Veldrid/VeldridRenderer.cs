@@ -71,6 +71,9 @@ namespace osu.Framework.Graphics.Veldrid
         private bool beganTextureUploadPipeline;
         private VeldridIndexBuffer? linearIndexBuffer;
         private VeldridIndexBuffer? quadIndexBuffer;
+        private IVertexBatch<GlyphArrayVertex2D>? glyphArrayBatch;
+
+        internal IVertexBatch<GlyphArrayVertex2D> GlyphArrayBatch => glyphArrayBatch ??= CreateQuadBatch<GlyphArrayVertex2D>(100, 1000);
 
         private IFrameBuffer? backbufferRegionSnapshot;
         private Vector2I backbufferRegionSnapshotSize = Vector2I.One;
@@ -175,6 +178,7 @@ namespace osu.Framework.Graphics.Veldrid
             WaitUntilIdle();
             linearIndexBuffer?.Dispose();
             quadIndexBuffer?.Dispose();
+            glyphArrayBatch?.Dispose();
             DrainDisposalsAfterGpuIdle();
             graphicsPipeline.DisposeAfterGpuIdle();
             bufferUpdatePipeline.DisposeAfterGpuIdle();
@@ -242,7 +246,7 @@ namespace osu.Framework.Graphics.Veldrid
 
         protected override bool SetTextureImplementation(INativeTexture? texture, int unit)
         {
-            if (texture is not VeldridTexture veldridTexture)
+            if (texture is not IVeldridTexture veldridTexture)
                 return false;
 
             graphicsPipeline.AttachTexture(unit, veldridTexture);
@@ -401,8 +405,14 @@ namespace osu.Framework.Graphics.Veldrid
         void IVeldridRenderer.UnbindShader(VeldridShader shader)
             => UnbindShader(shader);
 
-        void IVeldridRenderer.EnqueueTextureUpload(VeldridTexture texture)
+        void IVeldridRenderer.EnqueueTextureUpload(IVeldridTexture texture)
             => EnqueueTextureUpload(texture);
+
+        void IVeldridRenderer.UpdateTextureArrayLayer(global::Veldrid.Texture texture, uint layer, int x, int y, int width, int height, ReadOnlySpan<byte> data)
+        {
+            ensureTextureUploadPipelineBegan();
+            textureUploadPipeline.UpdateTextureArrayLayer(stagingTexturePool, texture, layer, x, y, width, height, data);
+        }
 
         protected override IShaderPart CreateShaderPart(IShaderStore store, string name, byte[]? rawData, ShaderPartType partType)
             => new VeldridShaderPart(this, rawData, partType, store);
@@ -410,7 +420,10 @@ namespace osu.Framework.Graphics.Veldrid
         protected override IShader CreateShader(string name, IShaderPart[] parts, ShaderCompilationStore compilationStore)
             => new VeldridShader(this, name, parts.Cast<VeldridShaderPart>().ToArray(), compilationStore);
 
-        public override IFrameBuffer CreateFrameBuffer(TexturePixelFormat textureFormat = TexturePixelFormat.R8G8B8A8Float, RenderBufferFormat[]? renderBufferFormats = null, TextureFilteringMode filteringMode = TextureFilteringMode.Linear)
+        public override IFrameBuffer CreateFrameBuffer(TexturePixelFormat textureFormat =
+                                                           TexturePixelFormat.R8G8B8A8Float,
+                                                       RenderBufferFormat[]? renderBufferFormats = null,
+                                                       TextureFilteringMode filteringMode = TextureFilteringMode.Linear)
             => new VeldridFrameBuffer(this, textureFormat, renderBufferFormats?.ToPixelFormats(), filteringMode);
 
         protected override IVertexBatch<TVertex> CreateLinearBatch<TVertex>(int size, int maxBuffers, PrimitiveTopology primitiveType)
@@ -427,7 +440,10 @@ namespace osu.Framework.Graphics.Veldrid
         protected override IShaderStorageBufferObject<TData> CreateShaderStorageBufferObject<TData>(int uboSize, int ssboSize)
             => new VeldridShaderStorageBufferObject<TData>(this, uboSize, ssboSize);
 
-        protected override INativeTexture CreateNativeTexture(int width, int height, bool manualMipmaps = false, TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
+        protected override INativeTexture CreateNativeTexture(int width,
+                                                              int height,
+                                                              bool manualMipmaps = false,
+                                                              TextureFilteringMode filteringMode = TextureFilteringMode.Linear,
                                                               Color4? initialisationColour = null)
             => new VeldridTexture(this, width, height, TexturePixelFormat.R8G8B8A8Float, manualMipmaps, filteringMode, initialisationColour);
 

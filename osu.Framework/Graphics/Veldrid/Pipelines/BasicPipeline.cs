@@ -131,6 +131,13 @@ namespace osu.Framework.Graphics.Veldrid.Pipelines
             Commands.CopyTexture(staging, 0, 0, 0, 0, 0, texture, (uint)x, (uint)y, 0, (uint)level, 0, (uint)width, (uint)height, 1, 1);
         }
 
+        public void UpdateTextureArrayLayer(VeldridStagingTexturePool stagingPool, Texture texture, uint layer, int x, int y, int width, int height, ReadOnlySpan<byte> data)
+        {
+            var staging = stagingPool.Get(width, height, texture.Format);
+            VeldridDevice.Device.UpdateTexture(staging, data, 0, 0, 0, (uint)width, (uint)height, 1, 0, 0);
+            Commands.CopyTexture(staging, 0, 0, 0, 0, 0, texture, (uint)x, (uint)y, 0, 0, layer, (uint)width, (uint)height, 1, 1);
+        }
+
         /// <summary>
         /// Updates a <see cref="global::Veldrid.Texture"/> with a <paramref name="data"/> at the specified coordinates.
         /// </summary>

@@ -152,6 +152,7 @@ namespace osu.Framework.Graphics.Shaders
     public static class VertexShaderDescriptor
     {
         public const string TEXTURE_2 = "Texture2D";
+        internal const string GLYPH_TEXTURE_ARRAY = "GlyphTextureArray";
         public const string TEXTURE_3 = "Texture3D";
         public const string POSITION = "Position";
     }
@@ -159,6 +160,7 @@ namespace osu.Framework.Graphics.Shaders
     public static class FragmentShaderDescriptor
     {
         public const string TEXTURE = "Texture";
+        internal const string GLYPH_TEXTURE_ARRAY = "GlyphTextureArray";
         public const string PERSPECTIVE = "Perspective";
         public const string GLOW = "Glow";
         public const string BLUR = "Blur";

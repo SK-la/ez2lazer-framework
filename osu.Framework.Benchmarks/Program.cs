@@ -11,6 +11,18 @@ namespace osu.Framework.Benchmarks
     {
         public static void Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "--sprite-text-cjk")
+            {
+                BenchmarkCjkSpriteText.Run(args[1..]);
+                return;
+            }
+
+            if (Array.IndexOf(args, "--glyph-texture-pool") >= 0)
+            {
+                BenchmarkGlyphTexturePool.Run();
+                return;
+            }
+
             if (Array.IndexOf(args, "--image-decoding") >= 0)
             {
                 BenchmarkImageDecoding.Run();

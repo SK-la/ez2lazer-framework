@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.Logging;
@@ -25,11 +26,22 @@ namespace osu.Framework.IO.Stores
 
         private Storage cacheStorage;
 
+        private readonly IRenderer glyphRenderer;
+
         /// <summary>
         /// A local cache to avoid string allocation overhead. Can be changed to (string,char)=>string if this ever becomes an issue,
         /// but as long as we directly inherit <see cref="TextureStore"/> this is a slight optimisation.
         /// </summary>
         private readonly ConcurrentDictionary<(string, int), ITexturedCharacterGlyph> namespacedGlyphCache = new ConcurrentDictionary<(string, int), ITexturedCharacterGlyph>();
+
+        // Concurrent lookups stay lock-free. This lock serialises atlas allocation with cache eviction.
+        private readonly ConcurrentDictionary<(string, int), ITexturedCharacterGlyph> arrayGlyphCache = new ConcurrentDictionary<(string, int), ITexturedCharacterGlyph>();
+
+        private readonly Lock arrayGlyphCacheLock = new Lock();
+
+        private volatile GlyphTexturePool glyphTexturePool;
+
+        private int glyphTexturePoolReleased;
 
         /// <summary>
         /// Construct a font store to be added to a parent font store via <see cref="AddStore"/>.
@@ -62,11 +74,46 @@ namespace osu.Framework.IO.Stores
         /// </summary>
         private const int glyph_atlas_size = 4096;
 
-        internal FontStore(IRenderer renderer, IResourceStore<TextureUpload> store = null, float scaleAdjust = 100, bool useAtlas = false, Storage cacheStorage = null,
+        internal FontStore(IRenderer renderer,
+                           IResourceStore<TextureUpload> store = null,
+                           float scaleAdjust = 100,
+                           bool useAtlas = false,
+                           Storage cacheStorage = null,
                            TextureFilteringMode filteringMode = TextureFilteringMode.Linear)
             : base(renderer, store, useAtlas, filteringMode, false, scaleAdjust, glyph_atlas_size, nameof(FontStore))
         {
             this.cacheStorage = cacheStorage;
+            glyphRenderer = renderer;
+            glyphTexturePool = GlyphTexturePool.Create(renderer);
+        }
+
+        internal bool UsesGlyphTextureArray => ensureGlyphTexturePool() != null;
+
+        internal int GlyphTextureArrayFallbackCount => glyphTexturePool?.FallbackCount ?? 0;
+
+        internal int GlyphTextureArrayGlyphCount => glyphTexturePool?.GlyphCount ?? 0;
+
+        internal void EnableGlyphTextureArrayForVisualTest()
+        {
+            lock (arrayGlyphCacheLock)
+            {
+                if (glyphTexturePool == null)
+                    glyphTexturePool = GlyphTexturePool.CreateForVisualTest(glyphRenderer);
+            }
+        }
+
+        private GlyphTexturePool ensureGlyphTexturePool()
+        {
+            if (glyphTexturePool != null || Volatile.Read(ref glyphTexturePoolReleased) != 0 || !GlyphTexturePool.IsEnabled(glyphRenderer))
+                return glyphTexturePool;
+
+            lock (arrayGlyphCacheLock)
+            {
+                if (glyphTexturePool == null && glyphTexturePoolReleased == 0)
+                    glyphTexturePool = GlyphTexturePool.Create(glyphRenderer);
+
+                return glyphTexturePool;
+            }
         }
 
         public override void AddTextureSource(IResourceStore<TextureUpload> store)
@@ -211,10 +258,18 @@ namespace osu.Framework.IO.Stores
 
         private void evictNullGlyphCache()
         {
-            foreach (var key in namespacedGlyphCache.Keys)
+            evictNullGlyphCacheEntries(namespacedGlyphCache);
+
+            lock (arrayGlyphCacheLock)
+                evictNullGlyphCacheEntries(arrayGlyphCache);
+
+            static void evictNullGlyphCacheEntries(ConcurrentDictionary<(string, int), ITexturedCharacterGlyph> cache)
             {
-                if (namespacedGlyphCache.TryGetValue(key, out var glyph) && glyph == null)
-                    namespacedGlyphCache.TryRemove(key, out _);
+                foreach (var key in cache.Keys)
+                {
+                    if (cache.TryGetValue(key, out var glyph) && glyph == null)
+                        cache.TryRemove(key, out _);
+                }
             }
         }
 
@@ -250,21 +305,41 @@ namespace osu.Framework.IO.Stores
                 if (fontNamePredicate(key.Item1 ?? string.Empty))
                     namespacedGlyphCache.TryRemove(key, out _);
             }
+
+            foreach (var key in arrayGlyphCache.Keys)
+            {
+                if (fontNamePredicate(key.Item1 ?? string.Empty))
+                {
+                    lock (arrayGlyphCacheLock)
+                        arrayGlyphCache.TryRemove(key, out _);
+                }
+            }
+
+            lock (arrayGlyphCacheLock)
+                glyphTexturePool?.ReclaimUnusedRegions();
         }
 
         public ITexturedCharacterGlyph Get(string fontName, char character) => Get(fontName, (int)character);
 
         public ITexturedCharacterGlyph Get(string fontName, int codepoint)
+            => get(fontName, codepoint, useGlyphTextureArray: false);
+
+        internal ITexturedCharacterGlyph GetForSpriteText(string fontName, int codepoint, bool useGlyphTextureArray)
+            => get(fontName, codepoint, useGlyphTextureArray && ensureGlyphTexturePool() != null);
+
+        private ITexturedCharacterGlyph get(string fontName, int codepoint, bool useGlyphTextureArray)
         {
             var key = (fontName, codepoint);
 
-            if (namespacedGlyphCache.TryGetValue(key, out var existing))
+            var cache = useGlyphTextureArray ? arrayGlyphCache : namespacedGlyphCache;
+
+            if (cache.TryGetValue(key, out var existing))
             {
                 // A miss recorded before the face finished loading is not a real miss.
                 if (existing != null || !anyFontLoadPending)
                     return existing;
 
-                namespacedGlyphCache.TryRemove(key, out _);
+                cache.TryRemove(key, out _);
             }
 
             int generationAtLookup = LoadGeneration;
@@ -281,34 +356,96 @@ namespace osu.Framework.IO.Stores
                     if (glyphMetrics == null)
                         continue;
 
+                    if (useGlyphTextureArray && !glyphMetrics.HasColour && store is IResourceStore<TextureUpload> textureUploadStore)
+                    {
+                        lock (arrayGlyphCacheLock)
+                        {
+                            if (arrayGlyphCache.TryGetValue(key, out existing))
+                                return existing;
+
+                            object uploadResult = textureUploadStore.Get(textureName);
+
+                            if (uploadResult is not TextureUpload upload)
+                                continue;
+
+                            using (upload)
+                            {
+                                if (store is not OutlineGlyphStore && !isMonochrome(upload.Data))
+                                    goto legacy;
+
+                                if (glyphTexturePool!.TryAdd(upload, out var arrayGlyph))
+                                    return arrayGlyphCache[key] = new TexturedCharacterGlyph(glyphMetrics, arrayGlyph!, 1 / ScaleAdjust);
+                            }
+                        }
+                    }
+
+                    legacy:
                     var texture = Get(textureName);
                     if (texture == null)
                         continue;
 
-                    return namespacedGlyphCache[key] = new TexturedCharacterGlyph(glyphMetrics, texture, 1 / ScaleAdjust);
+                    return cache[key] = new TexturedCharacterGlyph(glyphMetrics, texture, 1 / ScaleAdjust);
                 }
             }
 
             foreach (var store in nestedFontStores)
             {
-                var glyph = store.Get(fontName, codepoint);
+                var glyph = store is FontStore fontStore
+                    ? fontStore.GetForSpriteText(fontName, codepoint, useGlyphTextureArray)
+                    : store.Get(fontName, codepoint);
                 if (glyph != null)
-                    return namespacedGlyphCache[key] = glyph;
+                    return cache[key] = glyph;
             }
 
             lock (glyphCacheLock)
             {
                 // The face may have become readable while this lookup was walking stores.
-                // Leave the miss uncached so the next lookup can see the glyph.
+                // Leave the miss uncached so the next lookup can see it.
                 if (anyFontLoadPending || LoadGeneration != generationAtLookup)
                     return null;
 
-                return namespacedGlyphCache[key] = null;
+                return cache[key] = null;
             }
         }
 
         public Task<ITexturedCharacterGlyph> GetAsync(string fontName, char character) => Task.Run(() => Get(fontName, character));
         public Task<ITexturedCharacterGlyph> GetAsync(string fontName, int codepoint) => Task.Run(() => Get(fontName, codepoint));
+
+        protected override void Dispose(bool disposing)
+        {
+            try
+            {
+                base.Dispose(disposing);
+            }
+            finally
+            {
+                if (disposing && Interlocked.Exchange(ref glyphTexturePoolReleased, 1) == 0)
+                {
+                    lock (arrayGlyphCacheLock)
+                    {
+                        arrayGlyphCache.Clear();
+                        glyphTexturePool?.ReclaimUnusedRegions();
+                    }
+
+                    glyphTexturePool?.Dispose();
+                }
+            }
+        }
+
+        private static bool isMonochrome(ReadOnlySpan<Rgba32> pixels)
+        {
+            foreach (Rgba32 pixel in pixels)
+            {
+                // RGB values in fully transparent pixels do not affect the rendered glyph.
+                if (pixel.A == 0)
+                    continue;
+
+                if (pixel.R != byte.MaxValue || pixel.G != byte.MaxValue || pixel.B != byte.MaxValue)
+                    return false;
+            }
+
+            return true;
+        }
 
         private static bool shouldUseLiteralGlyphKey(char c)
             => c != '/' && !char.IsControl(c);

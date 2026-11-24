@@ -7,7 +7,10 @@ using System.Diagnostics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
+using osu.Framework.Graphics.Rendering.Vertices;
+using osu.Framework.Graphics.Shaders;
 using osu.Framework.Graphics.Textures;
+using osu.Framework.Graphics.Veldrid;
 using osuTK;
 using osuTK.Graphics;
 
@@ -24,6 +27,8 @@ namespace osu.Framework.Graphics.Sprites
             private Vector2 shadowOffset;
 
             private List<ScreenSpaceCharacterPart>? parts;
+            private IShader? glyphArrayShader;
+            private bool useGlyphTextureArray;
 
             public SpriteTextDrawNode(SpriteText source)
                 : base(source)
@@ -35,6 +40,8 @@ namespace osu.Framework.Graphics.Sprites
                 base.ApplyState();
 
                 updateScreenSpaceCharacters();
+                useGlyphTextureArray = Source.UsesGlyphTextureArrayLayout && Source.UsesDefaultTextureShader;
+                glyphArrayShader = Source.GlyphArrayTextureShader;
                 shadow = Source.Shadow;
 
                 if (shadow)
@@ -49,6 +56,9 @@ namespace osu.Framework.Graphics.Sprites
                 Debug.Assert(parts != null);
 
                 base.Draw(renderer);
+
+                if (tryDrawGlyphArray(renderer))
+                    return;
 
                 BindTextureShader(renderer);
 
@@ -83,6 +93,63 @@ namespace osu.Framework.Graphics.Sprites
                 }
 
                 UnbindTextureShader(renderer);
+            }
+
+            private bool tryDrawGlyphArray(IRenderer renderer)
+            {
+                if (!useGlyphTextureArray || renderer is not VeldridRenderer concrete || glyphArrayShader == null || parts == null || parts.Count == 0)
+                    return false;
+
+                GlyphAtlasRegion? firstArrayGlyph = null;
+
+                foreach (ScreenSpaceCharacterPart part in parts)
+                {
+                    if (part.Texture is GlyphAtlasRegion { IsArrayGlyph: true } region)
+                        firstArrayGlyph ??= region;
+                }
+
+                if (firstArrayGlyph == null)
+                    return false;
+
+                glyphArrayShader.Bind();
+                BindUniformResources(glyphArrayShader, renderer);
+                firstArrayGlyph.ArrayTexture.Bind(0, WrapMode.None, WrapMode.None);
+                renderer.WhitePixel.Bind(1, WrapMode.None, WrapMode.None);
+                drawGlyphArrayParts(renderer, concrete.GlyphArrayBatch);
+                glyphArrayShader.Unbind();
+                return true;
+            }
+
+            private void drawGlyphArrayParts(IRenderer renderer, IVertexBatch<GlyphArrayVertex2D> batch)
+            {
+                var averageColour = (Color4)DrawColourInfo.Colour.AverageColour;
+                float shadowAlpha = MathF.Pow(Math.Max(Math.Max(averageColour.R, averageColour.G), averageColour.B), 2);
+                ColourInfo finalShadowColour = DrawColourInfo.Colour;
+                finalShadowColour.ApplyChild(shadowColour.MultiplyAlpha(shadowAlpha));
+
+                foreach (ScreenSpaceCharacterPart part in parts!)
+                {
+                    bool isArrayGlyph = part.Texture is GlyphAtlasRegion { IsArrayGlyph: true };
+                    var glyph = part.Texture as GlyphAtlasRegion;
+                    ColourInfo glyphColour = part.HasColour
+                        ? ColourInfo.SingleColour(new Color4(1f, 1f, 1f, averageColour.A))
+                        : DrawColourInfo.Colour;
+
+                    if (shadow && !part.HasColour)
+                    {
+                        Quad shadowQuad = part.DrawQuad;
+                        renderer.DrawGlyphArrayQuad(batch, part.Texture, glyph?.Layer ?? 0, !isArrayGlyph,
+                            new Quad(
+                                shadowQuad.TopLeft + shadowOffset,
+                                shadowQuad.TopRight + shadowOffset,
+                                shadowQuad.BottomLeft + shadowOffset,
+                                shadowQuad.BottomRight + shadowOffset),
+                            finalShadowColour, part.InflationPercentage);
+                    }
+
+                    renderer.DrawGlyphArrayQuad(batch, part.Texture, glyph?.Layer ?? 0, !isArrayGlyph,
+                        part.DrawQuad, glyphColour, part.InflationPercentage);
+                }
             }
 
             /// <summary>
