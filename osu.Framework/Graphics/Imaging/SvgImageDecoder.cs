@@ -63,9 +63,9 @@ namespace osu.Framework.Graphics.Imaging
 
             try
             {
-                if (allowWorker && shouldUseWorkerDecode(stream, initialPosition))
+                if (allowWorker && SvgImageDecoderWorker.ShouldUseWorkerDecode(stream, initialPosition))
                 {
-                    if (tryDecodeInWorkerProcess(stream, initialPosition, targetSize, out result))
+                    if (SvgImageDecoderWorker.TryDecodeInWorkerProcess(stream, initialPosition, targetSize, out result))
                     {
                         image = result;
                         decoded = true;

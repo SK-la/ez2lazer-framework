@@ -12,9 +12,9 @@ using osu.Framework.Graphics.Primitives;
 
 namespace osu.Framework.Graphics.Imaging
 {
-    internal static partial class SvgImageDecoder
+    internal static class SvgImageDecoderWorker
     {
-        private static bool tryDecodeInWorkerProcess(Stream stream, long initialPosition, Vector2I? targetSize, [NotNullWhen(true)] out RgbaImage? image)
+        internal static bool TryDecodeInWorkerProcess(Stream stream, long initialPosition, Vector2I? targetSize, [NotNullWhen(true)] out RgbaImage? image)
         {
             image = null;
 
@@ -37,6 +37,7 @@ namespace osu.Framework.Graphics.Imaging
                     stream.CopyTo(temp);
 
                 string? host = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
+
                 if (string.IsNullOrEmpty(host))
                 {
                     string? self = Environment.ProcessPath;
@@ -164,7 +165,7 @@ namespace osu.Framework.Graphics.Imaging
             return false;
         }
 
-        private static bool shouldUseWorkerDecode(Stream stream, long initialPosition)
+        internal static bool ShouldUseWorkerDecode(Stream stream, long initialPosition)
             => SvgImageDecodeScheduler.UseIsolatedSerialisation && documentContainsText(stream, initialPosition);
     }
 }
