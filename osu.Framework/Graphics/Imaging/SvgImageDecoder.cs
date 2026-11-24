@@ -105,6 +105,10 @@ namespace osu.Framework.Graphics.Imaging
         {
             image = null;
             BoundedSvgAssetLoader? assetLoader = null;
+            SkiaModel? skiaModel = null;
+            SvgDocument? svgDocument = null;
+            SvgSceneDocument? scene = null;
+            ShimSkiaSharp.SKPicture? compileModel = null;
 
             try
             {
@@ -136,24 +140,24 @@ namespace osu.Framework.Graphics.Imaging
 
                 if (SvgImageDecodeScheduler.UseIsolatedSerialisation)
                     settings.TypefaceProviders = [new DefaultTypefaceProvider()];
-                var skiaModel = new SkiaModel(settings);
+                skiaModel = new SkiaModel(settings);
                 assetLoader = new BoundedSvgAssetLoader(skiaModel);
-                SvgDocument? svgDocument = SvgService.Open(stream, parameters);
+                svgDocument = SvgService.Open(stream, parameters);
                 if (svgDocument == null)
                     return false;
 
                 var sceneViewport = new ShimSkiaSharp.SKRect(0, 0, outputSize.X, outputSize.Y);
-                if (!SvgSceneRuntime.TryCompile(svgDocument, assetLoader, DrawAttributes.None, sceneViewport, out SvgSceneDocument? scene))
+                if (!SvgSceneRuntime.TryCompile(svgDocument, assetLoader, DrawAttributes.None, sceneViewport, out scene))
                     return false;
 
                 if (assetLoader.ExceededLimits)
                     return false;
 
-                ShimSkiaSharp.SKPicture? model = scene!.CreateModel();
-                if (model == null || assetLoader.ExceededLimits)
+                compileModel = scene!.CreateModel();
+                if (compileModel == null || assetLoader.ExceededLimits)
                     return false;
 
-                using var svgPicture = skiaModel.ToSKPicture(model);
+                using var svgPicture = skiaModel.ToSKPicture(compileModel);
                 if (svgPicture == null || assetLoader.ExceededLimits)
                     return false;
 
@@ -183,8 +187,27 @@ namespace osu.Framework.Graphics.Imaging
             }
             finally
             {
+                disposeSvgCompileResources(compileModel, scene, svgDocument, skiaModel);
                 assetLoader?.ClearDocumentFonts();
             }
+        }
+
+        private static void disposeSvgCompileResources(
+            ShimSkiaSharp.SKPicture? compileModel,
+            SvgSceneDocument? scene,
+            SvgDocument? svgDocument,
+            SkiaModel? skiaModel)
+        {
+            disposeIfDisposable(compileModel);
+            disposeIfDisposable(scene);
+            disposeIfDisposable(svgDocument);
+            disposeIfDisposable(skiaModel);
+        }
+
+        private static void disposeIfDisposable(object? value)
+        {
+            if (value is IDisposable disposable)
+                disposable.Dispose();
         }
 
         private sealed class BoundedSvgAssetLoader : SkiaSvgAssetLoader, ISvgAssetLoader, ISvgTextGlyphRunResolver, ISvgTextDirectedGlyphRunResolver, ISvgTextGlyphClusterResolver
