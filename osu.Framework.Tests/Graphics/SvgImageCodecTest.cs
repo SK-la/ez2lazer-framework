@@ -196,19 +196,126 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(requested, Is.False);
         }
 
-        [Test]
-        public void TestSvgCanLoadEmbeddedImages()
+        [TestCase(0)]
+        [TestCase(1)]
+        [TestCase(2)]
+        public void TestSvgCanLoadEmbeddedImages(int depth)
         {
             string reference = "data:image/png;base64," + Convert.ToBase64String(createEmbeddedPng());
             string svg = createImageSvg(reference);
+            for (int i = 0; i < depth; i++)
+                svg = createImageSvg(createSvgDataUri(svg, base64: true));
+
             using var stream = new MemoryStream(Encoding.UTF8.GetBytes(svg));
             using var image = ImageCodec.Decode(stream);
 
             Assert.That(image[5, 5], Is.EqualTo(embedded_pixel));
         }
 
+        [TestCase(ImageFileFormat.Png)]
+        [TestCase(ImageFileFormat.Jpeg)]
+        [TestCase(ImageFileFormat.WebP)]
+        public void TestSvgAllowsEmbeddedImagesAtDimensionLimit(ImageFileFormat format)
+        {
+            string svg = createImageSvg(createEmbeddedImageDataUri(format, 4096, 1));
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(svg));
+            using var image = ImageCodec.Decode(stream);
+
+            Assert.That(image[5, 5].A, Is.EqualTo(255));
+        }
+
+        [TestCase(ImageFileFormat.Png, 4097, 1, 0)]
+        [TestCase(ImageFileFormat.Png, 1, 4097, 0)]
+        [TestCase(ImageFileFormat.Jpeg, 4097, 1, 0)]
+        [TestCase(ImageFileFormat.Jpeg, 1, 4097, 0)]
+        [TestCase(ImageFileFormat.WebP, 4097, 1, 0)]
+        [TestCase(ImageFileFormat.WebP, 1, 4097, 0)]
+        [TestCase(ImageFileFormat.Png, 4097, 1, 1)]
+        [TestCase(ImageFileFormat.Png, 1, 4097, 2)]
+        public void TestSvgRejectsOversizedEmbeddedImages(ImageFileFormat format, int width, int height, int depth)
+        {
+            string svg = createImageSvg(createEmbeddedImageDataUri(format, width, height));
+            for (int i = 0; i < depth; i++)
+                svg = createImageSvg(createSvgDataUri(svg, base64: true));
+
+            using var stream = new MemoryStream();
+            stream.Write(new byte[] { 1, 2, 3, 4 });
+            stream.Write(Encoding.UTF8.GetBytes(svg));
+            stream.Position = 4;
+
+            bool decoded = SvgImageDecoder.TryDecode(stream, null, out RgbaImage? image);
+
+            using (image)
+            {
+                Assert.That(decoded, Is.False);
+                Assert.That(image, Is.Null);
+            }
+
+            Assert.That(stream.Position, Is.EqualTo(4));
+            Assert.That(stream.CanRead, Is.True);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void TestSvgRejectsEmbeddedImagesOverCumulativePixelBudget(bool nested)
+        {
+            string reference = createEmbeddedImageDataUri(ImageFileFormat.Png, 4096, 256);
+            string imageElement = $"<image width=\"10\" height=\"10\" href=\"{reference}\"/>";
+            var contents = new StringBuilder();
+            for (int i = 0; i < 16; i++)
+                contents.Append(imageElement);
+
+            if (nested)
+                contents.Append($"<image width=\"10\" height=\"10\" href=\"{createSvgDataUri(createImageSvg(reference), base64: true)}\"/>");
+            else
+                contents.Append(imageElement);
+
+            string svg = $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\">{contents}</svg>";
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(svg));
+
+            bool decoded = SvgImageDecoder.TryDecode(stream, new Vector2I(1), out RgbaImage? image);
+
+            using (image)
+            {
+                Assert.That(decoded, Is.False);
+                Assert.That(image, Is.Null);
+            }
+        }
+
+        [Test]
+        public void TestSvgRejectsOversizedFilterImage()
+        {
+            string reference = createEmbeddedImageDataUri(ImageFileFormat.Png, 4097, 1);
+            string svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\">"
+                         + $"<defs><filter id=\"image\"><feImage href=\"{reference}\"/></filter></defs>"
+                         + "<rect width=\"10\" height=\"10\" filter=\"url(#image)\"/></svg>";
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(svg));
+
+            bool decoded = SvgImageDecoder.TryDecode(stream, null, out RgbaImage? image);
+
+            using (image)
+            {
+                Assert.That(decoded, Is.False);
+                Assert.That(image, Is.Null);
+            }
+        }
+
+        [Test]
+        public void TestSvgPreservesDocumentFragmentGradient()
+        {
+            const string svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\">"
+                               + "<defs><linearGradient id=\"fill\"><stop stop-color=\"#ff0000\"/><stop offset=\"1\" stop-color=\"#0000ff\"/></linearGradient></defs>"
+                               + "<rect width=\"10\" height=\"10\" fill=\"url(#fill)\"/></svg>";
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(svg));
+            using var image = ImageCodec.Decode(stream);
+
+            Assert.That(image[1, 5].A, Is.EqualTo(255));
+            Assert.That(image[1, 5].R, Is.GreaterThan(image[1, 5].B));
+            Assert.That(image[8, 5].B, Is.GreaterThan(image[8, 5].R));
+        }
+
         private static string createImageSvg(string reference)
-            => $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><image width=\"10\" height=\"10\" href=\"{reference}\"/></svg>";
+            => $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><image width=\"10\" height=\"10\" preserveAspectRatio=\"none\" href=\"{reference}\"/></svg>";
 
         private static string createSvgDataUri(string svg, bool base64)
             => base64 ? "data:image/svg+xml;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(svg)) : "data:image/svg+xml," + Uri.EscapeDataString(svg);
@@ -220,6 +327,22 @@ namespace osu.Framework.Tests.Graphics
             using var stream = new MemoryStream();
             ImageCodec.Encode(image, stream, ImageFileFormat.Png);
             return stream.ToArray();
+        }
+
+        private static string createEmbeddedImageDataUri(ImageFileFormat format, int width, int height)
+        {
+            using var image = new RgbaImage(width, height);
+            image.PixelSpan.Fill(embedded_pixel);
+            using var stream = new MemoryStream();
+            ImageCodec.Encode(image, stream, format);
+            string mediaType = format switch
+            {
+                ImageFileFormat.Png => "image/png",
+                ImageFileFormat.Jpeg => "image/jpeg",
+                ImageFileFormat.WebP => "image/webp",
+                _ => throw new ArgumentOutOfRangeException(nameof(format)),
+            };
+            return $"data:{mediaType};base64,{Convert.ToBase64String(stream.ToArray())}";
         }
 
         private static async Task<bool> respondToImageRequest(TcpListener listener, byte[] png, CancellationToken cancellationToken)

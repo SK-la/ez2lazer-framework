@@ -10,6 +10,7 @@ using osu.Framework.Graphics.Primitives;
 using SkiaSharp;
 using Svg;
 using Svg.Model;
+using Svg.Model.Services;
 using Svg.Skia;
 
 namespace osu.Framework.Graphics.Imaging
@@ -20,6 +21,7 @@ namespace osu.Framework.Graphics.Imaging
         private const float default_viewport_width = 300;
         private const float default_viewport_height = 150;
         private const int max_intrinsic_dimension = 4096;
+        private const long max_embedded_image_pixels = max_intrinsic_dimension * (long)max_intrinsic_dimension;
 
         public static bool TryDecode(Stream stream, Vector2I? targetSize, [NotNullWhen(true)] out RgbaImage? image)
         {
@@ -46,6 +48,7 @@ namespace osu.Framework.Graphics.Imaging
 
             bool decoded = false;
             RgbaImage? result = null;
+            BoundedSvgAssetLoader? assetLoader = null;
 
             try
             {
@@ -57,13 +60,6 @@ namespace osu.Framework.Graphics.Imaging
 
                 stream.Position = initialPosition;
 
-                using var svg = new SKSvg();
-                svg.Settings.StandaloneViewport = viewport;
-                svg.Settings.ColorType = SKColorType.Rgba8888;
-                svg.Settings.AlphaType = SKAlphaType.Premul;
-                svg.Settings.EnableJavaScript = false;
-                svg.Settings.EnableExternalJavaScript = false;
-
                 var parameters = new SvgParameters
                 {
                     LoadOptions = new SvgDocumentLoadOptions
@@ -73,7 +69,31 @@ namespace osu.Framework.Graphics.Imaging
                     },
                 };
 
-                if (svg.Load(stream, parameters) == null || svg.Picture == null)
+                var settings = new SKSvgSettings
+                {
+                    StandaloneViewport = viewport,
+                    ColorType = SKColorType.Rgba8888,
+                    AlphaType = SKAlphaType.Premul,
+                    EnableJavaScript = false,
+                    EnableExternalJavaScript = false,
+                };
+                var skiaModel = new SkiaModel(settings);
+                assetLoader = new BoundedSvgAssetLoader(skiaModel);
+                SvgDocument? svgDocument = SvgService.Open(stream, parameters);
+                if (svgDocument == null)
+                    return false;
+
+                var sceneViewport = new ShimSkiaSharp.SKRect(0, 0, outputSize.X, outputSize.Y);
+                if (!SvgSceneRuntime.TryCompile(svgDocument, assetLoader, DrawAttributes.None, sceneViewport, out SvgSceneDocument? scene)
+                    || scene == null || assetLoader.ExceededLimits)
+                    return false;
+
+                ShimSkiaSharp.SKPicture? model = scene.CreateModel();
+                if (model == null || assetLoader.ExceededLimits)
+                    return false;
+
+                using var svgPicture = skiaModel.ToSKPicture(model);
+                if (svgPicture == null || assetLoader.ExceededLimits)
                     return false;
 
                 var surfaceInfo = new SKImageInfo(outputSize.X, outputSize.Y, SKColorType.Rgba8888, SKAlphaType.Premul);
@@ -82,7 +102,7 @@ namespace osu.Framework.Graphics.Imaging
                     return false;
 
                 surface.Canvas.Clear(SKColors.Transparent);
-                surface.Canvas.DrawPicture(svg.Picture);
+                surface.Canvas.DrawPicture(svgPicture);
                 surface.Canvas.Flush();
 
                 var imageInfo = new SKImageInfo(outputSize.X, outputSize.Y, SKColorType.Rgba8888, SKAlphaType.Unpremul);
@@ -107,7 +127,72 @@ namespace osu.Framework.Graphics.Imaging
                 if (!decoded)
                     result?.Dispose();
 
+                assetLoader?.ClearDocumentFonts();
                 stream.Position = initialPosition;
+            }
+        }
+
+        private sealed class BoundedSvgAssetLoader : SkiaSvgAssetLoader, ISvgAssetLoader
+        {
+            private long remainingPixels = max_embedded_image_pixels;
+
+            public bool ExceededLimits { get; private set; }
+
+            public BoundedSvgAssetLoader(SkiaModel skiaModel)
+                : base(skiaModel)
+            {
+            }
+
+            // Reimplement the library's final interface method so nested documents share the same pixel budget.
+            ShimSkiaSharp.SKImage ISvgAssetLoader.LoadImage(Stream stream)
+            {
+                Stream imageStream = stream;
+                MemoryStream? copy = null;
+                long initialPosition = stream.CanSeek ? stream.Position : 0;
+
+                try
+                {
+                    if (!stream.CanSeek)
+                    {
+                        copy = new MemoryStream();
+                        stream.CopyTo(copy);
+                        copy.Position = 0;
+                        imageStream = copy;
+                    }
+
+                    long imagePosition = imageStream.Position;
+                    long imagePixels;
+
+                    using (var skiaStream = new SKManagedStream(imageStream, disposeManagedStream: false))
+                    using (var codec = SKCodec.Create(skiaStream))
+                    {
+                        if (codec == null)
+                            return null!;
+
+                        SKImageInfo info = codec.Info;
+                        imagePixels = (long)info.Width * info.Height;
+
+                        if (info.Width is <= 0 or > max_intrinsic_dimension
+                            || info.Height is <= 0 or > max_intrinsic_dimension
+                            || imagePixels > remainingPixels)
+                        {
+                            ExceededLimits = true;
+                            return null!;
+                        }
+                    }
+
+                    imageStream.Position = imagePosition;
+                    var image = base.LoadImage(imageStream);
+                    remainingPixels -= imagePixels;
+                    return image;
+                }
+                finally
+                {
+                    copy?.Dispose();
+
+                    if (stream.CanSeek)
+                        stream.Position = initialPosition;
+                }
             }
         }
 
