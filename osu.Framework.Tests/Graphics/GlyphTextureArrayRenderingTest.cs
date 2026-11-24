@@ -48,9 +48,10 @@ namespace osu.Framework.Tests.Graphics
             {
                 firstFontStore = new FontStore(renderer, useAtlas: false);
 
-                if (!tryInitialiseRenderer(renderer))
+                if (!tryInitialiseRenderer(renderer, requireGlyphArraySupport: false))
                     return;
 
+                expectedEnabled &= GlyphTexturePool.SupportsArrayRendering(renderer);
                 Assert.That(firstFontStore.UsesGlyphTextureArray, Is.EqualTo(expectedEnabled));
 
                 Environment.SetEnvironmentVariable(environment_variable, expectedEnabled ? "0" : null);
@@ -270,11 +271,18 @@ namespace osu.Framework.Tests.Graphics
         private static bool isGlyphAlive(GlyphRegionReference glyphReference)
             => glyphReference.WeakRegion.TryGetTarget(out _);
 
-        private static bool tryInitialiseRenderer(VeldridRenderer renderer)
+        private static bool tryInitialiseRenderer(VeldridRenderer renderer, bool requireGlyphArraySupport = true)
         {
             try
             {
                 renderer.InitialiseOffline(target_size, target_size);
+
+                if (requireGlyphArraySupport && !GlyphTexturePool.SupportsArrayRendering(renderer))
+                {
+                    Assert.Ignore($"Glyph texture arrays are not enabled for the {renderer.SurfaceType} renderer.");
+                    return false;
+                }
+
                 return true;
             }
             catch (Exception exception)

@@ -100,7 +100,7 @@ namespace osu.Framework.Tests.Visual.Performance
 
             bool arrayEnabled = fonts.UsesGlyphTextureArray;
             AddLabel($"Glyph texture array test path active: {arrayEnabled}");
-            AddLabel("Production defaults to glyph arrays on immediate D3D11, Metal and Vulkan. Set EZ2LAZER_GLYPH_TEXTURE_ARRAY=0 before launch to disable. This scene force-enables the array path.");
+            AddLabel("Production defaults to glyph arrays on immediate D3D11 and Metal. Set EZ2LAZER_GLYPH_TEXTURE_ARRAY=0 before launch to disable. This scene force-enables the array path.");
             AddLabel("Compare repeated UI text while idle and while scrolling.");
             AddLabel("The bundled outline fixture is Roboto Latin. This scene does not measure CJK font coverage or fallback shaping.");
 

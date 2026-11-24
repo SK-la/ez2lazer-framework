@@ -51,6 +51,9 @@ namespace osu.Framework.Graphics.Textures
         public static bool IsEnabled(IRenderer renderer)
             => env_allows_glyph_array && supportsTextureArrays(renderer);
 
+        internal static bool SupportsArrayRendering(IRenderer renderer)
+            => supportsTextureArrays(renderer);
+
         public static GlyphTexturePool? Create(IRenderer renderer)
             => create(renderer, forceEnable: false);
 
@@ -64,7 +67,7 @@ namespace osu.Framework.Graphics.Textures
             if (renderer is not VeldridRenderer veldridRenderer || !veldridRenderer.IsInitialised)
                 return false;
 
-            return veldridRenderer.SurfaceType is Platform.GraphicsSurfaceType.Direct3D11 or Platform.GraphicsSurfaceType.Metal or Platform.GraphicsSurfaceType.Vulkan;
+            return veldridRenderer.SurfaceType is Platform.GraphicsSurfaceType.Direct3D11 or Platform.GraphicsSurfaceType.Metal;
         }
 
         private static GlyphTexturePool? create(IRenderer renderer, bool forceEnable)
