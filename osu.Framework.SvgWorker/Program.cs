@@ -24,7 +24,7 @@ Environment.SetEnvironmentVariable("EZ2LAZER_SVG_WORKER", "1");
 
 using var stream = File.OpenRead(path);
 
-if (!SvgImageDecoder.TryDecodeWithoutWorker(stream, target, out var image) || image == null)
+if (!SvgImageDecoder.TryDecodeWithoutWorker(stream, target, out var image))
     Environment.Exit(1);
 
 try
