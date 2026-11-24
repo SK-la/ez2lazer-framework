@@ -208,6 +208,52 @@ namespace osu.Framework.Tests.Graphics
         }
 
         [Test]
+        public void TestBitmapGlyphStoreUsesArrayCoverage()
+        {
+            bool wasDrawThread = ThreadSafety.IsDrawThread;
+            ThreadSafety.IsDrawThread = true;
+
+            var renderer = new VeldridRenderer();
+            GlyphStore? glyphStore = null;
+            FontStore? fontStore = null;
+
+            try
+            {
+                if (!tryInitialiseRenderer(renderer))
+                    return;
+
+                fontStore = new FontStore(renderer, useAtlas: false);
+                fontStore.EnableGlyphTextureArrayForVisualTest();
+
+                var resources = new NamespacedResourceStore<byte[]>(new DllResourceStore(typeof(GlyphTextureArrayRenderingTest).Assembly), "Resources");
+                glyphStore = new GlyphStore(resources, "Fonts/Roboto/Roboto-Regular");
+                glyphStore.LoadFontAsync().GetAwaiter().GetResult();
+                fontStore.AddTextureSource(glyphStore);
+
+                var ordinaryGlyph = fontStore.GetForSpriteText(null, 'a', useGlyphTextureArray: false) as TexturedCharacterGlyph;
+                var arrayGlyph = fontStore.GetForSpriteText(null, 'a', useGlyphTextureArray: true) as TexturedCharacterGlyph;
+
+                Assert.That(ordinaryGlyph, Is.Not.Null);
+                Assert.That(arrayGlyph, Is.Not.Null);
+                Assert.That(arrayGlyph!.Texture, Is.TypeOf<GlyphAtlasRegion>());
+                Assert.That(arrayGlyph.XOffset, Is.EqualTo(ordinaryGlyph!.XOffset));
+                Assert.That(arrayGlyph.YOffset, Is.EqualTo(ordinaryGlyph.YOffset));
+                Assert.That(arrayGlyph.XAdvance, Is.EqualTo(ordinaryGlyph.XAdvance));
+                Assert.That(arrayGlyph.Baseline, Is.EqualTo(ordinaryGlyph.Baseline));
+            }
+            finally
+            {
+                fontStore?.Dispose();
+                glyphStore?.Dispose();
+
+                if (renderer.IsInitialised)
+                    renderer.DisposeOffline();
+
+                ThreadSafety.IsDrawThread = wasDrawThread;
+            }
+        }
+
+        [Test]
         public void TestReleasedGlyphRegionsAreReusedWithoutOverwritingLiveGlyphs()
         {
             bool wasDrawThread = ThreadSafety.IsDrawThread;

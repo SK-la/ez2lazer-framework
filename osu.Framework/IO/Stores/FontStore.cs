@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.Logging;
@@ -94,7 +95,11 @@ namespace osu.Framework.IO.Stores
 
         internal void EnableGlyphTextureArrayForVisualTest()
         {
-            glyphTexturePool ??= GlyphTexturePool.CreateForVisualTest(glyphRenderer);
+            lock (arrayGlyphCacheLock)
+            {
+                if (glyphTexturePool == null)
+                    glyphTexturePool = GlyphTexturePool.CreateForVisualTest(glyphRenderer);
+            }
         }
 
         private GlyphTexturePool ensureGlyphTexturePool()
@@ -351,26 +356,30 @@ namespace osu.Framework.IO.Stores
                     if (glyphMetrics == null)
                         continue;
 
-                    if (useGlyphTextureArray && store is OutlineGlyphStore outlineStore && !outlineStore.HasColourGlyphs)
+                    if (useGlyphTextureArray && !glyphMetrics.HasColour && store is IResourceStore<TextureUpload> textureUploadStore)
                     {
                         lock (arrayGlyphCacheLock)
                         {
                             if (arrayGlyphCache.TryGetValue(key, out existing))
                                 return existing;
 
-                            object uploadResult = ((IResourceStore<TextureUpload>)outlineStore).Get(textureName);
+                            object uploadResult = textureUploadStore.Get(textureName);
 
                             if (uploadResult is not TextureUpload upload)
                                 continue;
 
                             using (upload)
                             {
+                                if (store is not OutlineGlyphStore && !isMonochrome(upload.Data))
+                                    goto legacy;
+
                                 if (glyphTexturePool!.TryAdd(upload, out var arrayGlyph))
                                     return arrayGlyphCache[key] = new TexturedCharacterGlyph(glyphMetrics, arrayGlyph!, 1 / ScaleAdjust);
                             }
                         }
                     }
 
+                    legacy:
                     var texture = Get(textureName);
                     if (texture == null)
                         continue;
@@ -391,7 +400,7 @@ namespace osu.Framework.IO.Stores
             lock (glyphCacheLock)
             {
                 // The face may have become readable while this lookup was walking stores.
-                // Leave the miss uncached so the next lookup can see the glyph.
+                // Leave the miss uncached so the next lookup can see it.
                 if (anyFontLoadPending || LoadGeneration != generationAtLookup)
                     return null;
 
@@ -421,6 +430,17 @@ namespace osu.Framework.IO.Stores
                     glyphTexturePool?.Dispose();
                 }
             }
+        }
+
+        private static bool isMonochrome(ReadOnlySpan<Rgba32> pixels)
+        {
+            foreach (Rgba32 pixel in pixels)
+            {
+                if (pixel.R != pixel.G || pixel.G != pixel.B)
+                    return false;
+            }
+
+            return true;
         }
 
         private static bool shouldUseLiteralGlyphKey(char c)

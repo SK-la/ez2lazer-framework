@@ -19,6 +19,7 @@ namespace osu.Framework.Tests.Visual.Performance
     public partial class TestSceneSpriteTextGlyphTextureArray : PerformanceTestScene
     {
         private const int font_alias_count = 16;
+        private const string bitmap_font = "RobotoCondensed-Regular";
 
         private static readonly string glyph_sample = new string(Enumerable.Range(33, 94).Select(i => (char)i).ToArray());
 
@@ -27,6 +28,7 @@ namespace osu.Framework.Tests.Visual.Performance
 
         private FillFlowContainer rows = null!;
         private OutlineFont outlineFont = null!;
+        private GlyphStore bitmapGlyphStore = null!;
         private readonly List<OutlineGlyphStore> glyphStores = new List<OutlineGlyphStore>();
         private SpriteText poolStatistics = null!;
 
@@ -37,6 +39,11 @@ namespace osu.Framework.Tests.Visual.Performance
 
             var resources = new NamespacedResourceStore<byte[]>(new DllResourceStore(typeof(Game).Assembly), "Resources");
             outlineFont = new OutlineFont(resources, "Fonts/Roboto/Roboto") { Resolution = 100 };
+            var bitmapResources = new NamespacedResourceStore<byte[]>(new DllResourceStore(typeof(TestSceneSpriteTextGlyphTextureArray).Assembly), "Resources");
+            bitmapGlyphStore = new GlyphStore(bitmapResources, $"Fonts/RobotoCondensed/{bitmap_font}");
+            // Complete loading before FontStore starts its own asynchronous load queue for this store.
+            bitmapGlyphStore.LoadFontAsync().GetAwaiter().GetResult();
+            fonts.AddTextureSource(bitmapGlyphStore);
 
             for (int i = 0; i < font_alias_count; i++)
             {
@@ -84,8 +91,16 @@ namespace osu.Framework.Tests.Visual.Performance
 
             rows.Add(new SpriteText
             {
+                Font = new FontUsage(bitmap_font, 18),
+                Text = $"Bitmap font  {glyph_sample}",
+                RelativeSizeAxes = Axes.X,
+                AllowMultiline = false,
+            });
+
+            rows.Add(new SpriteText
+            {
                 Font = FrameworkFont.Regular.With(size: 20),
-                Text = $"Legacy font fallback  {FontAwesome.Solid.Music.Icon}",
+                Text = $"Monochrome icon  {FontAwesome.Solid.Music.Icon}",
                 RelativeSizeAxes = Axes.X,
                 AllowMultiline = false,
                 Shadow = true,
@@ -105,6 +120,7 @@ namespace osu.Framework.Tests.Visual.Performance
             AddLabel("The bundled outline fixture is Roboto Latin. This scene does not measure CJK font coverage or fallback shaping.");
 
             AddUntilStep("All Roboto alias glyphs are available", () => fonts.GetForSpriteText(getFontName(font_alias_count - 1), '~', useGlyphTextureArray: arrayEnabled) != null);
+            AddUntilStep("Bitmap-font glyph is available", () => bitmapGlyphStore.HasGlyph('a'));
 
             AddAssert("Array mode preserves glyph metrics and reports pool usage", () =>
             {
@@ -112,6 +128,7 @@ namespace osu.Framework.Tests.Visual.Performance
                 int legacyGlyphs = 0;
                 int highestLayer = -1;
                 bool sameMetrics = true;
+                float glyphScale = 1 / fonts.ScaleAdjust;
 
                 foreach (OutlineGlyphStore glyphStore in glyphStores)
                 {
@@ -120,10 +137,10 @@ namespace osu.Framework.Tests.Visual.Performance
                         CharacterGlyph ordinary = glyphStore.Get(character)!;
                         ITexturedCharacterGlyph selected = fonts.GetForSpriteText(glyphStore.FontName, character, useGlyphTextureArray: arrayEnabled)!;
 
-                        sameMetrics &= ordinary.XOffset.Equals(selected.XOffset)
-                                       && ordinary.YOffset.Equals(selected.YOffset)
-                                       && ordinary.XAdvance.Equals(selected.XAdvance)
-                                       && ordinary.Baseline.Equals(selected.Baseline);
+                        sameMetrics &= (ordinary.XOffset * glyphScale).Equals(selected.XOffset)
+                                       && (ordinary.YOffset * glyphScale).Equals(selected.YOffset)
+                                       && (ordinary.XAdvance * glyphScale).Equals(selected.XAdvance)
+                                       && (ordinary.Baseline * glyphScale).Equals(selected.Baseline);
 
                         if (selected.Texture is GlyphAtlasRegion region)
                         {
@@ -145,8 +162,9 @@ namespace osu.Framework.Tests.Visual.Performance
                 return sameMetrics && arrayGlyphs > 0 && highestLayer > 0 && fonts.GlyphTextureArrayFallbackCount == 0;
             });
 
-            AddAssert("Colour fallback stays on a legacy texture", () =>
-                fonts.GetForSpriteText(null, FontAwesome.Solid.Music.Icon, useGlyphTextureArray: arrayEnabled)?.Texture is not GlyphAtlasRegion);
+            AddAssert("Monochrome bitmap font uses the same array path", () =>
+                fonts.GetForSpriteText(bitmap_font, 'a', useGlyphTextureArray: arrayEnabled) is { } glyph
+                && (glyph.Texture is GlyphAtlasRegion) == arrayEnabled);
         }
 
         protected override void Dispose(bool isDisposing)
@@ -161,6 +179,7 @@ namespace osu.Framework.Tests.Visual.Performance
                     glyphStore.Dispose();
                 }
 
+                fonts.RemoveTextureStore(bitmapGlyphStore);
                 outlineFont.Dispose();
             }
         }
