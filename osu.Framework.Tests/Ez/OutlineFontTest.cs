@@ -3,6 +3,7 @@
 
 using NUnit.Framework;
 using osu.Framework.Extensions;
+using osu.Framework.Graphics.Textures;
 using osu.Framework.IO.Stores;
 using osu.Framework.Text;
 
@@ -81,6 +82,21 @@ namespace osu.Framework.Tests.Ez
                 Assert.AreEqual(regularA.YOffset, regularA2.YOffset);
                 Assert.AreEqual(regularA.XAdvance, regularA2.XAdvance);
             }
+        }
+
+        [Test]
+        public void TestDirectCoverageMatchesRgbaAlpha()
+        {
+            uint glyphIndex = outlineFont.GetGlyphIndex('A');
+            using TextureUpload rgba = outlineFont.RasterizeGlyph(glyphIndex, variation)!;
+            GlyphCoverageUpload coverage = outlineFont.RasterizeGlyphCoverage(glyphIndex, variation)!;
+
+            Assert.That(coverage.Width, Is.EqualTo(rgba.Width));
+            Assert.That(coverage.Height, Is.EqualTo(rgba.Height));
+            Assert.That(coverage.Data.Length, Is.EqualTo(rgba.Data.Length));
+
+            for (int i = 0; i < coverage.Data.Length; i++)
+                Assert.That(coverage.Data[i], Is.EqualTo(rgba.Data[i].A), $"Coverage mismatch at pixel {i}.");
         }
     }
 }

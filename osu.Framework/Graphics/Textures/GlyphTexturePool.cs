@@ -113,26 +113,11 @@ namespace osu.Framework.Graphics.Textures
 
             lock (allocationLock)
             {
-                int attempt = ++allocationAttempts;
                 int x = 0;
                 int y = 0;
                 int layer = 0;
-                bool allocated = !disposed && (tryAllocateFromFreeRegions(upload.Width + glyph_padding * 2, upload.Height + glyph_padding * 2, out x, out y, out layer)
-                                               || tryAllocate(upload.Width, upload.Height, out x, out y, out layer));
-
-                if (!allocated && !disposed && attempt >= nextReclamationAttempt)
-                {
-                    reclaimUnusedRegions();
-                    nextReclamationAttempt = attempt + reclamation_retry_interval;
-                    allocated = tryAllocateFromFreeRegions(upload.Width + glyph_padding * 2, upload.Height + glyph_padding * 2, out x, out y, out layer)
-                                || tryAllocate(upload.Width, upload.Height, out x, out y, out layer);
-                }
-
-                if (!allocated)
-                {
-                    Interlocked.Increment(ref fallbackCount);
+                if (!tryAllocateGlyph(upload.Width, upload.Height, out x, out y, out layer))
                     return false;
-                }
 
                 int uploadWidth = upload.Width + glyph_padding * 2;
                 int uploadHeight = upload.Height + glyph_padding * 2;
@@ -148,12 +133,61 @@ namespace osu.Framework.Graphics.Textures
                         coverage[targetRow + column] = pixels[sourceRow + column].A;
                 }
 
-                nativeTexture.SetRegionData((uint)layer, x, y, uploadWidth, uploadHeight, coverage);
+                nativeTexture.SetRegionDataOwned((uint)layer, x, y, uploadWidth, uploadHeight, coverage);
                 glyph = new GlyphAtlasRegion(Texture, new RectangleI(x + glyph_padding, y + glyph_padding, upload.Width, upload.Height), layer);
                 allocations.Add(new GlyphAllocation(x, y, uploadWidth, uploadHeight, layer, new WeakReference<GlyphAtlasRegion>(glyph)));
                 Interlocked.Increment(ref glyphCount);
                 return true;
             }
+        }
+
+        public bool TryAdd(GlyphCoverageUpload upload, out GlyphAtlasRegion? glyph)
+        {
+            glyph = null;
+
+            lock (allocationLock)
+            {
+                if (!tryAllocateGlyph(upload.Width, upload.Height, out int x, out int y, out int layer))
+                    return false;
+
+                int uploadWidth = upload.Width + glyph_padding * 2;
+                int uploadHeight = upload.Height + glyph_padding * 2;
+                byte[] coverage = new byte[checked(uploadWidth * uploadHeight)];
+                ReadOnlySpan<byte> pixels = upload.Data;
+
+                for (int row = 0; row < upload.Height; row++)
+                    pixels.Slice(row * upload.Width, upload.Width).CopyTo(coverage.AsSpan((row + glyph_padding) * uploadWidth + glyph_padding, upload.Width));
+
+                nativeTexture.SetRegionDataOwned((uint)layer, x, y, uploadWidth, uploadHeight, coverage);
+                glyph = new GlyphAtlasRegion(Texture, new RectangleI(x + glyph_padding, y + glyph_padding, upload.Width, upload.Height), layer);
+                allocations.Add(new GlyphAllocation(x, y, uploadWidth, uploadHeight, layer, new WeakReference<GlyphAtlasRegion>(glyph)));
+                Interlocked.Increment(ref glyphCount);
+                return true;
+            }
+        }
+
+        private bool tryAllocateGlyph(int width, int height, out int x, out int y, out int layer)
+        {
+            x = y = layer = 0;
+            int attempt = ++allocationAttempts;
+            bool allocated = !disposed && (tryAllocateFromFreeRegions(width + glyph_padding * 2, height + glyph_padding * 2, out x, out y, out layer)
+                                           || tryAllocate(width, height, out x, out y, out layer));
+
+            if (!allocated && !disposed && attempt >= nextReclamationAttempt)
+            {
+                reclaimUnusedRegions();
+                nextReclamationAttempt = attempt + reclamation_retry_interval;
+                allocated = tryAllocateFromFreeRegions(width + glyph_padding * 2, height + glyph_padding * 2, out x, out y, out layer)
+                            || tryAllocate(width, height, out x, out y, out layer);
+            }
+
+            if (!allocated)
+            {
+                Interlocked.Increment(ref fallbackCount);
+                x = y = layer = 0;
+            }
+
+            return allocated;
         }
 
         internal void ReclaimUnusedRegions()
@@ -361,6 +395,25 @@ namespace osu.Framework.Graphics.Textures
         private readonly record struct GlyphAllocation(int X, int Y, int Width, int Height, int Layer, WeakReference<GlyphAtlasRegion> Glyph);
 
         private readonly record struct FreeRegion(int X, int Y, int Width, int Height, int Layer);
+    }
+
+    internal sealed class GlyphCoverageUpload
+    {
+        public int Width { get; }
+        public int Height { get; }
+        public ReadOnlySpan<byte> Data => coverage;
+
+        private readonly byte[] coverage;
+
+        public GlyphCoverageUpload(int width, int height, byte[] coverage)
+        {
+            if (width <= 0 || height <= 0 || coverage.Length != checked(width * height))
+                throw new ArgumentException("Coverage data dimensions are invalid.", nameof(coverage));
+
+            Width = width;
+            Height = height;
+            this.coverage = coverage;
+        }
     }
 
     internal sealed class GlyphAtlasRegion : TextureRegion

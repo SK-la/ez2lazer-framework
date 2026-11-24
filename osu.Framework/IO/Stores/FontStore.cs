@@ -363,6 +363,20 @@ namespace osu.Framework.IO.Stores
                             if (arrayGlyphCache.TryGetValue(key, out existing))
                                 return existing;
 
+                            GlyphCoverageUpload coverage = null;
+                            if (store is OutlineGlyphStore outlineStore)
+                                coverage = outlineStore.GetCoverage(codepoint);
+                            else if (store is RawCachingGlyphStore rawCachingStore)
+                                coverage = rawCachingStore.GetCoverage(codepoint);
+
+                            if (coverage != null)
+                            {
+                                if (glyphTexturePool!.TryAdd(coverage, out var directGlyph))
+                                    return arrayGlyphCache[key] = new TexturedCharacterGlyph(glyphMetrics, directGlyph!, 1 / ScaleAdjust);
+
+                                goto legacy;
+                            }
+
                             object uploadResult = textureUploadStore.Get(textureName);
 
                             if (uploadResult is not TextureUpload upload)

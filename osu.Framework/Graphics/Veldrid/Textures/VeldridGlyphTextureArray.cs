@@ -81,6 +81,9 @@ namespace osu.Framework.Graphics.Veldrid.Textures
         }
 
         public void SetRegionData(uint layer, int x, int y, int width, int height, ReadOnlySpan<byte> coverage)
+            => SetRegionDataOwned(layer, x, y, width, height, coverage.ToArray());
+
+        internal void SetRegionDataOwned(uint layer, int x, int y, int width, int height, byte[] coverage)
         {
             ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(layer, layerCount);
             if (x < 0 || y < 0 || width <= 0 || height <= 0 || x > Width - width || y > Height - height)
@@ -94,7 +97,7 @@ namespace osu.Framework.Graphics.Veldrid.Textures
             {
                 bool enqueue = uploads.Count == 0;
 
-                uploads.Enqueue(new LayerUpload(layer, x, y, width, height, coverage.ToArray()));
+                uploads.Enqueue(new LayerUpload(layer, x, y, width, height, coverage));
                 TextureUploadDrainer.LogIfQueueLarge(this, uploads.Count);
 
                 if (enqueue && !BypassTextureUploadQueueing)

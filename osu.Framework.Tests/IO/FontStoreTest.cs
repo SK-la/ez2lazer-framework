@@ -51,6 +51,23 @@ namespace osu.Framework.Tests.IO
         }
 
         [Test]
+        public async Task TestRawCachingCoverageMatchesTextureAlpha()
+        {
+            using var glyphStore = new RawCachingGlyphStore(fontResourceStore, "Roboto-Regular") { CacheStorage = storage };
+            await glyphStore.LoadFontAsync().ConfigureAwait(false);
+
+            using TextureUpload rgba = ((IResourceStore<TextureUpload>)glyphStore).Get("Roboto-Regular/A");
+            GlyphCoverageUpload coverage = glyphStore.GetCoverage('A')!;
+
+            Assert.That(coverage.Width, Is.EqualTo(rgba.Width));
+            Assert.That(coverage.Height, Is.EqualTo(rgba.Height));
+            Assert.That(coverage.Data.Length, Is.EqualTo(rgba.Data.Length));
+
+            for (int i = 0; i < coverage.Data.Length; i++)
+                Assert.That(coverage.Data[i], Is.EqualTo(rgba.Data[i].A), $"Coverage mismatch at pixel {i}.");
+        }
+
+        [Test]
         public void TestGlyphFoundAfterDelayedFontLoad()
         {
             var glyphs = new DelayedGlyphStore();

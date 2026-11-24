@@ -930,6 +930,52 @@ namespace osu.Framework.Text
             return await Task.Run(() => rasterizeGlyphInner(native, glyphIndex, variation), cancellationToken).ConfigureAwait(false);
         }
 
+        internal unsafe GlyphCoverageUpload? RasterizeGlyphCoverage(uint glyphIndex, RawFontVariation? variation)
+        {
+            if (face is null)
+                return null;
+
+            lock (faceLock)
+            {
+                setVariation(face, variation);
+                FT_Error error = FT_Load_Glyph(face, glyphIndex, combineLoadFlags(FT_LOAD_NO_BITMAP, FT_LOAD_NO_HINTING, FT_LOAD_RENDER));
+                if (error != 0)
+                    throw new FreeTypeException(error);
+
+                var bitmap = &face->glyph->bitmap;
+                int width = bitmap->width != 0 ? (int)bitmap->width : 1;
+                int height = bitmap->rows != 0 ? (int)bitmap->rows : 1;
+                byte[] coverage = new byte[checked(width * height)];
+
+                if (bitmap->buffer == null || bitmap->width == 0 || bitmap->rows == 0)
+                    return new GlyphCoverageUpload(width, height, coverage);
+
+                if (bitmap->pixel_mode != (byte)FT_PIXEL_MODE_GRAY && bitmap->pixel_mode != (byte)FT_PIXEL_MODE_MONO)
+                    return null;
+
+                int pitch = bitmap->pitch;
+                byte* baseBuffer = bitmap->buffer;
+                for (int y = 0; y < bitmap->rows; y++)
+                {
+                    byte* rowPointer = pitch >= 0
+                        ? baseBuffer + y * pitch
+                        : baseBuffer + (bitmap->rows - 1 - y) * -pitch;
+                    ReadOnlySpan<byte> sourceRow = new ReadOnlySpan<byte>(rowPointer, Math.Abs(pitch));
+                    Span<byte> destinationRow = coverage.AsSpan(y * width, width);
+
+                    if (bitmap->pixel_mode == (byte)FT_PIXEL_MODE_GRAY)
+                        sourceRow[..width].CopyTo(destinationRow);
+                    else
+                    {
+                        for (int x = 0; x < width; x++)
+                            destinationRow[x] = (sourceRow[x >> 3] & (0x80 >> (x & 7))) != 0 ? byte.MaxValue : (byte)0;
+                    }
+                }
+
+                return new GlyphCoverageUpload(width, height, coverage);
+            }
+        }
+
         private unsafe TextureUpload rasterizeGlyphInner(nint intPtr, uint glyphIndex, RawFontVariation? variation)
         {
             RgbaImage image;
