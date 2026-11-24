@@ -8,6 +8,8 @@ using System.IO;
 using System.Xml;
 using osu.Framework.Graphics.Primitives;
 using SkiaSharp;
+using Svg;
+using Svg.Model;
 using Svg.Skia;
 
 namespace osu.Framework.Graphics.Imaging
@@ -55,7 +57,6 @@ namespace osu.Framework.Graphics.Imaging
 
                 stream.Position = initialPosition;
 
-                using var reader = XmlReader.Create(stream, createReaderSettings());
                 using var svg = new SKSvg();
                 svg.Settings.StandaloneViewport = viewport;
                 svg.Settings.ColorType = SKColorType.Rgba8888;
@@ -63,7 +64,16 @@ namespace osu.Framework.Graphics.Imaging
                 svg.Settings.EnableJavaScript = false;
                 svg.Settings.EnableExternalJavaScript = false;
 
-                if (svg.Load(reader) == null || svg.Picture == null)
+                var parameters = new SvgParameters
+                {
+                    LoadOptions = new SvgDocumentLoadOptions
+                    {
+                        ProcessingMode = SvgProcessingMode.SecureStatic,
+                        ExternalResources = SvgExternalResourcePolicy.SameDocumentAndDataOnly,
+                    },
+                };
+
+                if (svg.Load(stream, parameters) == null || svg.Picture == null)
                     return false;
 
                 var surfaceInfo = new SKImageInfo(outputSize.X, outputSize.Y, SKColorType.Rgba8888, SKAlphaType.Premul);
