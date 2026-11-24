@@ -12,10 +12,11 @@ using Svg;
 using Svg.Model;
 using Svg.Model.Services;
 using Svg.Skia;
+using Svg.Skia.TypefaceProviders;
 
 namespace osu.Framework.Graphics.Imaging
 {
-    internal static unsafe class SvgImageDecoder
+    internal static unsafe partial class SvgImageDecoder
     {
         private const string svg_namespace = "http://www.w3.org/2000/svg";
         private const float default_viewport_width = 300;
@@ -23,7 +24,18 @@ namespace osu.Framework.Graphics.Imaging
         private const int max_intrinsic_dimension = 4096;
         private const long max_embedded_image_pixels = max_intrinsic_dimension * (long)max_intrinsic_dimension;
 
+        private static readonly bool suppress_worker_decode = string.Equals(Environment.GetEnvironmentVariable("EZ2LAZER_SVG_WORKER"), "1", StringComparison.Ordinal);
+
+        /// <summary>
+        /// Rasterise an SVG without spawning the Linux out-of-process worker (used by <c>osu.Framework.SvgWorker</c>).
+        /// </summary>
+        internal static bool TryDecodeWithoutWorker(Stream stream, Vector2I? targetSize, [NotNullWhen(true)] out RgbaImage? image)
+            => tryDecodeCore(stream, targetSize, false, out image);
+
         public static bool TryDecode(Stream stream, Vector2I? targetSize, [NotNullWhen(true)] out RgbaImage? image)
+            => tryDecodeCore(stream, targetSize, !suppress_worker_decode, out image);
+
+        private static bool tryDecodeCore(Stream stream, Vector2I? targetSize, bool allowWorker, [NotNullWhen(true)] out RgbaImage? image)
         {
             image = null;
 
@@ -48,6 +60,50 @@ namespace osu.Framework.Graphics.Imaging
 
             bool decoded = false;
             RgbaImage? result = null;
+
+            try
+            {
+                if (allowWorker && shouldUseWorkerDecode(stream, initialPosition))
+                {
+                    if (tryDecodeInWorkerProcess(stream, initialPosition, targetSize, out result))
+                    {
+                        image = result;
+                        decoded = true;
+                        return true;
+                    }
+                }
+
+                SvgImageDecodeScheduler.Run(() =>
+                {
+                    if (tryDecodeRaster(stream, initialPosition, targetSize, out result))
+                        decoded = true;
+                });
+
+                if (!decoded || result == null)
+                {
+                    image = null;
+                    return false;
+                }
+
+                image = result;
+                return true;
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+            {
+                return false;
+            }
+            finally
+            {
+                if (!decoded)
+                    result?.Dispose();
+
+                stream.Position = initialPosition;
+            }
+        }
+
+        private static bool tryDecodeRaster(Stream stream, long initialPosition, Vector2I? targetSize, [NotNullWhen(true)] out RgbaImage? image)
+        {
+            image = null;
             BoundedSvgAssetLoader? assetLoader = null;
 
             try
@@ -77,6 +133,9 @@ namespace osu.Framework.Graphics.Imaging
                     EnableJavaScript = false,
                     EnableExternalJavaScript = false,
                 };
+
+                if (SvgImageDecodeScheduler.UseIsolatedSerialisation)
+                    settings.TypefaceProviders = [new DefaultTypefaceProvider()];
                 var skiaModel = new SkiaModel(settings);
                 assetLoader = new BoundedSvgAssetLoader(skiaModel);
                 SvgDocument? svgDocument = SvgService.Open(stream, parameters);
@@ -84,11 +143,13 @@ namespace osu.Framework.Graphics.Imaging
                     return false;
 
                 var sceneViewport = new ShimSkiaSharp.SKRect(0, 0, outputSize.X, outputSize.Y);
-                if (!SvgSceneRuntime.TryCompile(svgDocument, assetLoader, DrawAttributes.None, sceneViewport, out SvgSceneDocument? scene)
-                    || scene == null || assetLoader.ExceededLimits)
+                if (!SvgSceneRuntime.TryCompile(svgDocument, assetLoader, DrawAttributes.None, sceneViewport, out SvgSceneDocument? scene))
                     return false;
 
-                ShimSkiaSharp.SKPicture? model = scene.CreateModel();
+                if (assetLoader.ExceededLimits)
+                    return false;
+
+                ShimSkiaSharp.SKPicture? model = scene!.CreateModel();
                 if (model == null || assetLoader.ExceededLimits)
                     return false;
 
@@ -106,34 +167,29 @@ namespace osu.Framework.Graphics.Imaging
                 surface.Canvas.Flush();
 
                 var imageInfo = new SKImageInfo(outputSize.X, outputSize.Y, SKColorType.Rgba8888, SKAlphaType.Unpremul);
-                result = new RgbaImage(outputSize.X, outputSize.Y);
+                image = new RgbaImage(outputSize.X, outputSize.Y);
 
-                fixed (Rgba32* pixels = result.PixelSpan)
+                fixed (Rgba32* pixels = image.PixelSpan)
                 {
                     if (!surface.ReadPixels(imageInfo, (IntPtr)pixels, imageInfo.RowBytes, 0, 0))
+                    {
+                        image.Dispose();
+                        image = null;
                         return false;
+                    }
                 }
 
-                image = result;
-                decoded = true;
                 return true;
-            }
-            catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
-            {
-                return false;
             }
             finally
             {
-                if (!decoded)
-                    result?.Dispose();
-
                 assetLoader?.ClearDocumentFonts();
-                stream.Position = initialPosition;
             }
         }
 
-        private sealed class BoundedSvgAssetLoader : SkiaSvgAssetLoader, ISvgAssetLoader
+        private sealed class BoundedSvgAssetLoader : SkiaSvgAssetLoader, ISvgAssetLoader, ISvgTextGlyphRunResolver, ISvgTextDirectedGlyphRunResolver, ISvgTextGlyphClusterResolver
         {
+            private readonly SkiaModel skiaModel;
             private long remainingPixels = max_embedded_image_pixels;
 
             public bool ExceededLimits { get; private set; }
@@ -141,6 +197,100 @@ namespace osu.Framework.Graphics.Imaging
             public BoundedSvgAssetLoader(SkiaModel skiaModel)
                 : base(skiaModel)
             {
+                this.skiaModel = skiaModel;
+            }
+
+            bool ISvgTextGlyphRunResolver.TryShapeGlyphRun(string? text, ShimSkiaSharp.SKPaint paint, out ShapedGlyphRun shapedRun)
+            {
+                if (useSkiaOnlyTextShaping())
+                    return tryShapeWithSkiaOnly(text, paint, null, out shapedRun);
+
+                return TryShapeGlyphRun(text, paint, out shapedRun);
+            }
+
+            bool ISvgTextDirectedGlyphRunResolver.TryShapeGlyphRun(string? text, ShimSkiaSharp.SKPaint paint, bool rightToLeft, out ShapedGlyphRun shapedRun)
+            {
+                if (useSkiaOnlyTextShaping())
+                    return tryShapeWithSkiaOnly(text, paint, rightToLeft, out shapedRun);
+
+                return TryShapeGlyphRun(text, paint, rightToLeft, out shapedRun);
+            }
+
+            bool ISvgTextGlyphClusterResolver.TryShapeGlyphClusters(string? text, ShimSkiaSharp.SKPaint paint, bool rightToLeft, out ShapedGlyphRun shapedRun, out ShapedTextCluster[] clusters)
+            {
+                if (useSkiaOnlyTextShaping()
+                    && tryShapeWithSkiaOnly(text, paint, rightToLeft, out shapedRun)
+                    && tryCreateTrivialClusters(shapedRun, out clusters))
+                    return true;
+
+                return TryShapeGlyphClusters(text, paint, rightToLeft, out shapedRun, out clusters);
+            }
+
+            private static bool useSkiaOnlyTextShaping() => SvgImageDecodeScheduler.UseIsolatedSerialisation;
+
+            private bool tryShapeWithSkiaOnly(string? text, ShimSkiaSharp.SKPaint paint, bool? rightToLeft, out ShapedGlyphRun shapedRun)
+            {
+                shapedRun = default;
+
+                if (string.IsNullOrEmpty(text))
+                    return false;
+
+                using var font = skiaModel.ToSKFont(paint);
+
+                ushort[] glyphs = font.GetGlyphs(text);
+
+                if (glyphs.Length == 0)
+                    return false;
+
+                int glyphCount = glyphs.Length;
+                var nativePoints = new SKPoint[glyphCount];
+                font.GetGlyphPositions(glyphs, nativePoints, new SKPoint());
+                float advance = font.MeasureText(text);
+
+                var points = new ShimSkiaSharp.SKPoint[glyphCount];
+
+                for (int i = 0; i < glyphCount; i++)
+                {
+                    float x = nativePoints[i].X;
+
+                    if (rightToLeft == true)
+                        x = -x;
+
+                    points[i] = new ShimSkiaSharp.SKPoint(x, nativePoints[i].Y);
+                }
+
+                if (rightToLeft == true)
+                    advance = -advance;
+
+                int[] clusters = new int[glyphCount];
+
+                for (int i = 0; i < glyphCount; i++)
+                    clusters[i] = i;
+
+                shapedRun = new ShapedGlyphRun(glyphs, points, clusters, advance);
+                return true;
+            }
+
+            private static bool tryCreateTrivialClusters(ShapedGlyphRun shapedRun, out ShapedTextCluster[] clusters)
+            {
+                clusters = Array.Empty<ShapedTextCluster>();
+
+                if (shapedRun.Glyphs.Length == 0)
+                    return false;
+
+                clusters = new ShapedTextCluster[shapedRun.Glyphs.Length];
+
+                for (int i = 0; i < clusters.Length; i++)
+                {
+                    float offset = i < shapedRun.Points.Length ? shapedRun.Points[i].X : 0;
+                    float advance = i + 1 < shapedRun.Points.Length
+                        ? shapedRun.Points[i + 1].X - shapedRun.Points[i].X
+                        : shapedRun.Advance;
+
+                    clusters[i] = new ShapedTextCluster(i, 1, i, 1, offset, advance);
+                }
+
+                return true;
             }
 
             // Reimplement the library's final interface method so nested documents share the same pixel budget.

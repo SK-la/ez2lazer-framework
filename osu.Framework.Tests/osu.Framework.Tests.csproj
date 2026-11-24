@@ -15,6 +15,21 @@
     <PackageReference Include="NUnit3TestAdapter" Version="6.3.1" />
   </ItemGroup>
   <!-- ProjectReference does not pull Framework AfterTargets copies; place plutosvgft next to the test host. -->
+  <Target Name="CopySvgWorkerForTests" AfterTargets="Build">
+    <PropertyGroup>
+      <_SvgWorkerOut>$(MSBuildThisFileDirectory)..\osu.Framework.SvgWorker\bin\$(Configuration)\$(TargetFramework)\</_SvgWorkerOut>
+    </PropertyGroup>
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\osu.Framework.SvgWorker\osu.Framework.SvgWorker.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)" />
+    <ItemGroup>
+      <_SvgWorkerFiles Include="$(_SvgWorkerOut)osu.Framework.SvgWorker.dll;$(_SvgWorkerOut)osu.Framework.SvgWorker.deps.json;$(_SvgWorkerOut)osu.Framework.SvgWorker.runtimeconfig.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_SvgWorkerFiles)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(_SvgWorkerOut)osu.Framework.SvgWorker.dll')" />
+  </Target>
   <Target Name="CopyPlutoSvgFtNativesForTests" AfterTargets="Build">
     <ItemGroup>
       <_PlutoSvgFtNative Include="$(MSBuildThisFileDirectory)..\osu.Framework\runtimes\**\native\*" />

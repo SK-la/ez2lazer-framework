@@ -4,7 +4,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using NUnit.Framework;
 using osu.Framework.Extensions;
 using osu.Framework.Graphics.Imaging;
@@ -25,10 +24,17 @@ namespace osu.Framework.Tests.Ez
             if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
                 Assert.Ignore("plutosvgft is not shipped for this OS yet.");
 
-            RuntimeHelpers.RunClassConstructor(typeof(OutlineFont).TypeHandle);
+            string? fontPath = findNotoColorEmojiPath();
+
+            if (fontPath == null)
+                Assert.Ignore("NotoColorEmoji-Regular.ttf not found (sibling osu-resources).");
+
+            using var store = new StorageBackedResourceStore(new NativeStorage(Path.GetDirectoryName(fontPath)!));
+            using var font = new OutlineFont(store, Path.GetFileNameWithoutExtension(fontPath));
+            font.LoadAsync().WaitSafely();
 
             Assert.True(NativePlutoSvgFt.HooksRegistered,
-                "plutosvgft should register OT-SVG hooks on Windows/Linux desktop RIDs used for packaging.");
+                "plutosvgft should register OT-SVG hooks when an OT-SVG font is loaded.");
         }
 
         [Test]

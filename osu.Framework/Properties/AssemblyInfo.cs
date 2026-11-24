@@ -13,6 +13,7 @@ using osu.Framework.Testing;
 [assembly: InternalsVisibleTo("osu.Framework.Benchmarks")]
 [assembly: InternalsVisibleTo("osu.Framework.iOS")]
 [assembly: InternalsVisibleTo("osu.Framework.Tests")]
+[assembly: InternalsVisibleTo("osu.Framework.SvgWorker")]
 [assembly: InternalsVisibleTo("osu.Framework.Tests.Dynamic")]
 [assembly: InternalsVisibleTo("osu.Framework.Tests.iOS")]
 [assembly: InternalsVisibleTo("osu.Framework.Tests.Android")]

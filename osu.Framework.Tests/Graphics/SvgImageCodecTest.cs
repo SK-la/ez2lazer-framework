@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using NUnit.Framework;
 using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Primitives;
+using osu.Framework.Graphics.Rendering.Dummy;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.IO.Stores;
 using osu.Framework.Testing;
@@ -41,6 +42,16 @@ namespace osu.Framework.Tests.Graphics
         }
 
         [Test]
+        public void TestSvgWithTextDecodes()
+        {
+            const string svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\"><text x=\"0\" y=\"16\">A</text></svg>";
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(svg));
+
+            Assert.That(SvgImageDecoder.TryDecode(stream, new Vector2I(32), out var image), Is.True);
+            image!.Dispose();
+        }
+
+        [Test]
         public void TestTextureLoaderStoreUsesConfiguredSvgSize()
         {
             using var store = new TextureLoaderStore(new DllResourceStore(typeof(SvgImageCodecTest).Assembly), new Vector2I(128));
@@ -60,6 +71,19 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(upload, Is.Not.Null);
             Assert.That(upload!.Width, Is.EqualTo(32));
             Assert.That(upload.Height, Is.EqualTo(32));
+        }
+
+        [Test]
+        public void TestSvgTextureUploadViaDummyRenderer()
+        {
+            using var resources = new DllResourceStore(typeof(SvgImageCodecTest).Assembly);
+            using var loader = new TextureLoaderStore(new NamespacedResourceStore<byte[]>(resources, "Resources/Textures"), new Vector2I(128));
+            using var textureStore = new TextureStore(new DummyRenderer(), loader);
+            Texture texture = textureStore.Get("ln-azimuth");
+
+            Assert.That(texture, Is.Not.Null);
+            Assert.That(texture.Width, Is.GreaterThan(0));
+            Assert.That(texture.Height, Is.GreaterThan(0));
         }
 
         [Test]
