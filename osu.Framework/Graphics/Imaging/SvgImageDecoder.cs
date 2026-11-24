@@ -5,6 +5,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Xml;
 using osu.Framework.Graphics.Primitives;
 using SkiaSharp;
@@ -22,6 +23,7 @@ namespace osu.Framework.Graphics.Imaging
         private const float default_viewport_width = 300;
         private const float default_viewport_height = 150;
         private const int max_intrinsic_dimension = 4096;
+        private const int max_embedded_svg_depth = 16;
         private const long max_embedded_image_pixels = max_intrinsic_dimension * (long)max_intrinsic_dimension;
 
         private static readonly bool suppress_worker_decode = string.Equals(Environment.GetEnvironmentVariable("EZ2LAZER_SVG_WORKER"), "1", StringComparison.Ordinal);
@@ -308,7 +310,7 @@ namespace osu.Framework.Graphics.Imaging
                     float offset = i < shapedRun.Points.Length ? shapedRun.Points[i].X : 0;
                     float advance = i + 1 < shapedRun.Points.Length
                         ? shapedRun.Points[i + 1].X - shapedRun.Points[i].X
-                        : shapedRun.Advance;
+                        : shapedRun.Advance - offset;
 
                     clusters[i] = new ShapedTextCluster(i, 1, i, 1, offset, advance);
                 }
@@ -506,7 +508,7 @@ namespace osu.Framework.Graphics.Imaging
             return true;
         }
 
-        private static bool validateAttributes(XmlReader reader)
+        private static bool validateAttributes(XmlReader reader, int embeddedDepth = 0)
         {
             if (!reader.HasAttributes)
                 return true;
@@ -516,12 +518,12 @@ namespace osu.Framework.Graphics.Imaging
                 if (reader.LocalName.Equals("href", StringComparison.OrdinalIgnoreCase))
                 {
                     string reference = reader.Value.Trim();
-                    if (!reference.StartsWith('#') && !reference.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                    if (!reference.StartsWith('#') && !validateReference(reference, embeddedDepth))
                         return false;
                 }
 
                 if (reader.LocalName.StartsWith("on", StringComparison.OrdinalIgnoreCase)
-                    || !validateResourceReferences(reader.Value))
+                    || !validateResourceReferences(reader.Value, embeddedDepth))
                     return false;
             }
 
@@ -529,7 +531,7 @@ namespace osu.Framework.Graphics.Imaging
             return true;
         }
 
-        private static bool validateResourceReferences(string value)
+        private static bool validateResourceReferences(string value, int embeddedDepth = 0)
         {
             if (value.Contains("@import", StringComparison.OrdinalIgnoreCase))
                 return false;
@@ -554,10 +556,99 @@ namespace osu.Framework.Graphics.Imaging
                 if (reference.Length >= 2 && ((reference[0] == '\'' && reference[^1] == '\'') || (reference[0] == '"' && reference[^1] == '"')))
                     reference = reference[1..^1].Trim();
 
-                if (!reference.StartsWith("#", StringComparison.Ordinal) && !reference.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                if (!reference.StartsWith("#", StringComparison.Ordinal) && !validateReference(reference, embeddedDepth))
                     return false;
 
                 position = closeParenthesis + 1;
+            }
+
+            return true;
+        }
+
+        private static bool validateReference(ReadOnlySpan<char> reference, int embeddedDepth)
+        {
+            if (!reference.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                return embeddedDepth > 0; // Svg.Skia applies the inherited resource policy inside embedded documents.
+
+            int comma = reference.IndexOf(',');
+            if (comma < 0)
+                return false;
+
+            ReadOnlySpan<char> metadata = reference[5..comma];
+            if (metadata.Contains('%'))
+                metadata = Uri.UnescapeDataString(metadata.ToString());
+
+            int separator = metadata.IndexOf(';');
+            ReadOnlySpan<char> mediaType = (separator < 0 ? metadata : metadata[..separator]).Trim();
+            bool isSvg = mediaType.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase);
+            int lastSeparator = metadata.LastIndexOf(';');
+            bool isBase64 = lastSeparator >= 0 && metadata[(lastSeparator + 1)..].Trim().Equals("base64", StringComparison.OrdinalIgnoreCase);
+            ReadOnlySpan<char> payload = reference[(comma + 1)..];
+
+            if (isBase64)
+            {
+                if (payload.Contains('%'))
+                    payload = Uri.UnescapeDataString(payload.ToString());
+
+                // Svg.Skia checks the gzip signature before handing raster images to our bounded loader.
+                Span<char> prefix = stackalloc char[4];
+                int prefixLength = 0;
+
+                foreach (char current in payload)
+                {
+                    if (current is ' ' or '\t' or '\r' or '\n')
+                        continue;
+
+                    prefix[prefixLength++] = current;
+                    if (prefixLength == prefix.Length)
+                        break;
+                }
+
+                Span<byte> header = stackalloc byte[3];
+                if (prefixLength == prefix.Length && Convert.TryFromBase64Chars(prefix, header, out int bytesWritten)
+                                                  && bytesWritten >= 2 && header[0] == 0x1f && header[1] == 0x8b)
+                    return false;
+            }
+
+            if (!isSvg)
+                return true;
+
+            if (embeddedDepth >= max_embedded_svg_depth)
+                return false;
+
+            string svg;
+
+            if (isBase64)
+            {
+                Encoding encoding = Encoding.UTF8;
+
+                foreach (Range range in metadata.Split(';'))
+                {
+                    ReadOnlySpan<char> parameter = metadata[range];
+                    int equals = parameter.IndexOf('=');
+
+                    if (equals >= 0 && parameter[..equals].Trim().Equals("charset", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ReadOnlySpan<char> charset = parameter[(equals + 1)..].Trim();
+                        encoding = charset.IsEmpty ? Encoding.UTF8 : Encoding.GetEncoding(charset.ToString());
+                    }
+                }
+
+                svg = encoding.GetString(Convert.FromBase64String(payload.ToString()));
+            }
+            else
+                svg = Uri.UnescapeDataString(payload.ToString());
+
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(svg));
+            using var reader = XmlReader.Create(stream, createReaderSettings());
+
+            while (reader.Read())
+            {
+                if (reader.NodeType == XmlNodeType.Element && !validateAttributes(reader, embeddedDepth + 1))
+                    return false;
+
+                if (reader.NodeType is XmlNodeType.Text or XmlNodeType.CDATA && !validateResourceReferences(reader.Value, embeddedDepth + 1))
+                    return false;
             }
 
             return true;

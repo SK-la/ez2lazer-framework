@@ -236,6 +236,33 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(image[5, 5], Is.EqualTo(embedded_pixel));
         }
 
+        [TestCase(false, 0, true, "image/svg+xml")]
+        [TestCase(false, 0, true, "image/png")]
+        [TestCase(true, 0, true, "image/svg+xml")]
+        [TestCase(true, 0, true, "image/png")]
+        [TestCase(false, 2, true, "image/svg+xml")]
+        [TestCase(false, 2, false, "image/svg+xml")]
+        public void TestSvgRejectsGzipEncodedDataReferences(bool css, int depth, bool base64, string mediaType)
+        {
+            string reference = $"data:{mediaType};base64,H4sIAAAAAA==";
+            string svg = css
+                ? $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\" fill=\"url({reference})\"/></svg>"
+                : createImageSvg(reference);
+
+            for (int i = 0; i < depth; i++)
+                svg = createImageSvg(createSvgDataUri(svg, base64));
+
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(svg));
+
+            bool decoded = SvgImageDecoder.TryDecode(stream, null, out RgbaImage? image);
+
+            using (image)
+            {
+                Assert.That(decoded, Is.False);
+                Assert.That(image, Is.Null);
+            }
+        }
+
         [TestCase(ImageFileFormat.Png)]
         [TestCase(ImageFileFormat.Jpeg)]
         [TestCase(ImageFileFormat.WebP)]
