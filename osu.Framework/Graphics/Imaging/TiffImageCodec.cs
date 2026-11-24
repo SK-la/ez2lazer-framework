@@ -12,6 +12,8 @@ namespace osu.Framework.Graphics.Imaging
 {
     internal static class TiffImageCodec
     {
+        private const int max_decode_dimension = 4096;
+
         public static bool IsTiff(Stream stream)
         {
             if (!stream.CanRead || !stream.CanSeek)
@@ -96,6 +98,10 @@ namespace osu.Framework.Graphics.Imaging
         {
             using var reader = TiffFileReader.Open(stream, leaveOpen: true);
             var decoder = reader.CreateImageDecoder();
+
+            if (decoder.Width is <= 0 or > max_decode_dimension || decoder.Height is <= 0 or > max_decode_dimension)
+                throw new InvalidDataException($"TIFF dimensions must be between 1 and {max_decode_dimension} pixels per side.");
+
             using var pixels = MemoryPool<TiffRgba32>.Shared.Rent(checked(decoder.Width * decoder.Height));
             var buffer = new TiffMemoryPixelBuffer<TiffRgba32>(pixels.Memory, decoder.Width, decoder.Height, writable: true);
             decoder.DecodeAsync(buffer).GetAwaiter().GetResult();

@@ -145,6 +145,38 @@ namespace osu.Framework.Tests.Graphics
             Assert.That(image[0, 0], Is.EqualTo(new Rgba32(12, 34, 56, 78)));
         }
 
+        [TestCase(4096, 1)]
+        [TestCase(1, 4096)]
+        public void TestTiffDecodeAcceptsDimensionLimit(int width, int height)
+        {
+            using var source = new RgbaImage(width, height);
+            using var stream = new MemoryStream(TiffImageCodec.Encode(source), writable: false);
+            using var image = ImageCodec.Decode(stream);
+
+            Assert.That(image.Width, Is.EqualTo(width));
+            Assert.That(image.Height, Is.EqualTo(height));
+        }
+
+        [TestCase(4097, 1)]
+        [TestCase(1, 4097)]
+        public void TestTiffDecodeRejectsDimensionsOverLimit(int width, int height)
+        {
+            using var source = new RgbaImage(width, height);
+            byte[] encoded = TiffImageCodec.Encode(source);
+
+            Assert.Throws<InvalidDataException>(() =>
+            {
+                using var stream = new MemoryStream(encoded, writable: false);
+                using var image = ImageCodec.Decode(stream);
+            });
+
+            Assert.Throws<NotSupportedException>(() =>
+            {
+                using var stream = new MemoryStream(encoded, writable: false);
+                using var upload = new TextureUpload(stream);
+            });
+        }
+
         [Test]
         public void TestFailedTiffDecodeRestoresNonZeroStreamPosition()
         {
