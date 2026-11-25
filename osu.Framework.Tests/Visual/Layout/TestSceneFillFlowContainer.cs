@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using NUnit.Framework;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
@@ -18,6 +19,31 @@ namespace osu.Framework.Tests.Visual.Layout
 {
     public partial class TestSceneFillFlowContainer : FrameworkTestScene
     {
+        [Test]
+        public void TestRelativeSizeExceptionIncludesDrawableDetails()
+        {
+            var child = new Box
+            {
+                Name = "InvalidChild",
+                RelativeSizeAxes = Axes.Both,
+            };
+
+            var container = new TestableFillFlowContainer
+            {
+                Name = "TestContainer",
+                Direction = FillDirection.Horizontal,
+                AutoSizeAxes = Axes.Both,
+                Children = new[] { child },
+            };
+
+            var exception = Assert.Throws<InvalidOperationException>(container.ComputeLayout);
+
+            Assert.That(exception!.Message, Does.Contain("TestContainer"));
+            Assert.That(exception.Message, Does.Contain("Child at index 0"));
+            Assert.That(exception.Message, Does.Contain("InvalidChild"));
+            Assert.That(exception.Message, Does.Contain("relative size axes Both"));
+        }
+
         [Test]
         public void TestDemo()
         {
@@ -388,6 +414,18 @@ namespace osu.Framework.Tests.Visual.Layout
         private partial class FillDirectionDropdown : BasicDropdown<FillDirection>
         {
             protected override DropdownHeader CreateHeader() => new TestSceneDropdownHeader();
+        }
+
+        private partial class TestableFillFlowContainer : FillFlowContainer
+        {
+            public override IEnumerable<Drawable> FlowingChildren => InternalChildren;
+
+            public void ComputeLayout()
+            {
+                foreach (var _ in ComputeLayoutPositions())
+                {
+                }
+            }
         }
     }
 }

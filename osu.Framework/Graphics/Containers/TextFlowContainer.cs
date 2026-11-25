@@ -3,8 +3,6 @@
 
 #nullable disable
 
-using osu.Framework.Caching;
-using osu.Framework.Graphics.Sprites;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -12,8 +10,10 @@ using System.Linq;
 using JetBrains.Annotations;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Caching;
 using osu.Framework.Extensions.EnumExtensions;
 using osu.Framework.Extensions.IEnumerableExtensions;
+using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
 using osu.Framework.Utils;
 using osuTK;
@@ -528,7 +528,8 @@ namespace osu.Framework.Graphics.Containers
                         {
                             throw new InvalidOperationException(
                                 "Drawables inside a fill flow container may not have a relative size axis that the fill flow container is filling in and auto sizing for. " +
-                                $"The fill flow container is set to flow in the {Direction} direction and autosize in {AutoSizeAxes} axes and the child is set to relative size in {c.RelativeSizeAxes} axes.");
+                                $"The text flow container {this} is set to flow in the {Direction} direction and autosize in {AutoSizeAxes} axes. " +
+                                $"Child at index {i} ({c}) has relative size axes {c.RelativeSizeAxes}, size {c.Size}, and fill mode {c.FillMode}.");
                         }
 
                         // DIFFERENCE: Disallow custom anchor/origin positions other than top left.
