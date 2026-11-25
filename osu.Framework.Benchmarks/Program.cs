@@ -29,6 +29,12 @@ namespace osu.Framework.Benchmarks
                 return;
             }
 
+            if (args.Length > 0 && args[0] == "--fontawesome-migration")
+            {
+                BenchmarkFontAwesomeMigration.RunOnce(args[1..]);
+                return;
+            }
+
             if (Array.IndexOf(args, "--glyph-texture-pool") >= 0)
             {
                 BenchmarkGlyphTexturePool.Run();

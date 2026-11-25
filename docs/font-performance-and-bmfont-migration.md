@@ -123,6 +123,28 @@ face 就绪、布局就绪和最后一个可见字形上传完成。连续滚动
 
 建议先独立验收 Regular 和 Solid，Brands 先保留 BMFont，直到有兼容的许可明确的轮廓字库或缺字回退。此次未切换默认注册或删除资产，也未修改游戏和资源仓库。
 
+### FontAwesome 冷/热字形批次对照
+
+2026-11-25，Windows Release / .NET 11，`DummyRenderer`，当前 Framework BMFont 对照官方 Font Awesome Free 5.15.4 OTF。每种字重与来源各运行 5 个独立进程，交替执行；冷批次每进程先运行一次未计时批次以完成 JIT，再测一轮全体共有图标，字体解析和字库加载在计时外，BMFont 的首次 alpha 页缓存创建在计时内。热批次每进程先预热整批，再测 100 轮并除以 100。时间和当前线程托管分配均为 5 进程中位数，括号是范围。Brands 只比较共同的 424 个码点，未纳入 OTF 缺少的三个映射。
+
+| 字重 | 字形数 | 冷批次 BMFont → OTF（ms） | 冷分配 BMFont → OTF（B） | 热批次 BMFont → OTF（ms） | OTF 包体积相对 BMFont |
+|---|---:|---:|---:|---:|---:|
+| Solid | 937 | 128.429 (127.435–139.030) → 74.803 (72.092–84.598), -41.8% | 20,278,856 → 24,692,448, +21.8% | 0.079 (0.073–0.082) → 0.083 (0.078–0.083), +5.1% | 591,768 B vs 450,331 B, +31.4% |
+| Regular | 152 | 25.458 (24.763–27.227) → 11.927 (11.581–11.950), -53.2% | 279,544 → 275,160, -1.6% | 0.012 (0.012–0.012) → 0.013 (0.012–0.014), +8.3% | 97,112 B vs 75,600 B, +28.5% |
+| Brands | 424 | 56.838 (55.208–60.196) → 35.360 (34.565–37.072), -37.8% | 698,360 → 773,960, +10.8% | 0.036 (0.034–0.038) → 0.034 (0.033–0.035), -5.6% | 476,372 B vs 287,913 B, +65.5% |
+
+**解读：** 在这个 glyph-store 批次中，TTF/OTF 冷字形批次快约 37.8%–53.2%；托管分配结果则依字重不同，Solid/Brands OTF 较高，Regular 略低。热查询的五进程范围全部重叠，差异仅 0.001–0.004 ms/整批，没有证据表明任一来源更快。三份 OTF 总计 1,165,252 B，三族 BMFont 总计 813,844 B，替换全部三族会令这些字体资源增加约 43.2%。这些数据支持“FontAwesome 冷字形生成更快”，但不支持整体 UI 帧性能持平或更优：`DummyRenderer` 不测 GPU 上传、真实 SpriteIcon 绘制、布局或滚动帧时间，热查询也只是 FontStore 命中路径。迁移决策仍需在真实渲染后端比较首屏可见、滚动新图标、纹理峰值与包体积，并处理 Brands 缺字和可见像素居中差异。
+
+复跑命令（先构建 Release Benchmark 项目；每个命令单独启动进程。最后参数是批次数，冷测用 1，热测建议用 100）：
+
+```powershell
+$benchmark = 'osu.Framework.Benchmarks/bin/Release/net11.0/osu.Framework.Benchmarks.dll'
+dotnet $benchmark --fontawesome-migration Solid bmfont-cold 1
+dotnet $benchmark --fontawesome-migration Solid outline-cold 1
+dotnet $benchmark --fontawesome-migration Solid bmfont-warm 100
+dotnet $benchmark --fontawesome-migration Solid outline-warm 100
+```
+
 ## 复跑当前 CJK 基准
 
 在 Framework 根目录运行。替换资源 DLL 路径，分别在独立子进程测试，`0` 是单页对照的预热字形计数。可在预热计数后传入同一份
