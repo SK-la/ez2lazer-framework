@@ -23,19 +23,26 @@ using osu.Framework.IO.Stores;
 using osu.Framework.Platform;
 using osu.Framework.Statistics;
 using osu.Framework.Testing;
+using osu.Framework.Text;
 using osu.Framework.Utils;
 using osuTK;
 using osuTK.Graphics;
 
 namespace osu.Framework.Benchmarks
 {
-    internal static partial class BenchmarkCjkSpriteText
+    internal static partial class BenchmarkSpriteTextRunner
     {
         private const int warmup_frames = 180;
         private const int first_use_frames = 60;
         private const int sample_frames = 360;
         private const int row_count = 28;
         private const int row_height = 28;
+        private const int visible_row_count = 24;
+        private static readonly string[] default_roboto_titles =
+        {
+            "Roboto Regular 0123456789", "The quick brown fox jumps over the lazy dog", "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "abcdefghijklmnopqrstuvwxyz", "Symbols: !?.,:;+-=*/()[]{}"
+        };
 
         public static void Run(string[] args)
         {
@@ -60,6 +67,174 @@ namespace osu.Framework.Benchmarks
             using var storage = new TemporaryNativeStorage($"cjk-sprite-text-{Guid.NewGuid():N}");
             using var host = new BenchmarkHost(storage.GetFullPath(string.Empty));
             host.Run(new TitleListGame(host, resources, titles, preloadCount));
+        }
+
+        public static void RunRoboto(string[] args)
+        {
+            if (args.Length is < 1 or > 3 || (args[0] != "outline" && args[0] != "bmfont"))
+                throw new ArgumentException("Usage: --sprite-text-roboto <outline|bmfont> [UTF-8 titles file] [none|visible|all]");
+
+            bool useOutline = args[0] == "outline";
+            string preloadMode = "all";
+            string? titlesFile = null;
+
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (args[i] is "none" or "visible" or "all")
+                    preloadMode = args[i];
+                else if (titlesFile == null)
+                    titlesFile = args[i];
+                else
+                    throw new ArgumentException("Only one titles file and one preload mode may be provided.");
+            }
+
+            Assembly resourceAssembly = useOutline
+                ? typeof(Game).Assembly
+                : Assembly.LoadFrom(Path.Combine(AppContext.BaseDirectory, "osu.Framework.Tests.dll"));
+            IResourceStore<byte[]> fontResources = new DllResourceStore(resourceAssembly);
+            fontResources = new NamespacedResourceStore<byte[]>(fontResources,
+                useOutline ? "Resources" : "Resources.Fonts.Roboto");
+
+            using var resources = new ResourceStore<byte[]>(fontResources);
+            string[] titles = titlesFile != null
+                ? File.ReadAllLines(titlesFile).Where(title => !string.IsNullOrWhiteSpace(title)).ToArray()
+                : default_roboto_titles;
+
+            if (titlesFile == null)
+            {
+                char[] characters = default_roboto_titles.SelectMany(title => title.EnumerateRunes())
+                                                         .Select(rune => (char)rune.Value)
+                                                         .Distinct()
+                                                         .ToArray();
+                titles = characters.Chunk(3).Select(chunk => new string(chunk)).ToArray();
+            }
+
+            if (titles.Length == 0)
+                throw new ArgumentException("The titles file must contain at least one title.");
+
+            using var storage = new TemporaryNativeStorage($"roboto-sprite-text-{Guid.NewGuid():N}");
+            using var host = new BenchmarkHost(storage.GetFullPath(string.Empty));
+            host.Run(new TitleListGame(host, resources, titles, 0, useRoboto: true, useOutline, storage, preloadMode));
+        }
+
+        public static void ReportRobotoMetrics(string[] args)
+        {
+            if (args.Length > 1)
+                throw new ArgumentException("Usage: --sprite-text-roboto-metrics [UTF-8 titles file]");
+
+            string[] titles = args.Length == 1
+                ? File.ReadAllLines(args[0]).Where(title => !string.IsNullOrWhiteSpace(title)).ToArray()
+                : default_roboto_titles;
+
+            if (titles.Length == 0)
+                throw new ArgumentException("The titles file must contain at least one title.");
+
+            int[] codepoints = titles.SelectMany(title => title.EnumerateRunes().ToArray())
+                                     .Select(rune => rune.Value)
+                                     .Distinct()
+                                     .Order()
+                                     .ToArray();
+            (int left, int right)[] kerningPairs = titles.SelectMany(title =>
+            {
+                int[] scalars = title.EnumerateRunes().Select(rune => rune.Value).ToArray();
+                return Enumerable.Range(1, Math.Max(0, scalars.Length - 1))
+                                 .Select(i => (scalars[i - 1], scalars[i]));
+            }).Distinct().ToArray();
+
+            using var outlineResources = new ResourceStore<byte[]>(new NamespacedResourceStore<byte[]>(new DllResourceStore(typeof(Game).Assembly), "Resources"));
+            using var bitmapResources = new ResourceStore<byte[]>(new NamespacedResourceStore<byte[]>(
+                new DllResourceStore(Assembly.LoadFrom(Path.Combine(AppContext.BaseDirectory, "osu.Framework.Tests.dll"))), "Resources.Fonts.Roboto"));
+            using var outlineFont = new OutlineFont(outlineResources, "Fonts/Roboto/Roboto") { Resolution = 100 };
+            var outlineStore = new OutlineGlyphStore(outlineFont, new FontVariation { NamedInstance = "Roboto-Regular" }, "Roboto-Regular");
+            var bitmapStore = new GlyphStore(bitmapResources, "Roboto-Regular");
+
+            outlineStore.LoadFontAsync().GetAwaiter().GetResult();
+            bitmapStore.LoadFontAsync().GetAwaiter().GetResult();
+
+            Console.WriteLine(
+                $"Roboto fixture metrics: {codepoints.Length} unique scalars, {titles.Length} strings; outline baseline={outlineStore.Baseline}, BMFont baseline={bitmapStore.Baseline}.");
+            int uncovered = 0;
+            int metricDifferences = 0;
+            int rasterDifferences = 0;
+            int dimensionDifferences = 0;
+            long alphaDifferenceTotal = 0;
+            long comparedPixels = 0;
+            int maxAlphaDifference = 0;
+
+            foreach (int codepoint in codepoints)
+            {
+                CharacterGlyph? outlineGlyph = outlineStore.Get(codepoint);
+                CharacterGlyph? bitmapGlyph = bitmapStore.Get(codepoint);
+                using TextureUpload? outlineTexture = outlineStore.Get($"Roboto-Regular/{codepoint:x}");
+                using TextureUpload? bitmapTexture = bitmapStore.Get($"Roboto-Regular/{codepoint:x}");
+
+                if (outlineGlyph == null || bitmapGlyph == null || outlineTexture == null || bitmapTexture == null)
+                {
+                    Console.WriteLine($"U+{codepoint:X}: missing outline={outlineGlyph == null || outlineTexture == null}, BMFont={bitmapGlyph == null || bitmapTexture == null}.");
+                    uncovered++;
+                    continue;
+                }
+
+                bool metricDiffers = differs(outlineGlyph.XOffset, bitmapGlyph.XOffset)
+                                     || differs(outlineGlyph.YOffset, bitmapGlyph.YOffset)
+                                     || differs(outlineGlyph.XAdvance, bitmapGlyph.XAdvance)
+                                     || differs(outlineGlyph.Baseline, bitmapGlyph.Baseline);
+                if (metricDiffers)
+                    metricDifferences++;
+
+                int pixelDiffCount = 0;
+                long pixelDiffSum = 0;
+                int pixelDiffMax = 0;
+                bool dimensionsDiffer = outlineTexture.Width != bitmapTexture.Width || outlineTexture.Height != bitmapTexture.Height;
+                int comparedWidth = Math.Min(outlineTexture.Width, bitmapTexture.Width);
+                int comparedHeight = Math.Min(outlineTexture.Height, bitmapTexture.Height);
+                var outlinePixels = outlineTexture.Data;
+                var bitmapPixels = bitmapTexture.Data;
+
+                for (int y = 0; y < comparedHeight; y++)
+                {
+                    for (int x = 0; x < comparedWidth; x++)
+                    {
+                        int i = y * outlineTexture.Width + x;
+                        int j = y * bitmapTexture.Width + x;
+                        int difference = Math.Abs(outlinePixels[i].A - bitmapPixels[j].A);
+                        if (difference != 0)
+                            pixelDiffCount++;
+                        pixelDiffSum += difference;
+                        pixelDiffMax = Math.Max(pixelDiffMax, difference);
+                    }
+                }
+
+                if (dimensionsDiffer)
+                    dimensionDifferences++;
+                if (dimensionsDiffer || pixelDiffCount > 0)
+                    rasterDifferences++;
+                comparedPixels += (long)comparedWidth * comparedHeight;
+                alphaDifferenceTotal += pixelDiffSum;
+                maxAlphaDifference = Math.Max(maxAlphaDifference, pixelDiffMax);
+
+                Console.WriteLine(FormattableString.Invariant(
+                    $"U+{codepoint:X}: size {outlineTexture.Width}x{outlineTexture.Height}/{bitmapTexture.Width}x{bitmapTexture.Height} (overlap {comparedWidth}x{comparedHeight}); offset ({outlineGlyph.XOffset:F2},{outlineGlyph.YOffset:F2})/({bitmapGlyph.XOffset:F2},{bitmapGlyph.YOffset:F2}); advance {outlineGlyph.XAdvance:F2}/{bitmapGlyph.XAdvance:F2}; baseline {outlineGlyph.Baseline:F2}/{bitmapGlyph.Baseline:F2}; alpha differing pixels {pixelDiffCount}/{(long)comparedWidth * comparedHeight}, max {pixelDiffMax}, sum {pixelDiffSum}."));
+            }
+
+            int kerningDifferenceCount = 0;
+
+            foreach ((int left, int right) in kerningPairs)
+            {
+                int outlineKerning = outlineStore.GetKerning(left, right);
+                int bitmapKerning = bitmapStore.GetKerning(left, right);
+
+                if (outlineKerning != bitmapKerning)
+                {
+                    kerningDifferenceCount++;
+                    Console.WriteLine($"Kerning U+{left:X}/U+{right:X}: {outlineKerning}/{bitmapKerning}.");
+                }
+            }
+
+            Console.WriteLine(FormattableString.Invariant(
+                $"Summary: missing={uncovered}, glyphs with metric differences={metricDifferences}, glyphs with raster differences={rasterDifferences} (dimension differences={dimensionDifferences}), different kerning pairs={kerningDifferenceCount}, compared overlap pixels={comparedPixels}, mean absolute alpha difference={(comparedPixels == 0 ? 0 : (double)alphaDifferenceTotal / comparedPixels):F3}, max alpha difference={maxAlphaDifference}."));
+
+            static bool differs(float left, float right) => Math.Abs(left - right) > 0.01f;
         }
 
         private sealed class BenchmarkHost : OffscreenGameHost
@@ -123,17 +298,32 @@ namespace osu.Framework.Benchmarks
             private readonly ResourceStore<byte[]> resources;
             private readonly string[] titles;
             private readonly int preloadCount;
+            private readonly bool useRoboto;
+            private readonly bool useOutline;
+            private readonly TemporaryNativeStorage? cacheStorage;
+            private readonly string robotoPreloadMode;
             private readonly Container rows = new Container { RelativeSizeAxes = Axes.Both };
             private bool firstUseRecorded;
             private bool scrollRecordingStarted;
             private int frame;
 
-            public TitleListGame(BenchmarkHost host, ResourceStore<byte[]> resources, string[] titles, int preloadCount)
+            public TitleListGame(BenchmarkHost host,
+                                 ResourceStore<byte[]> resources,
+                                 string[] titles,
+                                 int preloadCount,
+                                 bool useRoboto = false,
+                                 bool useOutline = false,
+                                 TemporaryNativeStorage? cacheStorage = null,
+                                 string robotoPreloadMode = "all")
             {
                 this.host = host;
                 this.resources = resources;
                 this.titles = titles;
                 this.preloadCount = preloadCount;
+                this.useRoboto = useRoboto;
+                this.useOutline = useOutline;
+                this.cacheStorage = cacheStorage;
+                this.robotoPreloadMode = robotoPreloadMode;
             }
 
             [BackgroundDependencyLoader]
@@ -141,59 +331,107 @@ namespace osu.Framework.Benchmarks
             {
                 long start = Stopwatch.GetTimestamp();
                 long allocatedAtStart = GC.GetTotalAllocatedBytes();
-                var cjk = new RawCachingGlyphStore(resources, "Fonts/Noto/Noto-CJK-Basic");
-                var hangul = new RawCachingGlyphStore(resources, "Fonts/Noto/Noto-Hangul");
-                var basic = new RawCachingGlyphStore(resources, "Fonts/Noto/Noto-Basic");
-                Fonts.AddTextureSource(cjk);
-                Fonts.AddTextureSource(hangul);
-                Fonts.AddTextureSource(basic);
-                if (!cjk.HasGlyph('一') || !hangul.HasGlyph('가') || !basic.HasGlyph('é'))
-                    throw new InvalidOperationException("The bundled Noto CJK, Hangul, or Basic glyph fixture is incomplete.");
-
                 bool useArray = Fonts.UsesGlyphTextureArray;
-                char[] cjkCharacters = cjk.GetAvailableResources()
-                                          .Where(name => name.Length == cjk.FontName.Length + 2)
-                                          .Select(name => name[^1])
-                                          .Where(character => character >= '\u4e00' && character <= '\u9fff')
-                                          .Distinct()
-                                          .Order()
-                                          .ToArray();
-                char[] preloadedCharacters = cjkCharacters.Take(preloadCount).ToArray();
-
-                if (preloadedCharacters.Length != preloadCount)
-                    throw new InvalidOperationException($"Noto CJK contains {preloadedCharacters.Length} BMP Han glyphs, fewer than the requested {preloadCount}.");
-
-                foreach (char character in preloadedCharacters)
-                    Fonts.GetForSpriteText(string.Empty, character, useArray);
-
                 string[] workloadTitles = titles;
+                FontUsage fontUsage = FrameworkFont.Regular.With(size: 21);
+                int[] codepoints;
+                int[] observedCodepoints;
+                int preloadedGlyphCount = 0;
 
-                if (preloadedCharacters.Length >= 32)
+                if (useRoboto)
                 {
-                    // Use the same glyph sequence in both processes regardless of how the renderer packs it.
-                    string spreadTitle = new string(Enumerable.Range(0, 32).Select(i => preloadedCharacters[i * (preloadedCharacters.Length - 1) / 31]).ToArray());
-                    workloadTitles = titles.Append(spreadTitle).ToArray();
+                    IResourceStore<TextureUpload> robotoTextureStore;
+
+                    if (useOutline)
+                    {
+                        var outlineFont = new OutlineFont(resources, "Fonts/Roboto/Roboto") { Resolution = 100 };
+                        var outlineGlyphStore = new OutlineGlyphStore(outlineFont, new FontVariation { NamedInstance = "Roboto-Regular" }, "Roboto-Regular");
+                        robotoTextureStore = outlineGlyphStore;
+                    }
+                    else
+                    {
+                        var bitmapGlyphStore = new RawCachingGlyphStore(resources, "Roboto-Regular") { CacheStorage = cacheStorage };
+                        robotoTextureStore = bitmapGlyphStore;
+                    }
+
+                    Fonts.AddTextureSource(robotoTextureStore);
+                    fontUsage = new FontUsage("Roboto", 21, "Regular");
+                    codepoints = workloadTitles.SelectMany(title => title.EnumerateRunes().ToArray()).Select(rune => rune.Value).Distinct().ToArray();
+
+                    int[] preloadCodepoints = robotoPreloadMode switch
+                    {
+                        "none" => Array.Empty<int>(),
+                        "visible" => workloadTitles.Take(visible_row_count)
+                                                   .SelectMany(title => title.EnumerateRunes().ToArray())
+                                                   .Select(rune => rune.Value)
+                                                   .Distinct()
+                                                   .ToArray(),
+                        _ => codepoints
+                    };
+
+                    foreach (int codepoint in preloadCodepoints)
+                        Fonts.GetForSpriteText(fontUsage.FontName, codepoint, useArray);
+
+                    observedCodepoints = preloadCodepoints;
+                    Console.WriteLine(
+                        $"Roboto source: {(useOutline ? "variable TTF" : "pre-rasterized BMFont")}; glyphs: {codepoints.Length}; preloaded={preloadCodepoints.Length} ({robotoPreloadMode}); array={useArray}.");
+                }
+                else
+                {
+                    var cjk = new RawCachingGlyphStore(resources, "Fonts/Noto/Noto-CJK-Basic");
+                    var hangul = new RawCachingGlyphStore(resources, "Fonts/Noto/Noto-Hangul");
+                    var basic = new RawCachingGlyphStore(resources, "Fonts/Noto/Noto-Basic");
+                    Fonts.AddTextureSource(cjk);
+                    Fonts.AddTextureSource(hangul);
+                    Fonts.AddTextureSource(basic);
+                    if (!cjk.HasGlyph('一') || !hangul.HasGlyph('가') || !basic.HasGlyph('é'))
+                        throw new InvalidOperationException("The bundled Noto CJK, Hangul, or Basic glyph fixture is incomplete.");
+
+                    char[] cjkCharacters = cjk.GetAvailableResources()
+                                              .Where(name => name.Length == cjk.FontName.Length + 2)
+                                              .Select(name => name[^1])
+                                              .Where(character => character >= '\u4e00' && character <= '\u9fff')
+                                              .Distinct()
+                                              .Order()
+                                              .ToArray();
+                    char[] preloadedCharacters = cjkCharacters.Take(preloadCount).ToArray();
+                    preloadedGlyphCount = preloadedCharacters.Length;
+
+                    if (preloadedCharacters.Length != preloadCount)
+                        throw new InvalidOperationException($"Noto CJK contains {preloadedCharacters.Length} BMP Han glyphs, fewer than the requested {preloadCount}.");
+
+                    foreach (char character in preloadedCharacters)
+                        Fonts.GetForSpriteText(string.Empty, character, useArray);
+
+                    if (preloadedCharacters.Length >= 32)
+                    {
+                        // Use the same glyph sequence in both processes regardless of how the renderer packs it.
+                        string spreadTitle = new string(Enumerable.Range(0, 32).Select(i => preloadedCharacters[i * (preloadedCharacters.Length - 1) / 31]).ToArray());
+                        workloadTitles = titles.Append(spreadTitle).ToArray();
+                    }
+
+                    codepoints = workloadTitles.SelectMany(title => title.EnumerateRunes().ToArray()).Select(rune => rune.Value).Where(codepoint => codepoint > 127).Distinct().ToArray();
+
+                    foreach (int codepoint in codepoints)
+                    {
+                        if (!cjk.HasGlyph(codepoint) && !hangul.HasGlyph(codepoint) && !basic.HasGlyph(codepoint))
+                            throw new InvalidOperationException($"Noto fixtures do not cover U+{codepoint:X}.");
+                    }
+
+                    observedCodepoints = codepoints;
                 }
 
-                int[] codepoints = workloadTitles.SelectMany(title => title.EnumerateRunes().ToArray()).Select(rune => rune.Value).Where(codepoint => codepoint > 127).Distinct().ToArray();
-
-                foreach (int codepoint in codepoints)
-                {
-                    if (!cjk.HasGlyph(codepoint) && !hangul.HasGlyph(codepoint) && !basic.HasGlyph(codepoint))
-                        throw new InvalidOperationException($"Noto fixtures do not cover U+{codepoint:X}.");
-                }
-
-                var textures = codepoints.Select(codepoint => Fonts.GetForSpriteText(string.Empty, codepoint, useArray)!.Texture).ToArray();
+                var textures = observedCodepoints.Select(codepoint => Fonts.GetForSpriteText(fontUsage.FontName, codepoint, useArray)!.Texture).ToArray();
                 int textureCount = textures.Select(texture => texture.NativeTexture).Distinct().Count();
                 int layerCount = textures.OfType<GlyphAtlasRegion>().Select(region => region.Layer).Distinct().Count();
                 Console.WriteLine(
-                    $"{host.DeviceDescription}; array={useArray}; preload={preloadedCharacters.Length} glyphs; {workloadTitles.Length} workload strings / {codepoints.Length} unique non-ASCII scalars; {textureCount} native textures and {layerCount} array layers for visible glyphs.");
+                    $"{host.DeviceDescription}; array={useArray}; preload={preloadedGlyphCount} glyphs; {workloadTitles.Length} workload strings / {codepoints.Length} unique scalars; {textureCount} native textures and {layerCount} array layers for visible glyphs.");
 
                 Add(rows);
 
                 for (int i = 0; i < row_count; i++)
                 {
-                    rows.Add(new SpriteText { Text = workloadTitles[i % workloadTitles.Length], Font = FrameworkFont.Regular.With(size: 21), X = 24, Y = i * row_height });
+                    rows.Add(new SpriteText { Text = workloadTitles[i % workloadTitles.Length], Font = fontUsage, X = 24, Y = i * row_height });
                 }
 
                 Console.WriteLine(FormattableString.Invariant(

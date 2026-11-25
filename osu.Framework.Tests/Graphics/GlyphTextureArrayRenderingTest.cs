@@ -338,6 +338,11 @@ namespace osu.Framework.Tests.Graphics
                 glyphPool.ReclaimUnusedRegions();
 
                 Assert.That(glyphPool.TryAdd(largeUpload, out _), Is.True, "Adjacent released regions should merge for a larger glyph.");
+
+                int fallbackCount = glyphPool.FallbackCount;
+                Assert.That(glyphPool.TryAdd(largeUpload, out GlyphAtlasRegion? fallbackGlyph), Is.False, "A full glyph array must report that the glyph needs the legacy path.");
+                Assert.That(fallbackGlyph, Is.Null);
+                Assert.That(glyphPool.FallbackCount, Is.EqualTo(fallbackCount + 1));
             }
             finally
             {

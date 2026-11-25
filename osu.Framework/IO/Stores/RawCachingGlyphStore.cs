@@ -56,6 +56,48 @@ namespace osu.Framework.IO.Stores
             }
         }
 
+        internal GlyphCoverageUpload? GetCoverage(int codepoint)
+        {
+            if (Font == null || !Font.Characters.TryGetValue(codepoint, out Character? character))
+                return null;
+
+            if (CacheStorage == null)
+                throw new InvalidOperationException($"{nameof(CacheStorage)} should be set before requesting characters.");
+
+            lock (pageLookup)
+            {
+                if (!pageLookup.TryGetValue(character.Page, out var pageInfo))
+                    pageInfo = createCachedPageInfo(character.Page);
+
+                int pageWidth = pageInfo.Width;
+                int readableHeight = Math.Max(0, Math.Min(character.Height, pageInfo.Height - character.Y));
+                int readableWidth = Math.Max(0, Math.Min(character.Width, pageWidth - character.X));
+                int characterByteRegion = checked(pageWidth * readableHeight);
+                byte[] readBuffer = ArrayPool<byte>.Shared.Rent(characterByteRegion);
+
+                try
+                {
+                    byte[] coverage = new byte[checked(character.Width * character.Height)];
+
+                    if (!pageStreamHandles.TryGetValue(pageInfo.Filename, out var source))
+                        source = pageStreamHandles[pageInfo.Filename] = CacheStorage.GetStream(pageInfo.Filename);
+
+                    source.Seek(pageWidth * character.Y, SeekOrigin.Begin);
+                    if (characterByteRegion > 0)
+                        source.ReadExactly(readBuffer.AsSpan(0, characterByteRegion));
+
+                    for (int y = 0; y < readableHeight; y++)
+                        readBuffer.AsSpan(y * pageWidth + character.X, readableWidth).CopyTo(coverage.AsSpan(y * character.Width, readableWidth));
+
+                    return new GlyphCoverageUpload(character.Width, character.Height, coverage);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(readBuffer);
+                }
+            }
+        }
+
         private PageInfo createCachedPageInfo(int page)
         {
             Debug.Assert(CacheStorage != null);

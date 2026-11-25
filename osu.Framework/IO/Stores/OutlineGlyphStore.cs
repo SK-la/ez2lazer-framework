@@ -140,6 +140,14 @@ namespace osu.Framework.IO.Stores
             return new CharacterGlyph(codepoint, metrics.XOffset, metrics.YOffset, metrics.XAdvance, metrics.Baseline, this, Font.HasColourGlyphs);
         }
 
+        internal GlyphCoverageUpload? GetCoverage(int codepoint)
+        {
+            if (!Rune.IsValid(codepoint) || Font.HasColourGlyphs)
+                return null;
+
+            return Font.RasterizeGlyphCoverage(Font.GetGlyphIndex(codepoint), rawVariation);
+        }
+
         public int GetKerning(char left, char right) => GetKerning(left, (int)right);
 
         public int GetKerning(int leftCodepoint, int rightCodepoint)
