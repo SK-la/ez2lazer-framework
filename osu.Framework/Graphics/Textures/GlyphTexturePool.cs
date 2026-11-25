@@ -113,10 +113,7 @@ namespace osu.Framework.Graphics.Textures
 
             lock (allocationLock)
             {
-                int x = 0;
-                int y = 0;
-                int layer = 0;
-                if (!tryAllocateGlyph(upload.Width, upload.Height, out x, out y, out layer))
+                if (!tryAllocateGlyph(upload.Width, upload.Height, out int x, out int y, out int layer))
                     return false;
 
                 int uploadWidth = upload.Width + glyph_padding * 2;
