@@ -125,15 +125,15 @@ face 就绪、布局就绪和最后一个可见字形上传完成。连续滚动
 
 ### FontAwesome 冷/热字形批次对照
 
-2026-11-25，Windows Release / .NET 11，`DummyRenderer`，当前 Framework BMFont 对照官方 Font Awesome Free 5.15.4 OTF。每种字重与来源各运行 5 个独立进程，交替执行；冷批次每进程先运行一次未计时批次以完成 JIT，再测一轮全体共有图标，字体解析和字库加载在计时外，BMFont 的首次 alpha 页缓存创建在计时内。热批次每进程先预热整批，再测 100 轮并除以 100。时间和当前线程托管分配均为 5 进程中位数，括号是范围。Brands 只比较共同的 424 个码点，未纳入 OTF 缺少的三个映射。
+2026-11-25，Windows Release / .NET 11，`DummyRenderer`，当前 Framework BMFont 对照官方 Font Awesome Free 5.15.4 OTF。每种字重与来源各运行 5 个独立进程，交替执行；冷批次每进程先运行一次独立未计时批次以完成 JIT，再测一轮全体共有图标。字体解析和 store 创建在计时外；BMFont 首次 alpha 页解码和缓存创建在计时内。热批次每进程先预热整批，再测 100 轮并除以 100。时间和当前线程托管分配均为 5 进程中位数，括号是范围。Brands 只比较共同的 424 个码点，未纳入 OTF 缺少的三个映射。
 
 | 字重 | 字形数 | 冷批次 BMFont → OTF（ms） | 冷分配 BMFont → OTF（B） | 热批次 BMFont → OTF（ms） | OTF 包体积相对 BMFont |
 |---|---:|---:|---:|---:|---:|
-| Solid | 937 | 128.429 (127.435–139.030) → 74.803 (72.092–84.598), -41.8% | 20,278,856 → 24,692,448, +21.8% | 0.079 (0.073–0.082) → 0.083 (0.078–0.083), +5.1% | 591,768 B vs 450,331 B, +31.4% |
-| Regular | 152 | 25.458 (24.763–27.227) → 11.927 (11.581–11.950), -53.2% | 279,544 → 275,160, -1.6% | 0.012 (0.012–0.012) → 0.013 (0.012–0.014), +8.3% | 97,112 B vs 75,600 B, +28.5% |
-| Brands | 424 | 56.838 (55.208–60.196) → 35.360 (34.565–37.072), -37.8% | 698,360 → 773,960, +10.8% | 0.036 (0.034–0.038) → 0.034 (0.033–0.035), -5.6% | 476,372 B vs 287,913 B, +65.5% |
+| Solid | 937 | 134.348 (125.273–147.360) → 74.893 (69.699–79.450), -44.3% | 26,434,504 (26,426,664–26,542,672) → 25,598,032 (25,497,592–25,615,504), -3.2% | 0.077 (0.074–0.101) → 0.076 (0.074–0.089), -1.3% | 591,768 B vs 450,331 B, +31.4% |
+| Regular | 152 | 29.451 (26.358–31.240) → 12.678 (11.997–19.088), -57.0% | 6,415,984 (6,415,144–6,443,216) → 1,182,432 (1,171,864–1,205,072), -81.6% | 0.013 (0.012–0.015) → 0.013 (0.012–0.015), 0.0% | 97,112 B vs 75,600 B, +28.5% |
+| Brands | 424 | 58.505 (56.524–66.973) → 35.128 (34.648–36.773), -40.0% | 7,482,616 (7,439,744–7,492,808) → 1,433,192 (1,425,872–1,437,576), -80.8% | 0.036 (0.034–0.036) → 0.035 (0.034–0.037), -2.8% | 476,372 B vs 287,913 B, +65.5% |
 
-**解读：** 在这个 glyph-store 批次中，TTF/OTF 冷字形批次快约 37.8%–53.2%；托管分配结果则依字重不同，Solid/Brands OTF 较高，Regular 略低。热查询的五进程范围全部重叠，差异仅 0.001–0.004 ms/整批，没有证据表明任一来源更快。三份 OTF 总计 1,165,252 B，三族 BMFont 总计 813,844 B，替换全部三族会令这些字体资源增加约 43.2%。这些数据支持“FontAwesome 冷字形生成更快”，但不支持整体 UI 帧性能持平或更优：`DummyRenderer` 不测 GPU 上传、真实 SpriteIcon 绘制、布局或滚动帧时间，热查询也只是 FontStore 命中路径。迁移决策仍需在真实渲染后端比较首屏可见、滚动新图标、纹理峰值与包体积，并处理 Brands 缺字和可见像素居中差异。
+**解读：** 在这个 glyph-store 批次中，TTF/OTF 冷字形批次快约 40.0%–57.0%，当前这 5 个样本中三种字重的托管分配也较低；热查询范围重叠，不能据此判断优劣。三份 OTF 总计 1,165,252 B，三族 BMFont 总计 813,844 B，替换全部三族会令这些字体资源增加约 43.2%。这些数据支持“FontAwesome 冷字形生成更快”，但不支持整体 UI 帧性能持平或更优：`DummyRenderer` 不测 GPU 上传、真实 SpriteIcon 绘制、布局或滚动帧时间，热查询也只是 FontStore 命中路径。迁移决策仍需在真实渲染后端比较首屏可见、滚动新图标、纹理峰值与包体积，并处理 Brands 缺字和可见像素居中差异。
 
 复跑命令（先构建 Release Benchmark 项目；每个命令单独启动进程。最后参数是批次数，冷测用 1，热测建议用 100）：
 
@@ -144,6 +144,15 @@ dotnet $benchmark --fontawesome-migration Solid outline-cold 1
 dotnet $benchmark --fontawesome-migration Solid bmfont-warm 100
 dotnet $benchmark --fontawesome-migration Solid outline-warm 100
 ```
+
+完整复测可运行以下脚本。默认对三个字重、冷/热两类场景分别启动 5 个独立进程；冷测每进程计 1 个批次，热测每进程计 100 个批次。每轮交替 BMFont/OTF 顺序，以减轻固定运行顺序造成的偏差。先构建 Release Benchmark 项目：
+
+```powershell
+dotnet build osu.Framework.Benchmarks/osu.Framework.Benchmarks.csproj -c Release
+./scripts/Run-FontAwesomeMigrationBenchmarks.ps1
+```
+
+脚本保留各子进程输出，不自动汇总中位数或范围；可用 `-Weights Regular` 只复测一个字重。报告结果时应保存完整输出，并一并记录提交号、操作系统、CPU、电源/性能模式和运行日期；该基准使用 `DummyRenderer`，不记录 GPU 上传或绘制帧时间。此命令行模式只计字体已加载后的 glyph lookup/creation 循环；BenchmarkDotNet 中同名冷批次方法包含 store 和字体加载，不应与本表混用。
 
 ## 复跑当前 CJK 基准
 
@@ -243,3 +252,18 @@ alpha 比较按字形纹理左上角对齐，仅统计两张纹理共同宽高�
 20 次冷批次均命中 80/80 字形且全部进入数组；40 次进程均为 28/28 行使用数组、容量回退为 0、跟踪纹理峰值约 32 MiB、每帧 1 次绘制和 3 次纹理绑定。BMFont 冷批次包括首次创建磁盘 alpha 缓存；分配量仅计调用线程，耗时不代表 GPU 上传完成。首用和热滚动分别取 60 帧和 360 帧。
 
 **冷字形路径正向，端到端收益尚未证实。** 不预热时，两种来源的首用帧 p99 中位数均略升，BMFont 热滚动 p99 中位数也略升，但各指标的进程范围均重叠，不能据此判定帧性能回归或提升。每个版本使用相同的 TTF 和 BMFont 资源；两种来源的 fixture 彼此并不等价，不应横向比较。
+
+## PR #53 验证覆盖
+
+以下命令定向运行自动化测试：
+
+```powershell
+dotnet test osu.Framework.Tests/osu.Framework.Tests.csproj -c Release --filter FullyQualifiedName~FontStoreTest
+dotnet test osu.Framework.Tests/osu.Framework.Tests.csproj -c Release --filter FullyQualifiedName~GlyphTextureArrayRenderingTest
+```
+
+- `TestRawCachingCoverageMatchesTextureAlpha` 比较整张字形图的 alpha 与缓存覆盖数据；`TestGlyphArrayLayerSample` 通过 Veldrid 离屏绘制和 framebuffer 回读验证 0、127、255 覆盖值的着色器结果。
+- `TestBitmapGlyphStoreUsesArrayCoverage`、`TestColourBitmapGlyphStoreUsesLegacyTexture` 分别检查单色数组路径及非单色旧纹理回退；`TestReleasedGlyphRegionsAreReusedWithoutOverwritingLiveGlyphs` 覆盖释放区域复用和数组满时的回退计数；`TestOutlineGlyphPoolUsesMultipleLayersWithinCapacity` 检查多层分配。
+- `TestBudgetedGlyphPreloadDeduplicatesAndHonoursCancellation`、`TestBudgetedGlyphPreloadHonoursCancellationBetweenGlyphs` 和 `TestBudgetedGlyphPreloadSkipsMissingGlyphsAndSupportsRepeatedBatches` 覆盖去重、开始前/批次间取消、缺字、短批次预算、重复调用和非法预算。
+- `TestSceneSpriteTextGlyphTextureArray` 提供真实 SpriteText/滚动的交互场景；它是视觉/性能测试场景，不会自动断言帧延迟或 GPU 完成时间。低层 Veldrid 自动化测试需要可用的图形设备；无设备时测试会标记为 Ignore，不能把忽略记作通过。
+- FontAwesome 冷/热测量通过上述独立进程脚本复跑；它只支持 glyph-store 路径的对比。当前仍没有自动化的真实应用端到端 TTF/BMFont 帧性能胜负判定。

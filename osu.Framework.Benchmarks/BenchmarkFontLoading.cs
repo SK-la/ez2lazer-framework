@@ -152,35 +152,102 @@ namespace osu.Framework.Benchmarks
 
             try
             {
-                Action run = args[1] switch
+                bool cold = args[1] is "bmfont-cold" or "outline-cold";
+
+                if (cold)
                 {
-                    "bmfont-cold" => benchmark.ColdBmFontBatch,
-                    "outline-cold" => benchmark.ColdOutlineBatch,
-                    "bmfont-warm" => benchmark.WarmBmFontLookupBatch,
-                    "outline-warm" => benchmark.WarmOutlineLookupBatch,
-                    _ => throw new ArgumentOutOfRangeException(nameof(args))
-                };
+                    bool outline = args[1] == "outline-cold";
+                    benchmark.measureColdBatch(outline);
+                    collectGarbage();
 
-                run();
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                GC.Collect();
+                    double elapsedMs = 0;
+                    long allocatedBytes = 0;
 
-                long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
-                long startedAt = Stopwatch.GetTimestamp();
+                    for (int i = 0; i < batches; i++)
+                    {
+                        (double batchElapsedMs, long batchAllocatedBytes) = benchmark.measureColdBatch(outline);
+                        elapsedMs += batchElapsedMs;
+                        allocatedBytes += batchAllocatedBytes;
+                    }
 
-                for (int i = 0; i < batches; i++)
+                    elapsedMs /= batches;
+                    allocatedBytes /= batches;
+
+                    benchmark.printMeasurement(args[0], args[1], elapsedMs, allocatedBytes, batches);
+                }
+                else
+                {
+                    Action run = args[1] switch
+                    {
+                        "bmfont-warm" => benchmark.WarmBmFontLookupBatch,
+                        "outline-warm" => benchmark.WarmOutlineLookupBatch,
+                        _ => throw new ArgumentOutOfRangeException(nameof(args))
+                    };
+
                     run();
+                    collectGarbage();
 
-                double elapsedMs = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds / batches;
-                long allocatedBytes = (GC.GetAllocatedBytesForCurrentThread() - allocatedBefore) / batches;
-                Console.WriteLine(FormattableString.Invariant(
-                    $"FontAwesome {args[0]} {args[1]}: {benchmark.codepoints.Length} glyphs, {elapsedMs:F3} ms/batch, {allocatedBytes:N0} managed bytes/batch, batches={batches}."));
+                    long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+                    long startedAt = Stopwatch.GetTimestamp();
+
+                    for (int i = 0; i < batches; i++)
+                        run();
+
+                    double elapsedMs = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds / batches;
+                    long allocatedBytes = (GC.GetAllocatedBytesForCurrentThread() - allocatedBefore) / batches;
+                    benchmark.printMeasurement(args[0], args[1], elapsedMs, allocatedBytes, batches);
+                }
             }
             finally
             {
                 benchmark.TearDown();
             }
+        }
+
+        private static void collectGarbage()
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+
+        private void printMeasurement(string weight, string mode, double elapsedMs, long allocatedBytes, int batches)
+        {
+            Console.WriteLine(FormattableString.Invariant(
+                $"FontAwesome {weight} {mode}: {codepoints.Length} glyphs, {elapsedMs:F3} ms/batch, {allocatedBytes:N0} managed bytes/batch, batches={batches}."));
+        }
+
+        private (double ElapsedMs, long AllocatedBytes) measureColdBatch(bool outline)
+        {
+            if (outline)
+            {
+                using var font = new OutlineFont(benchmarkResources, assetName + "-5.15.4") { Resolution = 100 };
+                font.LoadAsync().GetAwaiter().GetResult();
+                using var glyphs = new OutlineGlyphStore(font, nameOverride: outlineFontName);
+                glyphs.LoadFontAsync().GetAwaiter().GetResult();
+                using var store = new FontStore(new DummyRenderer(), glyphs, scaleAdjust: 100, minFilterMode: TextureFilteringMode.Linear);
+
+                return measureLookupBatch(store, outlineFontName);
+            }
+
+            using var storage = new TemporaryNativeStorage("fontawesome-bmfont-" + Guid.NewGuid());
+            using var bitmapGlyphs = new RawCachingGlyphStore(frameworkResources, assetName) { CacheStorage = storage };
+            bitmapGlyphs.LoadFontAsync().GetAwaiter().GetResult();
+            using var bitmapStore = new FontStore(new DummyRenderer(), bitmapGlyphs, scaleAdjust: 100, minFilterMode: TextureFilteringMode.Linear);
+
+            return measureLookupBatch(bitmapStore, bitmapFontName);
+        }
+
+        private (double ElapsedMs, long AllocatedBytes) measureLookupBatch(FontStore store, string fontName)
+        {
+            collectGarbage();
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+            long startedAt = Stopwatch.GetTimestamp();
+
+            foreach (int codepoint in codepoints)
+                store.Get(fontName, codepoint);
+
+            return (Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds, GC.GetAllocatedBytesForCurrentThread() - allocatedBefore);
         }
 
         [GlobalSetup]
