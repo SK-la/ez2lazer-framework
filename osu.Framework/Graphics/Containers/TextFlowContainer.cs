@@ -528,7 +528,7 @@ namespace osu.Framework.Graphics.Containers
                         {
                             throw new InvalidOperationException(
                                 "Drawables inside a fill flow container may not have a relative size axis that the fill flow container is filling in and auto sizing for. " +
-                                $"The text flow container {this} is set to flow in the {Direction} direction and autosize in {AutoSizeAxes} axes. " +
+                                $"The text flow container {Parent?.ToString() ?? ToString()} is set to flow in the {Direction} direction and autosize in {AutoSizeAxes} axes. " +
                                 $"Child at index {i} ({c}) has relative size axes {c.RelativeSizeAxes}, size {c.Size}, and fill mode {c.FillMode}.");
                         }
 
