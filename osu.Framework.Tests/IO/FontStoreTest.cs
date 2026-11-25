@@ -85,11 +85,11 @@ namespace osu.Framework.Tests.IO
                                    .ToArray();
             Assert.That(properties, Is.Not.Empty);
 
-            var unresolved = properties.Where(property => property.GetValue(null) is not IconUsage icon
-                                                          || icon.FontName != glyphStore.FontName
-                                                          || !glyphStore.HasGlyph(icon.Icon))
-                                       .Select(property => property.Name)
-                                       .ToArray();
+            string[] unresolved = properties.Where(property => property.GetValue(null) is not IconUsage icon
+                                                               || icon.FontName != glyphStore.FontName
+                                                               || !glyphStore.HasGlyph(icon.Icon))
+                                            .Select(property => property.Name)
+                                            .ToArray();
 
             Assert.That(unresolved, Is.Empty, $"{weight.Name} icons not resolved by the bundled font: {string.Join(", ", unresolved)}");
         }
@@ -102,13 +102,43 @@ namespace osu.Framework.Tests.IO
             await glyphStore.LoadFontAsync().ConfigureAwait(false);
             using var fontStore = new FontStore(new DummyRenderer(), glyphStore, scaleAdjust: 100);
 
-            int preloaded = await fontStore.PreloadGlyphsAsync("Roboto-Regular", new[] { (int)'A', 'A', 'B' }, TimeSpan.FromMilliseconds(1)).ConfigureAwait(false);
+            int preloaded = await fontStore.PreloadGlyphsAsync("Roboto-Regular", new[] { (int)'A', 'A', 'B' }, TimeSpan.FromTicks(1)).ConfigureAwait(false);
             Assert.That(preloaded, Is.EqualTo(2));
 
             using var cancellation = new CancellationTokenSource();
             await cancellation.CancelAsync().ConfigureAwait(false);
             Task preloadTask = fontStore.PreloadGlyphsAsync("Roboto-Regular", new[] { (int)'C' }, TimeSpan.FromMilliseconds(1), cancellation.Token);
             Assert.ThrowsAsync<TaskCanceledException>(async () => await preloadTask.ConfigureAwait(false));
+        }
+
+        [Test]
+        public async Task TestBudgetedGlyphPreloadSkipsMissingGlyphsAndSupportsRepeatedBatches()
+        {
+            using var glyphStore = new RawCachingGlyphStore(fontResourceStore, "Roboto-Regular");
+            glyphStore.CacheStorage = storage;
+            await glyphStore.LoadFontAsync().ConfigureAwait(false);
+            using var fontStore = new FontStore(new DummyRenderer(), glyphStore, scaleAdjust: 100);
+
+            int firstBatch = await fontStore.PreloadGlyphsAsync("Roboto-Regular", new[] { 'A', 0x10FFFF, 'B', 'A' }, TimeSpan.FromTicks(1)).ConfigureAwait(false);
+            int secondBatch = await fontStore.PreloadGlyphsAsync("Roboto-Regular", new[] { (int)'B', 'A' }, TimeSpan.FromTicks(1)).ConfigureAwait(false);
+
+            Assert.That(firstBatch, Is.EqualTo(2));
+            Assert.That(secondBatch, Is.EqualTo(2));
+            assertInvalidPreloadDuration(fontStore);
+        }
+
+        [Test]
+        public async Task TestBudgetedGlyphPreloadHonoursCancellationBetweenGlyphs()
+        {
+            using var cancellation = new CancellationTokenSource();
+            var glyphStore = new DelayedGlyphStore(cancellation.Cancel);
+            glyphStore.Release();
+            using var fontStore = new FontStore(new DummyRenderer(), glyphStore, 100);
+
+            Task<int> preloadTask = fontStore.PreloadGlyphsAsync("Delayed", new[] { (int)'A', 'B' }, TimeSpan.FromTicks(1), cancellation.Token);
+
+            Assert.ThrowsAsync<TaskCanceledException>(async () => await preloadTask.ConfigureAwait(false));
+            Assert.That(glyphStore.GlyphMetricFetchCount, Is.EqualTo(1));
         }
 
         [Test]
@@ -158,9 +188,31 @@ namespace osu.Framework.Tests.IO
             storage.Dispose();
         }
 
+        private static void assertInvalidPreloadDuration(FontStore fontStore)
+        {
+            try
+            {
+                fontStore.PreloadGlyphsAsync("Roboto-Regular", Array.Empty<int>(), TimeSpan.Zero);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return;
+            }
+
+            Assert.Fail("A zero batch duration should be rejected.");
+        }
+
         private sealed class DelayedGlyphStore : IGlyphStore, IResourceStore<TextureUpload>
         {
             private readonly TaskCompletionSource<bool> loaded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly Action onGlyphRetrieved;
+
+            public int GlyphMetricFetchCount { get; private set; }
+
+            public DelayedGlyphStore(Action onGlyphRetrieved = null)
+            {
+                this.onGlyphRetrieved = onGlyphRetrieved;
+            }
 
             public string FontName => "Delayed";
 
@@ -172,17 +224,25 @@ namespace osu.Framework.Tests.IO
 
             public bool HasGlyph(char c) => HasGlyph((int)c);
 
-            public bool HasGlyph(int codepoint) => loaded.Task.IsCompletedSuccessfully && codepoint == 'A';
+            public bool HasGlyph(int codepoint) => loaded.Task.IsCompletedSuccessfully && codepoint is 'A' or 'B';
 
             public CharacterGlyph Get(char character) => Get((int)character);
 
-            public CharacterGlyph Get(int codepoint) => HasGlyph(codepoint) ? new CharacterGlyph(codepoint, 0, 0, 1, 0, this) : null;
+            public CharacterGlyph Get(int codepoint)
+            {
+                if (!HasGlyph(codepoint))
+                    return null;
+
+                GlyphMetricFetchCount++;
+                onGlyphRetrieved?.Invoke();
+                return new CharacterGlyph(codepoint, 0, 0, 1, 0, this);
+            }
 
             public int GetKerning(char left, char right) => 0;
 
             public int GetKerning(int leftCodepoint, int rightCodepoint) => 0;
 
-            private TextureUpload getTexture(string name) => loaded.Task.IsCompletedSuccessfully && name == "Delayed/A"
+            private TextureUpload getTexture(string name) => loaded.Task.IsCompletedSuccessfully && name is "Delayed/A" or "Delayed/B"
                 ? new TextureUpload(new RgbaImage(1, 1))
                 : null;
 
