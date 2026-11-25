@@ -6,11 +6,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using osu.Framework.Graphics.Imaging;
 using osu.Framework.Graphics.Rendering.Dummy;
+using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.Textures;
 using osu.Framework.IO.Stores;
 using osu.Framework.Testing;
@@ -66,6 +69,29 @@ namespace osu.Framework.Tests.IO
 
             for (int i = 0; i < coverage.Data.Length; i++)
                 Assert.That(coverage.Data[i], Is.EqualTo(rgba.Data[i].A), $"Coverage mismatch at pixel {i}.");
+        }
+
+        [TestCase(typeof(FontAwesome.Solid))]
+        [TestCase(typeof(FontAwesome.Regular))]
+        [TestCase(typeof(FontAwesome.Brands))]
+        public async Task TestFontAwesomeGlyphCoverageMatchesIconMappings(Type weight)
+        {
+            using var resources = new NamespacedResourceStore<byte[]>(new DllResourceStore(typeof(Game).Assembly), "Resources");
+            using var glyphStore = new GlyphStore(resources, $"Fonts/FontAwesome5/FontAwesome-{weight.Name}");
+            await glyphStore.LoadFontAsync().ConfigureAwait(false);
+
+            var properties = weight.GetProperties(BindingFlags.Public | BindingFlags.Static)
+                                   .Where(property => property.PropertyType == typeof(IconUsage))
+                                   .ToArray();
+            Assert.That(properties, Is.Not.Empty);
+
+            var unresolved = properties.Where(property => property.GetValue(null) is not IconUsage icon
+                                                          || icon.FontName != glyphStore.FontName
+                                                          || !glyphStore.HasGlyph(icon.Icon))
+                                       .Select(property => property.Name)
+                                       .ToArray();
+
+            Assert.That(unresolved, Is.Empty, $"{weight.Name} icons not resolved by the bundled font: {string.Join(", ", unresolved)}");
         }
 
         [Test]

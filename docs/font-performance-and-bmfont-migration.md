@@ -107,12 +107,21 @@ Windows D3D11，AMD Radeon RX 6800，Release，`ez2lazer.game.resources 2026.111
    kerning、复用字体 face、增加持久字形缓存或调整固定数组容量。**当前状态：** `FontStore.PreloadGlyphsAsync()` 提供调用方排序、按时长分批让出线程及取消支持；单测验证重复输入去重和预取消。调用方应把可见字形排前，并在字体切换时取消旧令牌。尚未接入游戏默认启动或保存预热状态。
 5. **逐族替换。** 先提交可分发且通过视觉验证的替代字体，然后切换默认注册，最后从发布包删除旧资产。每族记录首屏完整显示时间、滚动
    p95/p99、托管分配、进程 private bytes、字体 face 和流数量、纹理峰值、缺字、回退数与资源包体积。只有数据能解释变化且满足该场景延迟和内存预算时，才推进该族的切换。
+   **Framework 状态：** 三套随包 FontAwesome BMFont 保持默认注册。已补上公开图标映射的字库覆盖和字体名回归测试；候选 OTF 的对照见下节。
 6. **独立跟踪文本对象重建。** `FPSCounterTooltip.Update()` 每 100 ms 清空并重建线程文本行，和 Drawable
    构造日志吻合。后续可对比复用文本控件和当前行为，记录 `OsuSpriteText`、`NewLineContainer` 构造次数及 Update 帧时。该问题属于游戏
    UI。[FPSCounterTooltip](https://github.com/SK-la/Ez2Lazer/blob/1d1704bb03/osu.Game/Graphics/UserInterface/FPSCounterTooltip.cs)
 
 每次更新追踪记录附上 Framework、游戏和资源版本、设备、后端、构建、缓存状态、样本或复现命令、进程次数及未覆盖项。首屏至少分别计时
 face 就绪、布局就绪和最后一个可见字形上传完成。连续滚动应报告热缓存阶段和首次遇到新字形阶段，避免把二者平均成一个数。
+
+### Framework FontAwesome 替换门槛
+
+2026-11-25：现有随包 BMFont 覆盖 Solid 937/937、Regular 152/152、Brands 427/427 个公开映射。对照 [Font Awesome Free 5.15.4](https://github.com/FortAwesome/Font-Awesome/tree/5.15.4/otfs) 官方 OTF（该发行版将字体文件按 SIL OFL 1.1 分发），Solid 和 Regular 的公开映射完整，Brands 缺 Adobe（U+F778）、NintendoSwitch（U+F418）、Tripadvisor（U+F262）。另查的 5.10.2、5.11.2、5.12.1、5.13.1 仍缺 NintendoSwitch。仓库里的 Benchmarks Solid OTF 自报 5.15.4，但文件哈希不同于官方发布，不以它代替已核对的发行资产。
+
+离线检查用 Pillow/FreeType 以 100 px 栅格化候选 OTF，并按 `.fnt` 矩形从原始 PNG 页裁出 Alpha，与 OTF 的非零 Alpha 外接框比较。共有字形中可见宽高比相对差异超过 5% 的数量分别是 Solid 9/937、Regular 0/152、Brands 13/424。这个检查不包含 Framework 实际渲染、布局、纹理上传或性能。`SpriteIcon` 直接查找传统纹理，以纹理宽高比适配并居中；纹理带透明留边时，纹理居中不等于可见像素居中。切换前应对比自动尺寸和固定尺寸下的实际画面，并确认 `AddFont` 和皮肤自定义纹理字形不受影响。
+
+建议先独立验收 Regular 和 Solid，Brands 先保留 BMFont，直到有兼容的许可明确的轮廓字库或缺字回退。此次未切换默认注册或删除资产，也未修改游戏和资源仓库。
 
 ## 复跑当前 CJK 基准
 
